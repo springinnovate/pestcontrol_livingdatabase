@@ -31,6 +31,28 @@ def _generate_scatter_plot(clusters, table):
         f'{os.path.basename(os.path.splitext(TABLE_PATH)[0])}.png', dpi=300)
 
 
+def _modified_edit_distance(a, b):
+    """Generate edit distance but account for separate words."""
+    # drop commas
+    a_local = a.lower().replace(',', '')
+    b_local = b.lower().replace(',', '')
+    a_words = [x for x in a_local.split(' ') if x != '']
+    b_words = [x for x in b_local.split(' ') if x != '']
+
+    running_edit_distance = 0
+    for edit_distance, (x, y) in sorted([
+            (editdistance.eval(x, y), (x, y))
+            for y in b_words for x in a_words]):
+        if x not in a_words or y not in b_words:
+            continue
+        running_edit_distance += edit_distance
+        a_words.remove(x)
+        b_words.remove(y)
+    print(a_words, b_words)
+    running_edit_distance += len(a_words)+len(b_words)
+    return running_edit_distance
+
+
 def main():
     """Entry point."""
     table = pandas.read_csv(
@@ -52,11 +74,11 @@ def main():
 
         # process this subset of names
         # first filter by names we've already identified
-        [name_to_edit_distance[a].update([(editdistance.eval(a, b), b)
+        [name_to_edit_distance[a].update([(_modified_edit_distance.eval(a, b), b)
          for b in unique_names])
          for a in unique_names]
 
-    for max_edit_distance in range(1, 5):
+    for max_edit_distance in range(1, 8):
         edit_distance_table_path = f'candidate_table_{max_edit_distance}.csv'
         print(f'generating {edit_distance_table_path}')
         processed_set = set()
