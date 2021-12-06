@@ -1,6 +1,7 @@
 """Scrub table fields."""
 import argparse
 import os
+import re
 
 from matplotlib import colors
 from sklearn.cluster import Birch
@@ -31,8 +32,12 @@ def _generate_scatter_plot(
 def _modified_edit_distance(a, b, single_word_penalty):
     """Generate edit distance but account for separate words."""
     # drop commas
-    a_local = a.replace(',', '')
-    b_local = b.replace(',', '')
+    a_local = re.sub(',', '', a)
+    b_local = re.sub(',', '', b)
+
+    base_distance = editdistance.eval(
+        re.sub(' ', '', a_local),
+        re.sub(' ', '', b_local))
     a_words = [x for x in a_local.split(' ') if x != '']
     b_words = [x for x in b_local.split(' ') if x != '']
 
@@ -46,7 +51,7 @@ def _modified_edit_distance(a, b, single_word_penalty):
         a_words.remove(x)
         b_words.remove(y)
     running_edit_distance += (len(a_words)+len(b_words))*single_word_penalty
-    return running_edit_distance
+    return min(base_distance, running_edit_distance)
 
 
 def main():
