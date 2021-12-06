@@ -48,7 +48,6 @@ def _modified_edit_distance(a, b):
         running_edit_distance += edit_distance
         a_words.remove(x)
         b_words.remove(y)
-    print(a_words, b_words)
     running_edit_distance += len(a_words)+len(b_words)
     return running_edit_distance
 
@@ -74,7 +73,7 @@ def main():
 
         # process this subset of names
         # first filter by names we've already identified
-        [name_to_edit_distance[a].update([(_modified_edit_distance.eval(a, b), b)
+        [name_to_edit_distance[a].update([(_modified_edit_distance(a, b), b)
          for b in unique_names])
          for a in unique_names]
 
