@@ -1,89 +1,79 @@
 """Scrub table fields."""
-import numpy
-import pandas
+import os
+
+from matplotlib import colors
+from sklearn.cluster import Birch
+import collections
 import editdistance
 import matplotlib.pyplot as plt
-from sklearn.cluster import Birch
-from matplotlib import colors
+import numpy
+import pandas
 
 TABLE_PATH = 'plotdata.cotton.select.csv'
+CLUSTER_RESOLUTION = 0.01
 
 
 def main():
     """Entry point."""
     table = pandas.read_csv(
         TABLE_PATH, encoding='unicode_escape', engine='python')
-    print(TABLE_PATH)
-    print(table.columns)
     X = table[['long', 'lat']]
-    print(X)
+    print(X['long'].min(), X['long'].max())
     fig, ax = plt.subplots()
     brc = Birch(threshold=0.01, n_clusters=None)
-    brc.fit(X)
-    groups = brc.predict(X)
-    print(len(X))
-    print(len(groups))
-    X['groups'] = groups
-    print(len(X))
-    technicians = table['technician']
-    print(len(technicians))
-    print(len(technicians))
-    processed_names = set()
-    for group in numpy.unique(groups):
-        unique_tech = table[X['groups']==group]['technician'].unique()
-        print(f'{group}: {unique_tech}')
+    brc.fit(X.values)
+    clusters = brc.predict(X.values)
+    table['clusters'] = clusters
+
+    #table.plot.scatter(y='lat', x='long', s=0.5)
+    print('generating scatter plot')
+    colorlist = list(colors.ColorConverter.colors.keys())
+    for i, cluster in enumerate(numpy.unique(clusters)):
+        df = table[table['clusters'] == cluster]
+        df.plot.scatter(
+            x='long', y='lat', ax=ax, s=0.01, marker='x',
+            color=colorlist[i % len(colorlist)])
+        ax.set_title(f'{os.path.basename(TABLE_PATH)} {len(clusters)} clusters\nwithin ${CLUSTER_RESOLUTION}^\\circ$ of each other')
+    plt.savefig(
+        f'{os.path.basename(os.path.splitext(TABLE_PATH)[0])}.png', dpi=600)
+
+
+    name_to_edit_distance = collections.defaultdict(set)
+    for cluster in numpy.unique(clusters):
+        unique_names = table[
+            table['clusters'] == cluster]['technician'].dropna().unique()
 
         # process this subset of names
         # first filter by names we've already identified
-        local_name_set = set(unique_tech)-processed_names
-        cross_product = {
-            a: sorted(
-                [(editdistance.eval(a, b), b)
-                 for b in local_name_set if a != b])
-            for a in local_name_set}
+        [name_to_edit_distance[a].update([(editdistance.eval(a, b), b)
+         for b in unique_names])
+         for a in unique_names]
 
-        for name in local_name_set:
-            for edit_distance, candidate in cross_product[name]:
-                if candidate not in name_set:
-                    continue
-                if edit_distance > max_edit_distance:
-                    break
-                row += f',"{candidate}"'
-                name_set.remove(candidate)
-
+    print('generating edit distance')
+    print(name_to_edit_distance[next(iter(name_to_edit_distance))])
     for max_edit_distance in range(1, 5):
-        with open(f'candidate_table_{max_edit_distance}.csv', 'w', encoding="utf-8") as candidate_table:
-            for name, count in zip(names_by_count.index, names_by_count):
-                print(name, count)
-                if name not in name_set:
+        processed_set = set()
+        with open(
+                f'candidate_table_{max_edit_distance}.csv', 'w',
+                encoding="ISO-8859-1") as candidate_table:
+            for base_name, edit_distance_set in name_to_edit_distance.items():
+                if base_name in processed_set:
                     continue
-                name_set.remove(name)
-                row = f'"{name}"'
-                for edit_distance, candidate in cross_product[name]:
-                    if candidate not in name_set:
+                processed_set.add(base_name)
+                row = f'"{base_name}"'
+                for edit_distance, name in sorted(edit_distance_set):
+                    if name == base_name:
                         continue
                     if edit_distance > max_edit_distance:
                         break
-                    row += f',"{candidate}"'
-                    name_set.remove(candidate)
+                    processed_set.add(name)
+                    row += f',"{name}"'
                 candidate_table.write(f'{row}\n')
 
     return
 
-    print(f'{len(X)} groups')
-    #table.plot.scatter(y='lat', x='long', s=0.5)
-    colorlist = list(colors.ColorConverter.colors.keys())
-    for i, group in enumerate(numpy.unique(groups)):
-        print(group)
-        df = X[X['groups'] == group]
-        df.plot.scatter(
-            x='long', y='lat', ax=ax, s=0.2,
-            color=colorlist[i % len(colorlist)])
-    plt.savefig('plot.png', dpi=600)
-    print(numpy.unique(groups))
+
     return
-
-
 
     for max_edit_distance in range(1, 10):
         print(f'max edit edit_distance {max_edit_distance}')
