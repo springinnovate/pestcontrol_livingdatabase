@@ -82,8 +82,8 @@ def main():
     clusters = brc.predict(X.values)
     table['clusters'] = clusters
 
-    #_generate_scatter_plot(
-    #    args.table_path, args.cluster_resolution, clusters, table)
+    _generate_scatter_plot(
+        args.table_path, args.cluster_resolution, clusters, table)
 
     name_to_edit_distance = collections.defaultdict(set)
     for cluster in numpy.unique(clusters):
