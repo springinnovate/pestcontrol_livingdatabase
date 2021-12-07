@@ -1,4 +1,5 @@
-"""Scrub table fields."""
+"""Fix duplicate misspelled field names."""
+import concurrent.futures
 import argparse
 import os
 import re
@@ -10,6 +11,7 @@ import editdistance
 import matplotlib.pyplot as plt
 import numpy
 import pandas
+
 
 def _generate_scatter_plot(
         table_path, cluster_resolution, clusters, table):
@@ -31,16 +33,18 @@ def _generate_scatter_plot(
 
 def _modified_edit_distance(a, b, single_word_penalty):
     """Generate edit distance but account for separate words."""
-    # drop commas
+    # remove all commas
     a_local = re.sub(',', '', a)
     b_local = re.sub(',', '', b)
 
+    # evaluate edit distance if all spaces are removed
     base_distance = editdistance.eval(
         re.sub(' ', '', a_local),
         re.sub(' ', '', b_local))
+
+    # compare edit distance for individual words from smallest to largest
     a_words = [x for x in a_local.split(' ') if x != '']
     b_words = [x for x in b_local.split(' ') if x != '']
-
     running_edit_distance = 0
     for edit_distance, (x, y) in sorted([
             (editdistance.eval(x, y), (x, y))
@@ -51,7 +55,19 @@ def _modified_edit_distance(a, b, single_word_penalty):
         a_words.remove(x)
         b_words.remove(y)
     running_edit_distance += (len(a_words)+len(b_words))*single_word_penalty
+    # smaller of comparing individual words vs single string with no spaces
     return min(base_distance, running_edit_distance)
+
+
+def _distance_worker(names_to_process, a, single_word_penalty, max_edit_distance):
+    result = []
+    for b in names_to_process:
+        edit_distance = _modified_edit_distance(
+            a, b, single_word_penalty)
+        if edit_distance > max_edit_distance:
+            continue
+        result.append((a, b, edit_distance))
+    return result
 
 
 def main():
@@ -59,7 +75,7 @@ def main():
     parser = argparse.ArgumentParser(
         description='search for similar names in space and edit distance')
     parser.add_argument('table_path', help=(
-        'path to CSV data table with "long", "lat" and "technician" fields'))
+        'path to CSV data table with "long", "lat" and defined text fields'))
     parser.add_argument(
         '--cluster_resolution', required=True, type=float,
         help='cluster distance size to group names to check for edit distance')
@@ -72,16 +88,18 @@ def main():
     parser.add_argument(
         '--single_word_penalty', default=1, type=int,
         help='edit distance for an entire name missing, default 1')
+    parser.add_argument(
+        '--field_name', default='technician',
+        help='field name to scrub, defaults to "technician"')
     args = parser.parse_args()
     table = pandas.read_csv(
         args.table_path, encoding='unicode_escape', engine='python')
 
-    table['technician'] = table['technician'].str.upper()
-    print(table['technician'])
+    table[args.field_name] = table[args.field_name].str.upper()
 
     X = table[['long', 'lat']]
-    print(X['long'].min(), X['long'].max())
 
+    print('build clusters')
     brc = Birch(threshold=args.cluster_resolution, n_clusters=None)
     brc.fit(X.values)
     clusters = brc.predict(X.values)
@@ -90,17 +108,28 @@ def main():
     _generate_scatter_plot(
         args.table_path, args.cluster_resolution, clusters, table)
 
+    print('create name to edit distance maps for all names')
     name_to_edit_distance = collections.defaultdict(set)
     for cluster in numpy.unique(clusters):
         unique_names = table[
-            table['clusters'] == cluster]['technician'].dropna().unique()
-
-        # process this subset of names
-        # first filter by names we've already identified
-        [name_to_edit_distance[a].update(
-            [(_modified_edit_distance(a, b, args.single_word_penalty), b)
-             for b in unique_names])
-         for a in unique_names]
+            table['clusters'] == cluster][args.field_name].dropna().unique()
+        names_to_process = set(unique_names)
+        future_list = []
+        with concurrent.futures.ProcessPoolExecutor() as executor:
+            print('submit jobs')
+            future_list = []
+            for a in unique_names:
+                future_list.append(
+                    executor.submit(
+                        _distance_worker, names_to_process.copy(), a,
+                        args.single_word_penalty, args.max_edit_distance))
+                names_to_process.remove(a)
+            print('process results')
+            for future in concurrent.futures.as_completed(future_list):
+                for (a, b, edit_distance) in future.result():
+                    name_to_edit_distance[a].add((edit_distance, b))
+                    name_to_edit_distance[b].add((edit_distance, a))
+            print('done processing results')
 
     for max_edit_distance in range(
             args.min_edit_distance, args.max_edit_distance+1):
@@ -128,7 +157,7 @@ def main():
                     row += f',"{name}"'
                 if replace_name_list is not []:
                     local_table.replace(
-                        {'technician': replace_name_list}, base_name,
+                        {args.field_name: replace_name_list}, base_name,
                         inplace=True)
                 candidate_table.write(f'{row}\n')
         target_table_path = (
