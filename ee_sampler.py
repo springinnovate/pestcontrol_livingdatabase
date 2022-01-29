@@ -231,9 +231,9 @@ def main():
     parser = argparse.ArgumentParser(
         description='sample points on GEE data')
     parser.add_argument('csv_path', help='path to CSV data table')
-    parser.add_argument('--year_field', default='crop_year', help='field name in csv_path for year, default `year_field`')
-    parser.add_argument('--long_field', default='field_longitude', help='field name in csv_path for longitude, default `long_field`')
-    parser.add_argument('--lat_field', default='field_latitude', help='field name in csv_path for latitude, default `lat_field')
+    parser.add_argument('--year_field', default='year_field', help='field name in csv_path for year, default `year_field`')
+    parser.add_argument('--long_field', default='long_field', help='field name in csv_path for longitude, default `long_field`')
+    parser.add_argument('--lat_field', default='lat_field', help='field name in csv_path for latitude, default `lat_field')
     parser.add_argument('--buffer', type=float, default=1000, help='buffer distance in meters around point to do aggregate analysis, default 1000m')
     parser.add_argument('--nlcd', default=False, action='store_true', help='use NCLD landcover for cultivated/natural masks')
     parser.add_argument('--corine', default=False, action='store_true', help='use CORINE landcover for cultivated/natural masks')
