@@ -361,6 +361,7 @@ def main():
     parser.add_argument('--nlcd', default=False, action='store_true', help='use NCLD landcover for cultivated/natural masks')
     parser.add_argument('--corine', default=False, action='store_true', help='use CORINE landcover for cultivated/natural masks')
     parser.add_argument('--polygon_path', type=str, help='path to local polygon to sample')
+    parser.add_argument('--n_rows', type=int, help='limit csv read to this many rows')
 
     # 2) the natural habitat eo characteristics in and out of polygon
     # 3) proportion of area outside of polygon
@@ -381,7 +382,7 @@ def main():
             args.lat_field: lambda x: float(x),
             args.year_field: lambda x: int(x),
         },
-        nrows=10)
+        nrows=args.n_rows)
 
     ee_poly = None
     if args.polygon_path:
