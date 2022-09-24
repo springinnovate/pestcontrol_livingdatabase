@@ -10,6 +10,16 @@ import numpy
 import pandas
 
 
+DATASETS = {
+    'nlcd': {
+        'gee_dataset': None,
+        'band': None,
+        'valid_years': '', 
+    }, 
+}
+
+SAMPLE_SCALE = 30  # this is the raster resolution of which to sample the rasters at
+
 REDUCER = 'mean'
 NLCD_DATASET = 'USGS/NLCD_RELEASES/2016_REL'
 NLCD_VALID_YEARS = numpy.array([
@@ -26,8 +36,6 @@ CORINE_CULTIVATED_FIELD = 'CORINE-cultivated'
 
 POLY_IN_FIELD = 'POLY-in'
 POLY_OUT_FIELD = 'POLY-out'
-
-PREV_YEAR_TAG = '-prev-year'
 
 MODIS_DATASET_NAME = 'MODIS/006/MCD12Q2'  # 500m resolution
 VALID_MODIS_RANGE = (2001, 2019)
@@ -92,12 +100,13 @@ def _nlcd_natural_cultivated_mask(year, ee_poly):
         natural_mask_out, cultivated_mask_out, closest_year)
 
 
-def _sample_pheno(pts_by_year, nlcd_flag, corine_flag, ee_poly):
+def _sample_pheno(pts_by_year, buffer, nlcd_flag, corine_flag, ee_poly):
     """Sample phenology variables from https://docs.google.com/spreadsheets/d/1nbmCKwIG29PF6Un3vN6mQGgFSWG_vhB6eky7wVqVwPo
 
     Args:
         pts_by_year:
         nlcd_flag (bool): if True, sample the NLCD dataset
+        buffer (float): buffer size of sample points in m
         corine_flag (bool): if True, sample the CORINE dataset
         ee_poly (ee.Polygon): if not None, additionally filter samples on the
             nlcd/corine datasets to see what's in or out.
@@ -131,9 +140,6 @@ def _sample_pheno(pts_by_year, nlcd_flag, corine_flag, ee_poly):
     header_fields = [
         f'{MODIS_DATASET_NAME}-{field}'
         for field in julian_day_variables+raw_variables]
-
-    header_fields_with_prev_year = [
-        x for field in header_fields for x in (field, field+PREV_YEAR_TAG)]
 
     if nlcd_flag:
         header_fields_with_prev_year += [
@@ -229,33 +235,41 @@ def _sample_pheno(pts_by_year, nlcd_flag, corine_flag, ee_poly):
                     all_bands = local_band_stack
                 else:
                     all_bands = all_bands.addBands(local_band_stack)
+            else:
+                local_band_stack = None
 
             # mask raw variable bands by cultivated/natural
             if nlcd_flag:
+                nlcd_closest_year_image = ee.Image(
+                    int(nlcd_closest_year)).rename(NLCD_CLOSEST_YEAR_FIELD)    
                 if not ee_poly:
-                    nlcd_cultivated_variable_bands = local_band_stack.updateMask(
-                        nlcd_cultivated_mask)
-                    nlcd_cultivated_variable_bands = \
-                        nlcd_cultivated_variable_bands.rename([
-                            band_name+'-'+NLCD_CULTIVATED_FIELD
-                            for band_name in all_band_names])
+                    if local_band_stack is not None:
+                        nlcd_cultivated_variable_bands = local_band_stack.updateMask(
+                            nlcd_cultivated_mask)
+                        nlcd_cultivated_variable_bands = \
+                            nlcd_cultivated_variable_bands.rename([
+                                band_name+'-'+NLCD_CULTIVATED_FIELD
+                                for band_name in all_band_names])
 
-                    nlcd_natural_variable_bands = local_band_stack.updateMask(
-                        nlcd_natural_mask)
-                    nlcd_natural_variable_bands = nlcd_natural_variable_bands.rename([
-                        band_name+'-'+NLCD_NATURAL_FIELD
-                        for band_name in all_band_names])
-                    nlcd_closest_year_image = ee.Image(
-                        int(nlcd_closest_year)).rename(NLCD_CLOSEST_YEAR_FIELD)
-                    if all_bands is None:
-                        all_bands = nlcd_natural_variable_bands
+                        nlcd_natural_variable_bands = local_band_stack.updateMask(
+                            nlcd_natural_mask)
+                        nlcd_natural_variable_bands = nlcd_natural_variable_bands.rename([
+                            band_name+'-'+NLCD_NATURAL_FIELD
+                            for band_name in all_band_names])
+                        if all_bands is None:
+                            all_bands = nlcd_natural_variable_bands
+                        else:
+                            all_bands = all_bands.addBands(
+                                nlcd_natural_variable_bands)
+                        all_bands = all_bands.addBands(nlcd_cultivated_variable_bands)
+                        all_bands = all_bands.addBands(nlcd_natural_mask)
+                        all_bands = all_bands.addBands(nlcd_cultivated_mask)
+                        all_bands = all_bands.addBands(nlcd_closest_year_image)
                     else:
-                        all_bands = all_bands.addBands(
-                            nlcd_natural_variable_bands)
-                    all_bands = all_bands.addBands(nlcd_cultivated_variable_bands)
-                    all_bands = all_bands.addBands(nlcd_natural_mask)
-                    all_bands = all_bands.addBands(nlcd_cultivated_mask)
-                    all_bands = all_bands.addBands(nlcd_closest_year_image)
+                        # TODO: here MODIS was out of date, so all bands is not defined
+                        all_bands = nlcd_natural_mask
+                        all_bands = all_bands.addBands(nlcd_cultivated_mask)
+                        all_bands = all_bands.addBands(nlcd_closest_year_image)
                 else:
                     nlcd_cultivated_variable_bands_poly_in = local_band_stack.updateMask(
                         nlcd_cultivated_mask_poly_in)
@@ -269,8 +283,6 @@ def _sample_pheno(pts_by_year, nlcd_flag, corine_flag, ee_poly):
                     nlcd_natural_variable_bands_poly_in = nlcd_natural_variable_bands_poly_in.rename([
                         f'{band_name}-{NLCD_NATURAL_FIELD}-{POLY_IN_FIELD}'
                         for band_name in all_band_names])
-                    nlcd_closest_year_image = ee.Image(
-                        int(nlcd_closest_year)).rename(NLCD_CLOSEST_YEAR_FIELD)
                     if all_bands is None:
                         all_bands = nlcd_cultivated_variable_bands_poly_in
                     else:
@@ -343,7 +355,8 @@ def _sample_pheno(pts_by_year, nlcd_flag, corine_flag, ee_poly):
 
         samples = all_bands.reduceRegions(**{
             'collection': year_points,
-            'reducer': REDUCER}).getInfo()
+            'reducer': REDUCER,
+            'scale': SAMPLE_SCALE}).getInfo()
         sample_list.extend(samples['features'])
 
     return header_fields_with_prev_year, sample_list
@@ -377,13 +390,16 @@ def main():
         ee.Authenticate()
     ee.Initialize()
     table = pandas.read_csv(
-        args.csv_path, converters={
-            args.long_field: lambda x: float(x),
-            args.lat_field: lambda x: float(x),
-            args.year_field: lambda x: int(x),
+        args.csv_path, 
+        skip_blank_lines=True,
+        converters={
+            args.long_field: lambda x: None if x == '' else float(x),
+            args.lat_field: lambda x: None if x == '' else float(x),
+            args.year_field: lambda x: None if x == '' else int(x),
         },
         nrows=args.n_rows)
-
+    table = table.dropna()
+    print(table)
     ee_poly = None
     if args.polygon_path:
         # convert to GEE polygon
@@ -405,7 +421,7 @@ def main():
 
     print('calculating pheno variables')
     header_fields, sample_list = _sample_pheno(
-        pts_by_year, args.nlcd, args.corine, ee_poly)
+        pts_by_year, args.buffer, args.nlcd, args.corine, ee_poly)
 
     with open(f'sampled_{args.buffer}m_{landcover_substring}_{os.path.basename(args.csv_path)}', 'w') as table_file:
         table_file.write(
