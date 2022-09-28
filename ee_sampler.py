@@ -12,10 +12,47 @@ import pandas
 
 DATASETS = {
     'nlcd': {
-        'gee_dataset': None,
-        'band': None,
-        'valid_years': '', 
-    }, 
+        'gee_dataset': 'USGS/NLCD_RELEASES/2016_REL',
+        'band': 'landcover',
+        'valid_years': [1992, 2001, 2004, 2006, 2008, 2011, 2013, 2016],
+        'cultivated_codes': [81, 82],
+        'natural_codes': [(41, 74), (90, 95)],
+    },
+    'corine': {
+        'gee_dataset': 'COPERNICUS_CORINE_V20_100m',
+        'band': 'landcover',
+        'valid_years': [(1989, 2001), (2005, 2007), 2011, 2012, 2017, 2018],
+        'cultivated_codes': [(211, 244)],
+        'natural_codes': [(311, 423)],
+    },
+    'nass': {
+        'gee_dataset': 'USDA_NASS_CDL',
+        'band': 'cropland',
+        'valid_years': [(1997, 2020)],
+        'cultivated_codes': [(1, 77), (204, 254)],
+        'natural_codes': [87, (141, 195)],
+    },
+    'gdw': {
+        'gee_dataset': 'GOOGLE/DYNAMICWORLD/V1',
+        'band': 'label',
+        'valid_years': [(2015, 2022)],
+        'cultivated_codes': [4],
+        'natural_codes': [(1, 3), 5],
+    },
+    'modis': {
+        'gee_dataset': 'MODIS/006/MCD12Q1',
+        'band': 'LC_Type2',
+        'valid_years': [(2001, 2016)],
+        'cultivated_codes': [12, 14],
+        'natural_codes': [(1, 11)],
+    },
+    'gfsad': {
+        'gee_dataset': 'USGS/GFSAD1000_V1',
+        'band': 'gfsad',
+        'valid_years': [2010],
+        'cultivated_codes': [(1, 5)],
+        'natural_codes': [0],
+    }
 }
 
 SAMPLE_SCALE = 30  # this is the raster resolution of which to sample the rasters at
@@ -40,6 +77,11 @@ POLY_OUT_FIELD = 'POLY-out'
 MODIS_DATASET_NAME = 'MODIS/006/MCD12Q2'  # 500m resolution
 VALID_MODIS_RANGE = (2001, 2019)
 
+
+def _validate_datasets():
+    """Run through global ``DATASETS`` and ensure everything works."""
+    for dataset_id, dataset_info in DATASETS.items():
+        print(dataset_id)
 
 def _get_closest_num(number_list, candidate):
     """Return closest number in sorted list."""
@@ -364,6 +406,10 @@ def _sample_pheno(pts_by_year, buffer, nlcd_flag, corine_flag, ee_poly):
 
 def main():
     """Entry point."""
+    print('validate')
+    _validate_datasets()
+
+    return 
     parser = argparse.ArgumentParser(
         description='sample points on GEE data')
     parser.add_argument('csv_path', help='path to CSV data table')
