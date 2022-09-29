@@ -30,7 +30,7 @@ DATASETS = {
     'nass': {
         'gee_dataset': 'USDA/NASS/CDL',
         'band_name': 'cropland',
-        'valid_years': [(1997, 2020)],
+        'valid_years': list(range(1997, 2021)),
         'filter_by': 'date',
         'cultivated_codes': [(1, 77), (204, 254)],
         'natural_codes': [87, (141, 195)],
@@ -38,7 +38,7 @@ DATASETS = {
     'gdw': {
         'gee_dataset': 'GOOGLE/DYNAMICWORLD/V1',
         'band_name': 'label',
-        'valid_years': [(2015, 2022)],
+        'valid_years': list(range(2015, 2023)),
         'filter_by': 'date',
         'cultivated_codes': [4],
         'natural_codes': [(1, 3), 5],
@@ -46,7 +46,7 @@ DATASETS = {
     'modis': {
         'gee_dataset': 'MODIS/006/MCD12Q1',
         'band_name': 'LC_Type2',
-        'valid_years': [(2001, 2016)],
+        'valid_years': list(range(2001, 2016)),
         'filter_by': 'date',
         'cultivated_codes': [12, 14],
         'natural_codes': [(1, 11)],
@@ -83,13 +83,7 @@ def _validate_datasets():
         else:
             imagecollection = ee.ImageCollection(dataset_info['gee_dataset'])
 
-        year_list = []
-        for year_id in dataset_info['valid_years']:
-            if isinstance(year_id, tuple):
-                year_list.extend(list(range(year_id[0], year_id[1]+1)))
-            else:
-                year_list.append(year_id)
-        for year in year_list:
+        for year in dataset_info['valid_years']:
             print(f"query {dataset_id} {dataset_info['band_name']}, {year}")
             if dataset_info['filter_by'] == 'date':
                 dataset = imagecollection.filter(
@@ -120,21 +114,12 @@ def _validate_datasets():
                     mask_dict[mask_id] = mask_dict[mask_id].Or(
                         band.gte(code_id[0]).And(band.lte(code_id[1])))
             mask_dict[mask_id].getInfo()
-
-        continue 
-        # corine_landcover = corine_imagecollection.filter(
-        #     ee.Filter.eq('system:index', str(closest_year))).first().select('landcover')
-
-        # natural_mask = ee.Image(0).where(
-        #     corine_landcover.gte(311).And(corine_landcover.lte(423)), 1)
-        # natural_mask = natural_mask.rename(CORINE_NATURAL_FIELD)
-
-        # cultivated_mask = ee.Image(0).where(
-        #     corine_landcover.gte(211).And(corine_landcover.lte(244)), 1)
-        # cultivated_mask = cultivated_mask.rename(CORINE_CULTIVATED_FIELD)
+        closest_year = _get_closest_num(dataset_info['valid_years'], year)
+        continue
 
     print('debug all done')
     sys.exit()
+
 
 def _get_closest_num(number_list, candidate):
     """Return closest number in sorted list."""
