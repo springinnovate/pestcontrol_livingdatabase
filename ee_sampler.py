@@ -92,7 +92,6 @@ def _validate_datasets():
                 dataset = imagecollection.filter(
                     ee.Filter.eq('system:index', str(year))).first()
             elif not image_only:
-                print('no filter by, just use image collection')
                 dataset = imagecollection.first()
             else:
                 dataset = imagecollection
@@ -115,7 +114,6 @@ def _validate_datasets():
                         band.gte(code_id[0]).And(band.lte(code_id[1])))
             mask_dict[mask_id].getInfo()
         closest_year = _get_closest_num(dataset_info['valid_years'], year)
-        continue
 
     print('debug all done')
     sys.exit()
@@ -123,7 +121,7 @@ def _validate_datasets():
 
 def _get_closest_num(number_list, candidate):
     """Return closest number in sorted list."""
-    index = (numpy.abs(number_list - candidate)).argmin()
+    index = (numpy.abs(numpy.array(number_list) - candidate)).argmin()
     return int(number_list[index])
 
 
@@ -180,14 +178,13 @@ def _nlcd_natural_cultivated_mask(year, ee_poly):
         natural_mask_out, cultivated_mask_out, closest_year)
 
 
-def _sample_pheno(pts_by_year, buffer, nlcd_flag, corine_flag, ee_poly):
+def _sample_pheno(pts_by_year, buffer, dataset_set, ee_poly):
     """Sample phenology variables from https://docs.google.com/spreadsheets/d/1nbmCKwIG29PF6Un3vN6mQGgFSWG_vhB6eky7wVqVwPo
 
     Args:
         pts_by_year:
-        nlcd_flag (bool): if True, sample the NLCD dataset
         buffer (float): buffer size of sample points in m
-        corine_flag (bool): if True, sample the CORINE dataset
+        dataset_set (set): 
         ee_poly (ee.Polygon): if not None, additionally filter samples on the
             nlcd/corine datasets to see what's in or out.
 
@@ -449,13 +446,14 @@ def main():
     parser.add_argument('csv_path', help='path to CSV data table')
     parser.add_argument('--year_field', default='crop_year', help='field name in csv_path for year, default `year_field`')
     parser.add_argument('--long_field', default='field_longitude', help='field name in csv_path for longitude, default `long_field`')
-    parser.add_argument('--lat_field', default='field_latitude', help='field name in csv_path for latitude, default `lat_field')
+    parser.add_argument('--lat_field', default='field_latitude', help='field name in csv_path for latitude, default `lat_field`')
     parser.add_argument('--buffer', type=float, default=1000, help='buffer distance in meters around point to do aggregate analysis, default 1000m')
-    parser.add_argument('--nlcd', default=False, action='store_true', help='use NCLD landcover for cultivated/natural masks')
-    parser.add_argument('--corine', default=False, action='store_true', help='use CORINE landcover for cultivated/natural masks')
     parser.add_argument('--polygon_path', type=str, help='path to local polygon to sample')
     parser.add_argument('--n_rows', type=int, help='limit csv read to this many rows')
-
+    for dataset_id in DATASETS:
+        parser.add_argument(
+            f'--{dataset_id}', default=False, action='store_true', 
+            help=f'use {dataset_id} {DATASETS[dataset_id]["band_name"]} {DATASETS[dataset_id]["gee_dataset"]} for cultivated/natural masks')
     # 2) the natural habitat eo characteristics in and out of polygon
     # 3) proportion of area outside of polygon
 
@@ -464,7 +462,7 @@ def main():
     if not any([args.nlcd, args.corine]):
         raise ValueError('must select at least --nlcd or --corine LULC datasets')
 
-    landcover_options = [x for x in ['nlcd', 'corine'] if vars(args)[x]]
+    landcover_options = [x for x in DATASETS if vars(args)[x]]
     landcover_substring = '_'.join(landcover_options)
     if args.authenticate:
         ee.Authenticate()
@@ -473,7 +471,6 @@ def main():
     print('validate')
     _validate_datasets()
     return
-
 
     table = pandas.read_csv(
         args.csv_path, 
@@ -507,7 +504,7 @@ def main():
 
     print('calculating pheno variables')
     header_fields, sample_list = _sample_pheno(
-        pts_by_year, args.buffer, args.nlcd, args.corine, ee_poly)
+        pts_by_year, args.buffer, args, ee_poly)
 
     with open(f'sampled_{args.buffer}m_{landcover_substring}_{os.path.basename(args.csv_path)}', 'w') as table_file:
         table_file.write(
