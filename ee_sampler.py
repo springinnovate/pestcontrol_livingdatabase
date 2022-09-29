@@ -13,43 +13,50 @@ import pandas
 DATASETS = {
     'nlcd': {
         'gee_dataset': 'USGS/NLCD_RELEASES/2016_REL',
-        'band': 'landcover',
+        'band_name': 'landcover',
         'valid_years': [1992, 2001, 2004, 2006, 2008, 2011, 2013, 2016],
+        'filter_by': 'date',
         'cultivated_codes': [81, 82],
         'natural_codes': [(41, 74), (90, 95)],
     },
     'corine': {
-        'gee_dataset': 'COPERNICUS_CORINE_V20_100m',
-        'band': 'landcover',
-        'valid_years': [(1989, 2001), (2005, 2007), 2011, 2012, 2017, 2018],
+        'gee_dataset': 'COPERNICUS/CORINE/V20/100m',
+        'band_name': 'landcover',
+        'valid_years': [1990, 2000, 2006, 2012, 2018],
+        'filter_by': 'dataset_string',
         'cultivated_codes': [(211, 244)],
         'natural_codes': [(311, 423)],
     },
     'nass': {
-        'gee_dataset': 'USDA_NASS_CDL',
-        'band': 'cropland',
+        'gee_dataset': 'USDA/NASS/CDL',
+        'band_name': 'cropland',
         'valid_years': [(1997, 2020)],
+        'filter_by': 'date',
         'cultivated_codes': [(1, 77), (204, 254)],
         'natural_codes': [87, (141, 195)],
     },
     'gdw': {
         'gee_dataset': 'GOOGLE/DYNAMICWORLD/V1',
-        'band': 'label',
+        'band_name': 'label',
         'valid_years': [(2015, 2022)],
+        'filter_by': 'date',
         'cultivated_codes': [4],
         'natural_codes': [(1, 3), 5],
     },
     'modis': {
         'gee_dataset': 'MODIS/006/MCD12Q1',
-        'band': 'LC_Type2',
+        'band_name': 'LC_Type2',
         'valid_years': [(2001, 2016)],
+        'filter_by': 'date',
         'cultivated_codes': [12, 14],
         'natural_codes': [(1, 11)],
     },
     'gfsad': {
         'gee_dataset': 'USGS/GFSAD1000_V1',
-        'band': 'gfsad',
+        'band_name': 'landcover',
         'valid_years': [2010],
+        'filter_by': None,
+        'image_only': True,
         'cultivated_codes': [(1, 5)],
         'natural_codes': [0],
     }
@@ -58,18 +65,6 @@ DATASETS = {
 SAMPLE_SCALE = 30  # this is the raster resolution of which to sample the rasters at
 
 REDUCER = 'mean'
-NLCD_DATASET = 'USGS/NLCD_RELEASES/2016_REL'
-NLCD_VALID_YEARS = numpy.array([
-    1992, 2001, 2004, 2006, 2008, 2011, 2013, 2016])
-NLCD_CLOSEST_YEAR_FIELD = 'NLCD-year'
-NLCD_NATURAL_FIELD = 'NLCD-natural'
-NLCD_CULTIVATED_FIELD = 'NLCD-cultivated'
-
-CORINE_DATASET = 'COPERNICUS/CORINE/V20/100m'
-CORINE_VALID_YEARS = numpy.array([1990, 2000, 2006, 2012, 2018])
-CORINE_CLOSEST_YEAR_FIELD = 'CORINE-year'
-CORINE_NATURAL_FIELD = 'CORINE-natural'
-CORINE_CULTIVATED_FIELD = 'CORINE-cultivated'
 
 POLY_IN_FIELD = 'POLY-in'
 POLY_OUT_FIELD = 'POLY-out'
@@ -81,7 +76,65 @@ VALID_MODIS_RANGE = (2001, 2019)
 def _validate_datasets():
     """Run through global ``DATASETS`` and ensure everything works."""
     for dataset_id, dataset_info in DATASETS.items():
-        print(dataset_id)
+        print(f'validating {dataset_id}')
+        image_only = 'image_only' in dataset_info and dataset_info['image_only']
+        if image_only:
+            imagecollection = ee.Image(dataset_info['gee_dataset'])
+        else:
+            imagecollection = ee.ImageCollection(dataset_info['gee_dataset'])
+
+        year_list = []
+        for year_id in dataset_info['valid_years']:
+            if isinstance(year_id, tuple):
+                year_list.extend(list(range(year_id[0], year_id[1]+1)))
+            else:
+                year_list.append(year_id)
+        for year in year_list:
+            print(f"query {dataset_id} {dataset_info['band_name']}, {year}")
+            if dataset_info['filter_by'] == 'date':
+                dataset = imagecollection.filter(
+                    ee.Filter.date(f'{year}-01-01', f'{year}-12-31')).first()
+            elif dataset_info['filter_by'] == 'system':
+                dataset = imagecollection.filter(
+                    ee.Filter.eq('system:index', str(year))).first()
+            elif not image_only:
+                print('no filter by, just use image collection')
+                dataset = imagecollection.first()
+            else:
+                dataset = imagecollection
+        band = dataset.select(dataset_info['band_name'])
+        try:
+            band.getInfo()
+        except:
+            print(f"ERROR ON {dataset_id} {dataset_info['band_name']}, {year}")
+            sys.exit()
+
+        mask_dict = {
+            'natural': ee.Image(0),
+            'cultivated': ee.Image(0),
+        }
+
+        for mask_id in mask_dict:
+            for code_id in dataset_info[f'{mask_id}_codes']:
+                if isinstance(code_id, tuple):
+                    mask_dict[mask_id] = mask_dict[mask_id].Or(
+                        band.gte(code_id[0]).And(band.lte(code_id[1])))
+            mask_dict[mask_id].getInfo()
+
+        continue 
+        # corine_landcover = corine_imagecollection.filter(
+        #     ee.Filter.eq('system:index', str(closest_year))).first().select('landcover')
+
+        # natural_mask = ee.Image(0).where(
+        #     corine_landcover.gte(311).And(corine_landcover.lte(423)), 1)
+        # natural_mask = natural_mask.rename(CORINE_NATURAL_FIELD)
+
+        # cultivated_mask = ee.Image(0).where(
+        #     corine_landcover.gte(211).And(corine_landcover.lte(244)), 1)
+        # cultivated_mask = cultivated_mask.rename(CORINE_CULTIVATED_FIELD)
+
+    print('debug all done')
+    sys.exit()
 
 def _get_closest_num(number_list, candidate):
     """Return closest number in sorted list."""
@@ -406,10 +459,6 @@ def _sample_pheno(pts_by_year, buffer, nlcd_flag, corine_flag, ee_poly):
 
 def main():
     """Entry point."""
-    print('validate')
-    _validate_datasets()
-
-    return 
     parser = argparse.ArgumentParser(
         description='sample points on GEE data')
     parser.add_argument('csv_path', help='path to CSV data table')
@@ -435,6 +484,12 @@ def main():
     if args.authenticate:
         ee.Authenticate()
     ee.Initialize()
+
+    print('validate')
+    _validate_datasets()
+    return
+
+
     table = pandas.read_csv(
         args.csv_path, 
         skip_blank_lines=True,
