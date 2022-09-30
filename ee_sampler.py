@@ -1,14 +1,18 @@
 """Sample GEE datasets given pest control CSV."""
 from datetime import datetime
 import argparse
-import os
+import configparser
+import glob
 import json
+import os
+import sys
 
 import geopandas
 import ee
 import numpy
 import pandas
 
+INI_PATH = './dataset_defns'
 
 DATASETS = {
     'nlcd': {
@@ -73,7 +77,7 @@ MODIS_DATASET_NAME = 'MODIS/006/MCD12Q2'  # 500m resolution
 VALID_MODIS_RANGE = (2001, 2019)
 
 
-def _validate_datasets():
+def build_landcover_masks(year, dataset_id, ee_poly):
     """Run through global ``DATASETS`` and ensure everything works."""
     for dataset_id, dataset_info in DATASETS.items():
         print(f'validating {dataset_id}')
@@ -98,25 +102,32 @@ def _validate_datasets():
         band = dataset.select(dataset_info['band_name'])
         try:
             band.getInfo()
-        except:
+            mask_dict = {
+                'natural': ee.Image(0),
+                'cultivated': ee.Image(0),
+            }
+            for mask_id in mask_dict:
+                for code_id in dataset_info[f'{mask_id}_codes']:
+                    if isinstance(code_id, tuple):
+                        mask_dict[mask_id] = mask_dict[mask_id].Or(
+                            band.gte(code_id[0]).And(band.lte(code_id[1])))
+                mask_dict[mask_id].getInfo()
+            closest_year = _get_closest_num(dataset_info['valid_years'], year)
+        except Exception:
             print(f"ERROR ON {dataset_id} {dataset_info['band_name']}, {year}")
             sys.exit()
 
-        mask_dict = {
-            'natural': ee.Image(0),
-            'cultivated': ee.Image(0),
-        }
-
-        for mask_id in mask_dict:
-            for code_id in dataset_info[f'{mask_id}_codes']:
-                if isinstance(code_id, tuple):
-                    mask_dict[mask_id] = mask_dict[mask_id].Or(
-                        band.gte(code_id[0]).And(band.lte(code_id[1])))
-            mask_dict[mask_id].getInfo()
-        closest_year = _get_closest_num(dataset_info['valid_years'], year)
-
     print('debug all done')
-    sys.exit()
+    result_dict = {
+        'closest_year': closest_year,
+        'cultivated': None,
+        'cultivated_in': None,
+        'cultivated_out': None,
+        'natural': None,
+        'natural_in': None,
+        'natural_out': None
+    }
+    return result_dict
 
 
 def _get_closest_num(number_list, candidate):
@@ -182,9 +193,11 @@ def _sample_pheno(pts_by_year, buffer, dataset_set, ee_poly):
     """Sample phenology variables from https://docs.google.com/spreadsheets/d/1nbmCKwIG29PF6Un3vN6mQGgFSWG_vhB6eky7wVqVwPo
 
     Args:
-        pts_by_year:
+        pts_by_year (dict): dictionary of FeatureCollection of points indexed
+            by year, these are the points that are used to sample underlying
+            datasets.
         buffer (float): buffer size of sample points in m
-        dataset_set (set): 
+        dataset_set (set): of landcover dataset ids to use
         ee_poly (ee.Polygon): if not None, additionally filter samples on the
             nlcd/corine datasets to see what's in or out.
 
@@ -193,6 +206,7 @@ def _sample_pheno(pts_by_year, buffer, dataset_set, ee_poly):
 
     """
     # these variables are measured in days since 1-1-1970
+    print('starting sample')
     julian_day_variables = [
         'Greenup_1',
         'MidGreenup_1',
@@ -213,58 +227,37 @@ def _sample_pheno(pts_by_year, buffer, dataset_set, ee_poly):
 
     epoch_date = datetime.strptime('1970-01-01', "%Y-%m-%d")
     modis_phen = ee.ImageCollection(MODIS_DATASET_NAME)
-
-    header_fields = [
-        f'{MODIS_DATASET_NAME}-{field}'
+    print('got modis')
+    base_header_fields = [
+        f'MODIS-{field}'
         for field in julian_day_variables+raw_variables]
-
-    if nlcd_flag:
-        header_fields_with_prev_year += [
-            x for field in header_fields
-            for x in (
-                field+'-'+NLCD_NATURAL_FIELD,
-                field+PREV_YEAR_TAG+'-'+NLCD_NATURAL_FIELD,
-                field+'-'+NLCD_CULTIVATED_FIELD,
-                field+PREV_YEAR_TAG+'-'+NLCD_CULTIVATED_FIELD)]
-
-    if corine_flag:
-        header_fields_with_prev_year += [
-            x for field in header_fields
-            for x in (
-                field+'-'+CORINE_NATURAL_FIELD,
-                field+PREV_YEAR_TAG+'-'+CORINE_NATURAL_FIELD,
-                field+'-'+CORINE_CULTIVATED_FIELD,
-                field+PREV_YEAR_TAG+'-'+CORINE_CULTIVATED_FIELD)]
-
-    if nlcd_flag:
+    # make copy so we don't overwrite
+    header_fields = list(base_header_fields)
+    for dataset_id in dataset_set:
+        print(dataset_id)
+        for header_id in base_header_fields:
+            print(header_id)
+            header_fields += [
+                f'{header_id}-{dataset_id}-natural',
+                f'{header_id}-{dataset_id}-cultivated']
         if ee_poly:
-            header_fields_with_prev_year.append(
-                f'{NLCD_NATURAL_FIELD}-{POLY_IN_FIELD}')
-            header_fields_with_prev_year.append(
-                f'{NLCD_CULTIVATED_FIELD}-{POLY_IN_FIELD}')
-            header_fields_with_prev_year.append(
-                f'{NLCD_NATURAL_FIELD}-{POLY_OUT_FIELD}')
-            header_fields_with_prev_year.append(
-                f'{NLCD_CULTIVATED_FIELD}-{POLY_OUT_FIELD}')
-        else:
-            header_fields_with_prev_year.append(NLCD_NATURAL_FIELD)
-            header_fields_with_prev_year.append(NLCD_CULTIVATED_FIELD)
-        header_fields_with_prev_year.append(NLCD_CLOSEST_YEAR_FIELD)
-
-    if corine_flag:
-        header_fields_with_prev_year.append(CORINE_NATURAL_FIELD)
-        header_fields_with_prev_year.append(CORINE_CULTIVATED_FIELD)
-        header_fields_with_prev_year.append(CORINE_CLOSEST_YEAR_FIELD)
+            header_fields += [
+                f'{dataset_id}-{POLY_IN_FIELD}',
+                f'{dataset_id}-{POLY_OUT_FIELD}']
 
     if ee_poly:
-        header_fields_with_prev_year.append(POLY_IN_FIELD)
-        header_fields_with_prev_year.append(POLY_OUT_FIELD)
+        header_fields += [POLY_IN_FIELD, POLY_OUT_FIELD]
+
+    print(f'header fields: {header_fields}')
+    sys.exit()
 
     sample_list = []
     for year in pts_by_year.keys():
         print(f'processing year {year}')
         year_points = pts_by_year[year]
         all_bands = None
+        for dataset_id in dataset_set:
+            build_landcover_masks(year, dataset_id, ee_poly)
 
         if nlcd_flag:
             if not ee_poly:
@@ -441,6 +434,14 @@ def _sample_pheno(pts_by_year, buffer, dataset_set, ee_poly):
 
 def main():
     """Entry point."""
+    for ini_path in glob.glob(os.path.join(INI_PATH, '*.ini')):
+        basename = os.path.splitext(os.path.basename(ini_path))[0]
+        dataset_config = configparser.ConfigParser(allow_no_value=True)
+        dataset_config.read(ini_path)
+        print(dataset_config.sections())
+    return
+
+
     parser = argparse.ArgumentParser(
         description='sample points on GEE data')
     parser.add_argument('csv_path', help='path to CSV data table')
@@ -459,18 +460,15 @@ def main():
 
     parser.add_argument('--authenticate', action='store_true', help='Pass this flag if you need to reauthenticate with GEE')
     args = parser.parse_args()
-    if not any([args.nlcd, args.corine]):
-        raise ValueError('must select at least --nlcd or --corine LULC datasets')
+
+    default_config = configparser.ConfigParser(allow_no_value=True)
+    default_config.read('global_config.ini')
 
     landcover_options = [x for x in DATASETS if vars(args)[x]]
     landcover_substring = '_'.join(landcover_options)
     if args.authenticate:
         ee.Authenticate()
     ee.Initialize()
-
-    print('validate')
-    _validate_datasets()
-    return
 
     table = pandas.read_csv(
         args.csv_path, 
@@ -503,8 +501,11 @@ def main():
                 table[args.year_field] == year].dropna().iterrows()])
 
     print('calculating pheno variables')
+    datasets_to_process = [
+        dataset_id for dataset_id in DATASETS
+        if vars(args)[dataset_id]]
     header_fields, sample_list = _sample_pheno(
-        pts_by_year, args.buffer, args, ee_poly)
+        pts_by_year, args.buffer, datasets_to_process, ee_poly)
 
     with open(f'sampled_{args.buffer}m_{landcover_substring}_{os.path.basename(args.csv_path)}', 'w') as table_file:
         table_file.write(
