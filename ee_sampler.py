@@ -12,58 +12,16 @@ import ee
 import numpy
 import pandas
 
-INI_PATH = './dataset_defns'
+INI_DIR = './dataset_defns'
 
-DATASETS = {
-    'nlcd': {
-        'gee_dataset': 'USGS/NLCD_RELEASES/2016_REL',
-        'band_name': 'landcover',
-        'valid_years': [1992, 2001, 2004, 2006, 2008, 2011, 2013, 2016],
-        'filter_by': 'date',
-        'cultivated_codes': [81, 82],
-        'natural_codes': [(41, 74), (90, 95)],
-    },
-    'corine': {
-        'gee_dataset': 'COPERNICUS/CORINE/V20/100m',
-        'band_name': 'landcover',
-        'valid_years': [1990, 2000, 2006, 2012, 2018],
-        'filter_by': 'dataset_string',
-        'cultivated_codes': [(211, 244)],
-        'natural_codes': [(311, 423)],
-    },
-    'nass': {
-        'gee_dataset': 'USDA/NASS/CDL',
-        'band_name': 'cropland',
-        'valid_years': list(range(1997, 2021)),
-        'filter_by': 'date',
-        'cultivated_codes': [(1, 77), (204, 254)],
-        'natural_codes': [87, (141, 195)],
-    },
-    'gdw': {
-        'gee_dataset': 'GOOGLE/DYNAMICWORLD/V1',
-        'band_name': 'label',
-        'valid_years': list(range(2015, 2023)),
-        'filter_by': 'date',
-        'cultivated_codes': [4],
-        'natural_codes': [(1, 3), 5],
-    },
-    'modis': {
-        'gee_dataset': 'MODIS/006/MCD12Q1',
-        'band_name': 'LC_Type2',
-        'valid_years': list(range(2001, 2016)),
-        'filter_by': 'date',
-        'cultivated_codes': [12, 14],
-        'natural_codes': [(1, 11)],
-    },
-    'gfsad': {
-        'gee_dataset': 'USGS/GFSAD1000_V1',
-        'band_name': 'landcover',
-        'valid_years': [2010],
-        'filter_by': None,
-        'image_only': True,
-        'cultivated_codes': [(1, 5)],
-        'natural_codes': [0],
-    }
+EXPECTED_INI_ELEMENTS = {
+    'gee_dataset',
+    'band_name',
+    'valid_years',
+    'filter_by',
+}
+EXPECTED_INI_SECTIONS = {
+    'codes'
 }
 
 SAMPLE_SCALE = 30  # this is the raster resolution of which to sample the rasters at
@@ -432,16 +390,37 @@ def _sample_pheno(pts_by_year, buffer, dataset_set, ee_poly):
     return header_fields_with_prev_year, sample_list
 
 
+def parse_ini(ini_path):
+    """Parse ini and return a validated config."""
+    basename = os.path.splitext(os.path.basename(ini_path))[0]
+    dataset_config = configparser.ConfigParser(allow_no_value=True)
+    dataset_config.read(ini_path)
+    dataset_result = {}
+    if basename not in dataset_config:
+        raise ValueError(f'expected a section called {basename} but only found {dataset_config.sections()}')
+    for element_id in EXPECTED_INI_ELEMENTS:
+        if element_id not in dataset_config[basename]:
+            raise ValueError(f'expected an entry called {element_id} but only found {dataset_config[basename].items()}')
+        dataset_result[element_id] = dataset_config[basename][element_id]
+    for section_id in EXPECTED_INI_SECTIONS:
+        if section_id not in dataset_config:
+            raise ValueError(f'expected a section called {section_id} but only found {dataset_config.sections()}')
+        dataset_result[section_id] = {}
+        for element_id in dataset_config[section_id].items():
+            print(element_id)
+            dataset_result[section_id][element_id[0]] = eval(element_id[1])
+    return dataset_result
+
+
 def main():
     """Entry point."""
-    for ini_path in glob.glob(os.path.join(INI_PATH, '*.ini')):
-        basename = os.path.splitext(os.path.basename(ini_path))[0]
-        dataset_config = configparser.ConfigParser(allow_no_value=True)
-        dataset_config.read(ini_path)
-        print(dataset_config.sections())
-    return
+    datasets = {}
+    for ini_path in glob.glob(os.path.join(INI_DIR, '*.ini')):
+        dataset_config = parse_ini(ini_path)
+        basename = os.path.basename(os.path.splitext(ini_path)[0])
+        datasets[basename] = dataset_config
 
-
+    print(datasets)
     parser = argparse.ArgumentParser(
         description='sample points on GEE data')
     parser.add_argument('csv_path', help='path to CSV data table')
@@ -451,10 +430,11 @@ def main():
     parser.add_argument('--buffer', type=float, default=1000, help='buffer distance in meters around point to do aggregate analysis, default 1000m')
     parser.add_argument('--polygon_path', type=str, help='path to local polygon to sample')
     parser.add_argument('--n_rows', type=int, help='limit csv read to this many rows')
-    for dataset_id in DATASETS:
+    for dataset_id in datasets:
+        print(dataset_id)
         parser.add_argument(
             f'--{dataset_id}', default=False, action='store_true', 
-            help=f'use {dataset_id} {DATASETS[dataset_id]["band_name"]} {DATASETS[dataset_id]["gee_dataset"]} for cultivated/natural masks')
+            help=f'use {dataset_id} {datasets[dataset_id]["band_name"]} {datasets[dataset_id]["gee_dataset"]} for cultivated/natural masks')
     # 2) the natural habitat eo characteristics in and out of polygon
     # 3) proportion of area outside of polygon
 
