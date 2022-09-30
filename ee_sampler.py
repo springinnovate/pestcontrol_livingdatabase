@@ -4,6 +4,7 @@ import argparse
 import configparser
 import glob
 import json
+import logging
 import os
 import sys
 
@@ -11,6 +12,14 @@ import geopandas
 import ee
 import numpy
 import pandas
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format=(
+        '%(asctime)s (%(relativeCreated)d) %(levelname)s %(name)s'
+        ' [%(funcName)s:%(lineno)d] %(message)s'))
+logging.getLogger('taskgraph').setLevel(logging.INFO)
+LOGGER = logging.getLogger(__name__)
 
 INI_DIR = './dataset_defns'
 
@@ -33,7 +42,6 @@ POLY_OUT_FIELD = 'POLY-out'
 
 MODIS_DATASET_NAME = 'MODIS/006/MCD12Q2'  # 500m resolution
 VALID_MODIS_RANGE = (2001, 2019)
-
 
 def build_landcover_masks(year, dataset_id, ee_poly):
     """Run through global ``DATASETS`` and ensure everything works."""
@@ -431,10 +439,9 @@ def main():
     parser.add_argument('--polygon_path', type=str, help='path to local polygon to sample')
     parser.add_argument('--n_rows', type=int, help='limit csv read to this many rows')
     for dataset_id in datasets:
-        print(dataset_id)
         parser.add_argument(
-            f'--{dataset_id}', default=False, action='store_true', 
-            help=f'use {dataset_id} {datasets[dataset_id]["band_name"]} {datasets[dataset_id]["gee_dataset"]} for cultivated/natural masks')
+            f'--dataset_{dataset_id}', default=False, action='store_true',
+            help=f'use the {dataset_id} {datasets[dataset_id]["band_name"]} {datasets[dataset_id]["gee_dataset"]} dataset for masking')
     # 2) the natural habitat eo characteristics in and out of polygon
     # 3) proportion of area outside of polygon
 
@@ -444,8 +451,12 @@ def main():
     default_config = configparser.ConfigParser(allow_no_value=True)
     default_config.read('global_config.ini')
 
-    landcover_options = [x for x in DATASETS if vars(args)[x]]
-    landcover_substring = '_'.join(landcover_options)
+    datasets_to_process = [
+        x.split('dataset_')[1]
+        for x in vars(args)
+        if x.startswith('dataset') and vars(args)[x]]
+    landcover_substring = '_'.join(datasets_to_process)
+    print(landcover_substring)
     if args.authenticate:
         ee.Authenticate()
     ee.Initialize()
@@ -481,9 +492,6 @@ def main():
                 table[args.year_field] == year].dropna().iterrows()])
 
     print('calculating pheno variables')
-    datasets_to_process = [
-        dataset_id for dataset_id in DATASETS
-        if vars(args)[dataset_id]]
     header_fields, sample_list = _sample_pheno(
         pts_by_year, args.buffer, datasets_to_process, ee_poly)
 
