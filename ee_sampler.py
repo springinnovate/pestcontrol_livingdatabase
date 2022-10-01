@@ -34,7 +34,7 @@ EXPECTED_INI_ELEMENTS = {
     'filter_by',
 }
 EXPECTED_INI_SECTIONS = {
-    'codes'
+    'mask_types'
 }
 
 SAMPLE_SCALE = 30  # this is the raster resolution of which to sample the rasters at
@@ -48,60 +48,58 @@ MODIS_DATASET_NAME = 'MODIS/006/MCD12Q2'  # 500m resolution
 VALID_MODIS_RANGE = (2001, 2019)
 
 
-def build_landcover_masks(year, dataset_info, ee_poly):
+def build_landcover_masks(year, dataset_id, dataset_info, ee_poly):
     """Run through global ``DATASETS`` and ensure everything works."""
-    LOGGER.debug(f'validating {dataset_id}')
+    LOGGER.debug(dataset_info)
     image_only = 'image_only' in dataset_info and dataset_info['image_only']
     if image_only:
         imagecollection = ee.Image(dataset_info['gee_dataset'])
     else:
         imagecollection = ee.ImageCollection(dataset_info['gee_dataset'])
 
-    for year in dataset_info['valid_years']:
-        LOGGER.debug(f"query {dataset_id} {dataset_info['band_name']}, {year}")
-        if dataset_info['filter_by'] == 'date':
-            dataset = imagecollection.filter(
-                ee.Filter.date(f'{year}-01-01', f'{year}-12-31')).first()
-        elif dataset_info['filter_by'] == 'system':
-            dataset = imagecollection.filter(
-                ee.Filter.eq('system:index', str(year))).first()
-        elif not image_only:
-            dataset = imagecollection.first()
-        else:
-            dataset = imagecollection
+    result_dict = {}
+    LOGGER.debug(f"query {dataset_info['band_name']}, {year}")
+    if dataset_info['filter_by'] == 'date':
+        dataset = imagecollection.filter(
+            ee.Filter.date(f'{year}-01-01', f'{year}-12-31')).first()
+    elif dataset_info['filter_by'] == 'system':
+        dataset = imagecollection.filter(
+            ee.Filter.eq('system:index', str(year))).first()
+    elif not image_only:
+        dataset = imagecollection.first()
+    else:
+        dataset = imagecollection
     band = dataset.select(dataset_info['band_name'])
     try:
         band.getInfo()
-        mask_dict = {mask_type: ee.Image(0) for mask_type in dataset_info['codes']}
-        for mask_id in mask_dict:
-            for code_id in dataset_info[f'{mask_id}_codes']:
-                if isinstance(code_id, tuple):
-                    mask_dict[mask_id] = mask_dict[mask_id].Or(
-                        band.gte(code_id[0]).And(band.lte(code_id[1])))
+        mask_dict = {mask_type: ee.Image(0) for mask_type in dataset_info['mask_types']}
+        for mask_type in dataset_info['mask_types']:
+            for code_value in dataset_info['mask_types'][mask_type]:
+                if isinstance(code_value, tuple):
+                    mask_dict[mask_type] = mask_dict[mask_type].Or(
+                        band.gte(code_value[0]).And(band.lte(code_value[1])))
                 else:
-                    mask_dict[mask_id] = mask_dict[mask_id].Or(
-                        band.Eq(code_id))
-            mask_dict[mask_id].getInfo()
-        result_dict['closest_year'] = _get_closest_num(dataset_info['valid_years'], year)
+                    mask_dict[mask_type] = mask_dict[mask_type].Or(
+                        band.eq(code_value))
+            mask_dict[mask_type].getInfo()
+            if result_image is None:
+                result_image = working_image
+            else:
+                result_image.addBands(working_image)
+        closest_year_image = ee.Image(_get_closest_num(dataset_info['valid_years'], year)).rename(f'{dataset_id}_{mask_type}')
+        result_image.addBands(closest_year_image)
     except Exception:
-        LOGGER.debug(f"ERROR ON {dataset_id} {dataset_info['band_name']}, {year}")
+        LOGGER.exception(f"ERROR ON {dataset_info['gee_dataset']} {dataset_info['band_name']}, {year}")
         sys.exit()
 
     LOGGER.debug('debug all done')
-    result_dict = {
-        'closest_year': closest_year,
-        'cultivated': None,
-        'cultivated_in': None,
-        'cultivated_out': None,
-        'natural': None,
-        'natural_in': None,
-        'natural_out': None
-    }
-    return result_dict
+    return result_image
 
 
 def _get_closest_num(number_list, candidate):
     """Return closest number in sorted list."""
+    if isinstance(number_list, str):
+        number_list = eval(number_list)
     index = (numpy.abs(numpy.array(number_list) - candidate)).argmin()
     return int(number_list[index])
 
@@ -206,8 +204,8 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
     # header_fields = list(base_header_fields)
     # for dataset_id in datasets_to_process:
     #     LOGGER.debug(datasets[dataset_id])
-    #     LOGGER.debug(datasets[dataset_id]['codes'])
-    #     for mask_code_id in datasets[dataset_id]['codes']:
+    #     LOGGER.debug(datasets[dataset_id]['mask_types'])
+    #     for mask_code_id in datasets[dataset_id]['mask_types']:
     #         for header_id in base_header_fields:
     #             LOGGER.debug(header_id)
     #             header_fields.append(
@@ -256,16 +254,13 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
             julian_day_bands = (
                 bands_since_1970.toBands()).subtract(days_since_epoch)
             julian_day_bands = julian_day_bands.rename(julian_day_variables)
-            raw_band_names = [
-                x+band_name_suffix
-                for x in header_fields[len(julian_day_variables)::]]
             raw_variable_bands = modis_phen.select(
                 raw_variables).filterDate(
                 f'{year}-01-01', f'{year}-12-31').toBands()
             raw_variable_bands = raw_variable_bands.rename(raw_variables)
 
             local_band_stack = julian_day_bands.addBands(raw_variable_bands)
-            all_band_names = modis_band_names+raw_band_names
+            all_band_names = modis_band_names+raw_variables
         else:
             local_band_stack = None
             all_band_names = []
@@ -279,16 +274,8 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
         #'natural_out': None
         mask_dict = {}
         for dataset_id in datasets_to_process:
-            mask_dict = build_landcover_masks(
-                year, datasets[dataset_id], ee_poly)
-            closest_year_image = ee.Image(
-                int(mask_dict[closest_year])).rename(f'{dataset_id}_closest_year')
-            dataset_mask_options = datasets[dataset_id]['codes']
-            for mask_type_id in dataset_mask_options:
-                mask_codes = eval(datasets[dataset_id]['codes'][mask_type_id])
-                LOGGER.debug(mask_codes)
-                sys.exit()
-
+            mask_image_with_bands = build_landcover_masks(
+                year, dataset_id, datasets[dataset_id], ee_poly)
             if local_band_stack is not None:
                 nlcd_cultivated_variable_bands = local_band_stack.updateMask(
                     nlcd_cultivated_mask)
