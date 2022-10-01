@@ -48,8 +48,19 @@ MODIS_DATASET_NAME = 'MODIS/006/MCD12Q2'  # 500m resolution
 VALID_MODIS_RANGE = (2001, 2019)
 
 
-def build_landcover_masks(year, dataset_id, dataset_info, ee_poly):
-    """Run through global ``DATASETS`` and ensure everything works."""
+def build_landcover_masks(year, dataset_info, ee_poly):
+    """Build landcover type masks and nearest year calculation.
+
+    Args:
+        year (int): year to build masks for
+        dataset_info (dict): a map of 'gee_dataset', 'band_name',
+            'valid_years', 'filter_by', and 'mask_types'->(
+                dict of unique mask names mapped to list of tuple/ints)
+
+    return dataset_map, nearest_year_image
+        (dataset map maps 'mask_types' ids to binary ee.Images used
+         in updatemask)
+"""
     LOGGER.debug(dataset_info)
     image_only = 'image_only' in dataset_info and dataset_info['image_only']
     if image_only:
@@ -82,18 +93,11 @@ def build_landcover_masks(year, dataset_id, dataset_info, ee_poly):
                     mask_dict[mask_type] = mask_dict[mask_type].Or(
                         band.eq(code_value))
             mask_dict[mask_type].getInfo()
-            if result_image is None:
-                result_image = working_image
-            else:
-                result_image.addBands(working_image)
-        closest_year_image = ee.Image(_get_closest_num(dataset_info['valid_years'], year)).rename(f'{dataset_id}_{mask_type}')
-        result_image.addBands(closest_year_image)
+        LOGGER.debug('debug all done')
+        return mask_dict, closest_year_image
     except Exception:
         LOGGER.exception(f"ERROR ON {dataset_info['gee_dataset']} {dataset_info['band_name']}, {year}")
         sys.exit()
-
-    LOGGER.debug('debug all done')
-    return result_image
 
 
 def _get_closest_num(number_list, candidate):
@@ -274,146 +278,17 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
         #'natural_out': None
         mask_dict = {}
         for dataset_id in datasets_to_process:
-            mask_image_with_bands = build_landcover_masks(
-                year, dataset_id, datasets[dataset_id], ee_poly)
-            if local_band_stack is not None:
-                nlcd_cultivated_variable_bands = local_band_stack.updateMask(
-                    nlcd_cultivated_mask)
-                nlcd_cultivated_variable_bands = \
-                    nlcd_cultivated_variable_bands.rename([
-                        band_name+'-'+NLCD_CULTIVATED_FIELD
-                        for band_name in all_band_names])
+            mask_map, nearest_year_image = build_landcover_masks(
+                year, datasets[dataset_id], ee_poly)
+            for mask_id, mask_image in mask_map.items():
+                masked_local_band_stack = local_band_stack.updateMask(
+                    mask_image).rename([f'{band_name}-{mask_id}'])
 
-                nlcd_natural_variable_bands = local_band_stack.updateMask(
-                    nlcd_natural_mask)
-                nlcd_natural_variable_bands = nlcd_natural_variable_bands.rename([
-                    band_name+'-'+NLCD_NATURAL_FIELD
-                    for band_name in all_band_names])
                 if all_bands is None:
-                    all_bands = nlcd_natural_variable_bands
+                    all_bands = masked_local_band_stack
                 else:
                     all_bands = all_bands.addBands(
                         nlcd_natural_variable_bands)
-                all_bands = all_bands.addBands(nlcd_cultivated_variable_bands)
-                all_bands = all_bands.addBands(nlcd_natural_mask)
-                all_bands = all_bands.addBands(nlcd_cultivated_mask)
-                all_bands = all_bands.addBands(nlcd_closest_year_image)
-            else:
-                # TODO: here MODIS was out of date, so all bands is not defined
-                all_bands = nlcd_natural_mask
-                all_bands = all_bands.addBands(nlcd_cultivated_mask)
-                all_bands = all_bands.addBands(nlcd_closest_year_image)
-
-
-
-
-
-
-
-
-        # mask raw variable bands by cultivated/natural
-        if nlcd_flag:
-            nlcd_closest_year_image = ee.Image(
-                int(nlcd_closest_year)).rename(NLCD_CLOSEST_YEAR_FIELD)
-            if not ee_poly:
-                if local_band_stack is not None:
-                    nlcd_cultivated_variable_bands = local_band_stack.updateMask(
-                        nlcd_cultivated_mask)
-                    nlcd_cultivated_variable_bands = \
-                        nlcd_cultivated_variable_bands.rename([
-                            band_name+'-'+NLCD_CULTIVATED_FIELD
-                            for band_name in all_band_names])
-
-                    nlcd_natural_variable_bands = local_band_stack.updateMask(
-                        nlcd_natural_mask)
-                    nlcd_natural_variable_bands = nlcd_natural_variable_bands.rename([
-                        band_name+'-'+NLCD_NATURAL_FIELD
-                        for band_name in all_band_names])
-                    if all_bands is None:
-                        all_bands = nlcd_natural_variable_bands
-                    else:
-                        all_bands = all_bands.addBands(
-                            nlcd_natural_variable_bands)
-                    all_bands = all_bands.addBands(nlcd_cultivated_variable_bands)
-                    all_bands = all_bands.addBands(nlcd_natural_mask)
-                    all_bands = all_bands.addBands(nlcd_cultivated_mask)
-                    all_bands = all_bands.addBands(nlcd_closest_year_image)
-                else:
-                    # TODO: here MODIS was out of date, so all bands is not defined
-                    all_bands = nlcd_natural_mask
-                    all_bands = all_bands.addBands(nlcd_cultivated_mask)
-                    all_bands = all_bands.addBands(nlcd_closest_year_image)
-            else:
-                nlcd_cultivated_variable_bands_poly_in = local_band_stack.updateMask(
-                    nlcd_cultivated_mask_poly_in)
-                nlcd_cultivated_variable_bands_poly_in = \
-                    nlcd_cultivated_variable_bands_poly_in.rename([
-                        f'{band_name}-{NLCD_CULTIVATED_FIELD}-{POLY_IN_FIELD}'
-                        for band_name in all_band_names])
-
-                nlcd_natural_variable_bands_poly_in = local_band_stack.updateMask(
-                    nlcd_natural_mask_poly_in)
-                nlcd_natural_variable_bands_poly_in = nlcd_natural_variable_bands_poly_in.rename([
-                    f'{band_name}-{NLCD_NATURAL_FIELD}-{POLY_IN_FIELD}'
-                    for band_name in all_band_names])
-                if all_bands is None:
-                    all_bands = nlcd_cultivated_variable_bands_poly_in
-                else:
-                    all_bands = all_bands.addBands(
-                        nlcd_natural_variable_bands_poly_in)
-                all_bands = all_bands.addBands(nlcd_cultivated_variable_bands_poly_in)
-                all_bands = all_bands.addBands(nlcd_natural_mask_poly_in)
-                all_bands = all_bands.addBands(nlcd_cultivated_mask_poly_in)
-
-                nlcd_cultivated_variable_bands_poly_out = local_band_stack.updateMask(
-                    nlcd_cultivated_mask_poly_out)
-                nlcd_cultivated_variable_bands_poly_out = \
-                    nlcd_cultivated_variable_bands_poly_out.rename([
-                        f'{band_name}-{NLCD_CULTIVATED_FIELD}-{POLY_OUT_FIELD}'
-                        for band_name in all_band_names])
-
-                nlcd_natural_variable_bands_poly_out = local_band_stack.updateMask(
-                    nlcd_natural_mask_poly_out)
-                nlcd_natural_variable_bands_poly_out = nlcd_natural_variable_bands_poly_out.rename([
-                    f'{band_name}-{NLCD_NATURAL_FIELD}-{POLY_OUT_FIELD}'
-                    for band_name in all_band_names])
-                nlcd_closest_year_image = ee.Image(
-                    int(nlcd_closest_year)).rename(NLCD_CLOSEST_YEAR_FIELD)
-                all_bands = all_bands.addBands(nlcd_natural_variable_bands_poly_out)
-                all_bands = all_bands.addBands(nlcd_cultivated_variable_bands_poly_out)
-                all_bands = all_bands.addBands(nlcd_natural_mask_poly_out)
-                all_bands = all_bands.addBands(nlcd_cultivated_mask_poly_out)
-
-                all_bands = all_bands.addBands(nlcd_closest_year_image)
-
-        if corine_flag:
-            corine_cultivated_variable_bands = \
-                local_band_stack.updateMask(corine_cultivated_mask.eq(1))
-            corine_cultivated_variable_bands = \
-                corine_cultivated_variable_bands.rename([
-                    band_name+'-'+CORINE_CULTIVATED_FIELD
-                    for band_name in all_band_names])
-
-            corine_natural_variable_bands = local_band_stack.updateMask(
-                corine_natural_mask.eq(1))
-            corine_natural_variable_bands = \
-                corine_natural_variable_bands.rename([
-                    band_name+'-'+CORINE_NATURAL_FIELD
-                    for band_name in all_band_names])
-            corine_closest_year_image = ee.Image(
-                int(corine_closest_year)).rename(
-                CORINE_CLOSEST_YEAR_FIELD)
-            if all_bands is None:
-                all_bands = corine_cultivated_variable_bands
-            else:
-                all_bands = all_bands.addBands(
-                    corine_cultivated_variable_bands)
-            all_bands = all_bands.addBands(corine_natural_variable_bands)
-            all_bands = all_bands.addBands(corine_natural_mask)
-            all_bands = all_bands.addBands(corine_cultivated_mask)
-            all_bands = all_bands.addBands(corine_closest_year_image)
-
-        LOGGER.debug('reduce regions')
 
         # determine area in/out of point area
         if ee_poly:
