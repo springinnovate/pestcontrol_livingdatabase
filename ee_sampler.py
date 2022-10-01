@@ -283,9 +283,11 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
                 year, datasets[dataset_id], ee_poly)
             closest_year_image = ee.Image(
                 int(mask_dict[closest_year])).rename(f'{dataset_id}_closest_year')
-            if local
-
+            dataset_mask_options = datasets[dataset_id]['codes']
             for mask_type_id in dataset_mask_options:
+                mask_codes = eval(datasets[dataset_id]['codes'][mask_type_id])
+                LOGGER.debug(mask_codes)
+                sys.exit()
 
             if local_band_stack is not None:
                 nlcd_cultivated_variable_bands = local_band_stack.updateMask(
