@@ -62,26 +62,28 @@ def build_landcover_masks(year, dataset_info, ee_poly):
          in updatemask)
 """
     LOGGER.debug(dataset_info)
-    image_only = 'image_only' in dataset_info and dataset_info['image_only']
-    if image_only:
-        imagecollection = ee.Image(dataset_info['gee_dataset'])
-    else:
-        imagecollection = ee.ImageCollection(dataset_info['gee_dataset'])
-
-    result_dict = {}
-    LOGGER.debug(f"query {dataset_info['band_name']}, {year}")
-    if dataset_info['filter_by'] == 'date':
-        dataset = imagecollection.filter(
-            ee.Filter.date(f'{year}-01-01', f'{year}-12-31')).first()
-    elif dataset_info['filter_by'] == 'system':
-        dataset = imagecollection.filter(
-            ee.Filter.eq('system:index', str(year))).first()
-    elif not image_only:
-        dataset = imagecollection.first()
-    else:
-        dataset = imagecollection
-    band = dataset.select(dataset_info['band_name'])
     try:
+        image_only = 'image_only' in dataset_info and dataset_info['image_only']
+        if image_only:
+            imagecollection = ee.Image(dataset_info['gee_dataset'])
+        else:
+            imagecollection = ee.ImageCollection(dataset_info['gee_dataset'])
+
+        result_dict = {}
+        LOGGER.debug(f"query {dataset_info['band_name']}, {year}")
+        closest_year = _get_closest_num(dataset_info['valid_years'], year)
+        closest_year_image = ee.Image(closest_year)
+        if dataset_info['filter_by'] == 'date':
+            dataset = imagecollection.filter(
+                ee.Filter.date(f'{closest_year}-01-01', f'{closest_year}-12-31')).first()
+        elif dataset_info['filter_by'] == 'system':
+            dataset = imagecollection.filter(
+                ee.Filter.eq('system:index', str(closest_year))).first()
+        elif not image_only:
+            dataset = imagecollection.first()
+        else:
+            dataset = imagecollection
+        band = dataset.select(dataset_info['band_name'])
         band.getInfo()
         mask_dict = {mask_type: ee.Image(0) for mask_type in dataset_info['mask_types']}
         for mask_type in dataset_info['mask_types']:
@@ -229,7 +231,6 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
     for year in pts_by_year.keys():
         LOGGER.debug(f'processing year {year}')
         year_points = pts_by_year[year]
-        all_bands = None
 
         # if nlcd_flag:
         #     if not ee_poly:
@@ -263,41 +264,41 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
                 f'{year}-01-01', f'{year}-12-31').toBands()
             raw_variable_bands = raw_variable_bands.rename(raw_variables)
 
-            local_band_stack = julian_day_bands.addBands(raw_variable_bands)
-            all_band_names = modis_band_names+raw_variables
-        else:
-            local_band_stack = None
-            all_band_names = []
+            band_names = [x['id'] for x in julian_day_bands.getInfo()['bands']]
+            LOGGER.debug(f'julian day n bands: {len(band_names)} {band_names}')
 
-        #'closest_year': closest_year,
-        #'cultivated': None,
-        #'cultivated_in': None,
-        #'cultivated_out': None,
-        #'natural': None,
-        #'natural_in': None,
-        #'natural_out': None
-        mask_dict = {}
-        for dataset_id in datasets_to_process:
-            mask_map, nearest_year_image = build_landcover_masks(
-                year, datasets[dataset_id], ee_poly)
-            for mask_id, mask_image in mask_map.items():
-                masked_local_band_stack = local_band_stack.updateMask(
-                    mask_image).rename([f'{band_name}-{mask_id}'])
+            modis_band_stack = julian_day_bands.addBands(raw_variable_bands)
 
-                if all_bands is None:
-                    all_bands = masked_local_band_stack
-                else:
-                    all_bands = all_bands.addBands(
-                        nlcd_natural_variable_bands)
+            band_names = [x['id'] for x in modis_band_stack.getInfo()['bands']]
+            LOGGER.debug(f'local bands n bands: {len(band_names)} {band_names}')
 
-        # determine area in/out of point area
-        if ee_poly:
-            def area_in_out(feature):
-                feature_area = feature.area()
-                area_in = ee_poly.intersection(feature.geometry()).area()
-                return feature.set({
-                    POLY_OUT_FIELD: feature_area.subtract(area_in),
-                    POLY_IN_FIELD: area_in})
+            all_bands = modis_band_stack
+
+            mask_dict = {}
+            for dataset_id in datasets_to_process:
+                mask_map, nearest_year_image = build_landcover_masks(
+                    year, datasets[dataset_id], ee_poly)
+                nearest_year_image = nearest_year_image.rename(f'{dataset_id}-nearest_year')
+                for mask_id, mask_image in mask_map.items():
+                    band_names = [x['id'] for x in modis_band_stack.getInfo()['bands']]
+                    LOGGER.debug(f'n bands: {len(band_names)} {band_names}, {len(modis_band_names)} {modis_band_names}')
+                    masked_modis_band_stack = modis_band_stack.updateMask(
+                        mask_image).rename([
+                            f'{band_name}-{mask_id}' for band_name in modis_band_names])
+                    band_names = [x['id'] for x in masked_modis_band_stack.getInfo()['bands']]
+                    LOGGER.debug(f'n bands: {band_names}')
+
+                    all_bands = all_bands.addBands(masked_modis_band_stack)
+                all_bands = all_bands.addBands(nearest_year_image)
+
+            # determine area in/out of point area
+            if ee_poly:
+                def area_in_out(feature):
+                    feature_area = feature.area()
+                    area_in = ee_poly.intersection(feature.geometry()).area()
+                    return feature.set({
+                        POLY_OUT_FIELD: feature_area.subtract(area_in),
+                        POLY_IN_FIELD: area_in})
 
             year_points = year_points.map(area_in_out).getInfo()
 
@@ -307,7 +308,9 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
             'scale': SAMPLE_SCALE}).getInfo()
         sample_list.extend(samples['features'])
 
-    return header_fields_with_prev_year, sample_list
+    header_fields = [x['id'] for x in all_bands.getInfo()['bands']]
+    LOGGER.debug(f'***********\n\n{all_bands.getInfo()}\n\n**************')
+    return header_fields, sample_list
 
 
 def parse_ini(ini_path):
