@@ -251,7 +251,7 @@ def main():
     parser.add_argument('--long_field', default='field_longitude', help='field name in csv_path for longitude, default `long_field`')
     parser.add_argument('--lat_field', default='field_latitude', help='field name in csv_path for latitude, default `lat_field`')
     parser.add_argument('--buffer', type=float, default=1000, help='buffer distance in meters around point to do aggregate analysis, default 1000m')
-    parser.add_argument('--polygon_path', type=str, help='path to local polygon to sample')
+    #parser.add_argument('--polygon_path', type=str, help='path to local polygon to sample')
     parser.add_argument('--n_rows', type=int, help='limit csv read to this many rows')
     parser.add_argument('--authenticate', action='store_true', help='Pass this flag if you need to reauthenticate with GEE')
     for dataset_id in datasets:
@@ -276,6 +276,7 @@ def main():
         ee.Authenticate()
     ee.Initialize()
 
+    LOGGER.info(f'loading {args.csv_path}')
     table = pandas.read_csv(
         args.csv_path,
         skip_blank_lines=True,
@@ -285,17 +286,17 @@ def main():
             args.year_field: lambda x: None if x == '' else int(x),
         },
         nrows=args.n_rows)
+    LOGGER.info(f'loaded {args.csv_path}')
     table = table.dropna()
-    LOGGER.debug(table)
-    ee_poly = None
-    if args.polygon_path:
-        # convert to GEE polygon
-        gp_poly = geopandas.read_file(args.polygon_path).to_crs('EPSG:4326')
-        json_poly = json.loads(gp_poly.to_json())
-        coords = []
-        for json_feature in json_poly['features']:
-            coords.append(json_feature['geometry']['coordinates'])
-        ee_poly = ee.Geometry.MultiPolygon(coords)
+    # ee_poly = None
+    # if args.polygon_path:
+    #     # convert to GEE polygon
+    #     gp_poly = geopandas.read_file(args.polygon_path).to_crs('EPSG:4326')
+    #     json_poly = json.loads(gp_poly.to_json())
+    #     coords = []
+    #     for json_feature in json_poly['features']:
+    #         coords.append(json_feature['geometry']['coordinates'])
+    #     ee_poly = ee.Geometry.MultiPolygon(coords)
 
     pts_by_year = {}
     for year in table[args.year_field].unique():
