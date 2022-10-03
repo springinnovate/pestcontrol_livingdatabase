@@ -94,7 +94,6 @@ def build_landcover_masks(year, dataset_info, ee_poly):
                     mask_dict[mask_type] = mask_dict[mask_type].Or(
                         band.eq(code_value))
             mask_dict[mask_type].getInfo()
-        LOGGER.debug('debug all done')
         return mask_dict, closest_year_image
     except Exception:
         LOGGER.exception(f"ERROR ON {dataset_info['gee_dataset']} {dataset_info['band_name']}, {year}")
@@ -107,42 +106,6 @@ def _get_closest_num(number_list, candidate):
         number_list = eval(number_list)
     index = (numpy.abs(numpy.array(number_list) - candidate)).argmin()
     return int(number_list[index])
-
-
-
-def _nlcd_natural_cultivated_mask(year, ee_poly):
-    """Natural for NLCD in 41-74 or 90-95."""
-    closest_year = _get_closest_num(NLCD_VALID_YEARS, year)
-    nlcd_imagecollection = ee.ImageCollection(NLCD_DATASET)
-    nlcd_year = nlcd_imagecollection.filter(
-        ee.Filter.eq('system:index', str(closest_year))).first().select('landcover')
-    # natural 41-74 & 90-95
-    natural_mask = ee.Image(0).where(
-        nlcd_year.gte(41).And(nlcd_year.lte(74)).Or(
-            nlcd_year.gte(90).And(nlcd_year.lte(95))), 1)
-    natural_mask = natural_mask.rename(NLCD_NATURAL_FIELD)
-
-    cultivated_mask = ee.Image(0).where(
-        nlcd_year.gte(81).And(nlcd_year.lte(82)), 1)
-    cultivated_mask = cultivated_mask.rename(NLCD_CULTIVATED_FIELD)
-
-    if not ee_poly:
-        return natural_mask, cultivated_mask, closest_year
-
-    # create masks of in/out using same bounds as base image
-    polymask = natural_mask.updateMask(ee.Image(1).clip(ee_poly)).unmask().gt(0)
-    inv_polymask = polymask.unmask().Not()
-
-    natural_mask_in = natural_mask.updateMask(polymask)
-    cultivated_mask_in = cultivated_mask.updateMask(polymask)
-    #closest_year_in = closest_year.updateMask(polymask)
-    natural_mask_out = natural_mask.updateMask(inv_polymask)
-    cultivated_mask_out = cultivated_mask.updateMask(inv_polymask)
-    #closest_year_out = closest_year.updateMask(inv_polymask)
-
-    return (
-        natural_mask_in, cultivated_mask_in,
-        natural_mask_out, cultivated_mask_out, closest_year)
 
 
 def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
@@ -163,7 +126,7 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
 
     """
     # these variables are measured in days since 1-1-1970
-    LOGGER.debug('starting sample')
+    LOGGER.debug('starting phenological sampling')
     julian_day_variables = [
         'Greenup_1',
         'MidGreenup_1',
@@ -172,7 +135,7 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
         'MidGreendown_1',
         'Senescence_1',
         'Dormancy_1',
-        ]
+    ]
 
     # these variables are direct quantities
     raw_variables = [
@@ -180,54 +143,16 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
         'EVI_Amplitude_1',
         'EVI_Area_1',
         'QA_Overall_1',
-        ]
+    ]
 
     epoch_date = datetime.strptime('1970-01-01', "%Y-%m-%d")
     modis_phen = ee.ImageCollection(MODIS_DATASET_NAME)
-    LOGGER.debug('got modis')
-    # base_header_fields = [
-    #     f'MODIS-{field}'
-    #     for field in julian_day_variables+raw_variables]
-    # # make copy so we don't overwrite
-    # header_fields = list(base_header_fields)
-    # for dataset_id in datasets_to_process:
-    #     LOGGER.debug(datasets[dataset_id])
-    #     LOGGER.debug(datasets[dataset_id]['mask_types'])
-    #     for mask_code_id in datasets[dataset_id]['mask_types']:
-    #         for header_id in base_header_fields:
-    #             LOGGER.debug(header_id)
-    #             header_fields.append(
-    #                 f'{header_id}-{dataset_id}-{mask_code_id}')
-    #         if ee_poly:
-    #             header_fields += [
-    #                 f'{dataset_id}-{POLY_IN_FIELD}',
-    #                 f'{dataset_id}-{POLY_OUT_FIELD}']
-
-    # if ee_poly:
-    #     header_fields += [POLY_IN_FIELD, POLY_OUT_FIELD]
-
-    # LOGGER.debug(f'header fields: {header_fields}')
 
     sample_list = []
-    all_band_names = []
     for year in pts_by_year.keys():
         LOGGER.debug(f'processing year {year}')
         year_points = pts_by_year[year]
 
-        # if nlcd_flag:
-        #     if not ee_poly:
-        #         nlcd_natural_mask, nlcd_cultivated_mask, nlcd_closest_year = \
-        #             _nlcd_natural_cultivated_mask(year, None)
-        #     else:
-        #         (nlcd_natural_mask_poly_in, nlcd_cultivated_mask_poly_in,
-        #          nlcd_natural_mask_poly_out, nlcd_cultivated_mask_poly_out,
-        #          nlcd_closest_year) = \
-        #             _nlcd_natural_cultivated_mask(year, ee_poly)
-        #     LOGGER.debug(f'nlcd_closest_year: {nlcd_closest_year}')
-
-        # if corine_flag:
-        #     corine_natural_mask, corine_cultivated_mask, corine_closest_year = \
-        #         _corine_natural_cultivated_mask(year)
         LOGGER.info('parse out MODIS variables for year {year}')
         if VALID_MODIS_RANGE[0] <= year <= VALID_MODIS_RANGE[1]:
             LOGGER.debug(f'modis year: {year}')
@@ -244,37 +169,25 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
             raw_variable_bands = modis_phen.select(
                 raw_variables).filterDate(
                 f'{year}-01-01', f'{year}-12-31').toBands()
+
             raw_variable_bands = raw_variable_bands.rename(raw_variables)
-
-            band_names = [x['id'] for x in julian_day_bands.getInfo()['bands']]
-            LOGGER.debug(f'julian day n bands: {len(band_names)} {band_names}')
-
             modis_band_stack = julian_day_bands.addBands(raw_variable_bands)
-
-            band_names = [x['id'] for x in modis_band_stack.getInfo()['bands']]
-            LOGGER.debug(f'local bands n bands: {len(band_names)} {band_names}')
 
             all_bands = modis_band_stack
 
-            mask_dict = {}
             for dataset_id in datasets_to_process:
                 mask_map, nearest_year_image = build_landcover_masks(
                     year, datasets[dataset_id], ee_poly)
                 nearest_year_image = nearest_year_image.rename(f'{dataset_id}-nearest_year')
                 for mask_id, mask_image in mask_map.items():
-                    band_names = [x['id'] for x in modis_band_stack.getInfo()['bands']]
-                    LOGGER.debug(f'n bands: {len(band_names)} {band_names}, {len(modis_band_names)} {modis_band_names}')
                     masked_modis_band_stack = modis_band_stack.updateMask(
                         mask_image).rename([
                             f'{band_name}-{mask_id}' for band_name in modis_band_names])
-                    band_names = [x['id'] for x in masked_modis_band_stack.getInfo()['bands']]
-                    LOGGER.debug(f'n bands: {band_names}')
                     all_bands = all_bands.addBands(masked_modis_band_stack)
-
                     all_bands = all_bands.addBands(mask_image.rename(f'{mask_id}-pixel-prop'))
-                    # create masks of proportion of pixels in/out of current mask
-                    #polymask = natural_mask.updateMask(ee.Image(1).clip(ee_poly)).unmask().gt(0)
-                    #inv_polymask = polymask.unmask().Not()
+                    # TODO: this is where to add the Poly in/out if needed
+                    # polymask = natural_mask.updateMask(ee.Image(1).clip(ee_poly)).unmask().gt(0)
+                    # inv_polymask = polymask.unmask().Not()
 
                 all_bands = all_bands.addBands(nearest_year_image)
 
@@ -297,7 +210,6 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
         sample_list.extend(samples['features'])
 
     header_fields = [x['id'] for x in all_bands.getInfo()['bands']]
-    LOGGER.debug(f'***********\n\n{all_bands.getInfo()}\n\n**************')
     return header_fields, sample_list
 
 
