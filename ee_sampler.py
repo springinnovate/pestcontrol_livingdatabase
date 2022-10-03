@@ -37,7 +37,7 @@ EXPECTED_INI_SECTIONS = {
     'mask_types'
 }
 
-SAMPLE_SCALE = 30  # this is the raster resolution of which to sample the rasters at
+SAMPLE_SCALE = 30  # this is the raster regolution of which to sample the rasters at
 
 REDUCER = 'mean'
 
@@ -293,14 +293,15 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
 
             # determine area in/out of point area
             if ee_poly:
+                LOGGER.debug(f'ee_poly {ee_poly}')
+
                 def area_in_out(feature):
                     feature_area = feature.area()
                     area_in = ee_poly.intersection(feature.geometry()).area()
                     return feature.set({
                         POLY_OUT_FIELD: feature_area.subtract(area_in),
                         POLY_IN_FIELD: area_in})
-
-            year_points = year_points.map(area_in_out).getInfo()
+                year_points = year_points.map(area_in_out).getInfo()
 
         samples = all_bands.reduceRegions(**{
             'collection': year_points,
@@ -377,7 +378,7 @@ def main():
     ee.Initialize()
 
     table = pandas.read_csv(
-        args.csv_path, 
+        args.csv_path,
         skip_blank_lines=True,
         converters={
             args.long_field: lambda x: None if x == '' else float(x),
