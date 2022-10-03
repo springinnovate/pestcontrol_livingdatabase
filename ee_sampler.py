@@ -69,7 +69,6 @@ def build_landcover_masks(year, dataset_info, ee_poly):
         else:
             imagecollection = ee.ImageCollection(dataset_info['gee_dataset'])
 
-        result_dict = {}
         LOGGER.debug(f"query {dataset_info['band_name']}, {year}")
         closest_year = _get_closest_num(dataset_info['valid_years'], year)
         closest_year_image = ee.Image(closest_year)
@@ -109,23 +108,6 @@ def _get_closest_num(number_list, candidate):
     index = (numpy.abs(numpy.array(number_list) - candidate)).argmin()
     return int(number_list[index])
 
-
-def _corine_natural_cultivated_mask(year):
-    """Natural: 311-423, Cultivated: 211 - 244."""
-    closest_year = _get_closest_num(CORINE_VALID_YEARS, year)
-    corine_imagecollection = ee.ImageCollection(CORINE_DATASET)
-
-    corine_landcover = corine_imagecollection.filter(
-        ee.Filter.eq('system:index', str(closest_year))).first().select('landcover')
-
-    natural_mask = ee.Image(0).where(
-        corine_landcover.gte(311).And(corine_landcover.lte(423)), 1)
-    natural_mask = natural_mask.rename(CORINE_NATURAL_FIELD)
-
-    cultivated_mask = ee.Image(0).where(
-        corine_landcover.gte(211).And(corine_landcover.lte(244)), 1)
-    cultivated_mask = cultivated_mask.rename(CORINE_CULTIVATED_FIELD)
-    return natural_mask, cultivated_mask, closest_year
 
 
 def _nlcd_natural_cultivated_mask(year, ee_poly):
@@ -287,8 +269,13 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
                             f'{band_name}-{mask_id}' for band_name in modis_band_names])
                     band_names = [x['id'] for x in masked_modis_band_stack.getInfo()['bands']]
                     LOGGER.debug(f'n bands: {band_names}')
-
                     all_bands = all_bands.addBands(masked_modis_band_stack)
+
+                    all_bands = all_bands.addBands(mask_image.rename(f'{mask_id}-pixel-prop'))
+                    # create masks of proportion of pixels in/out of current mask
+                    #polymask = natural_mask.updateMask(ee.Image(1).clip(ee_poly)).unmask().gt(0)
+                    #inv_polymask = polymask.unmask().Not()
+
                 all_bands = all_bands.addBands(nearest_year_image)
 
             # determine area in/out of point area

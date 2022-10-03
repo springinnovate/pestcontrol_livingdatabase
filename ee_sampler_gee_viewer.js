@@ -33,6 +33,15 @@ var datasets = {
     'USDA/NASS/CDL/2014': ['USDA/NASS/CDL', 'cropland', 2014],
     'USDA/NASS/CDL/2015': ['USDA/NASS/CDL', 'cropland', 2015],
     'USDA/NASS/CDL/2016': ['USDA/NASS/CDL', 'cropland', 2016],
+    'USGS/NLCD_RELEASES/2016_REL/1992': ['USGS/NLCD_RELEASES/2016_REL', 'landcover', 1992],
+    'USGS/NLCD_RELEASES/2016_REL/2001': ['USGS/NLCD_RELEASES/2016_REL', 'landcover', 2001],
+    'USGS/NLCD_RELEASES/2016_REL/2004': ['USGS/NLCD_RELEASES/2016_REL', 'landcover', 2004],
+    'USGS/NLCD_RELEASES/2016_REL/2006': ['USGS/NLCD_RELEASES/2016_REL', 'landcover', 2006],
+    'USGS/NLCD_RELEASES/2016_REL/2008': ['USGS/NLCD_RELEASES/2016_REL', 'landcover', 2008],
+    'USGS/NLCD_RELEASES/2016_REL/2011': ['USGS/NLCD_RELEASES/2016_REL', 'landcover', 2011],
+    'USGS/NLCD_RELEASES/2016_REL/2013': ['USGS/NLCD_RELEASES/2016_REL', 'landcover', 2013],
+    'USGS/NLCD_RELEASES/2016_REL/2016': ['USGS/NLCD_RELEASES/2016_REL', 'landcover', 2016],
+
 };
 
 var legend_styles = {
@@ -54,7 +63,7 @@ function changeColorScheme(key, active_context) {
 
 var linkedMap = ui.Map();
 Map.setCenter(0, 0, 2);
-Map.setCenter(test_point.getInfo().coordinates[0], test_point.getInfo().coordinates[1], 10);
+Map.setCenter(test_point.getInfo().coordinates[0], test_point.getInfo().coordinates[1], 5);
 var linker = ui.Map.Linker([ui.root.widgets().get(0), linkedMap]);
 // Create a SplitPanel which holds the linked maps side-by-side.
 var splitPanel = ui.SplitPanel({
