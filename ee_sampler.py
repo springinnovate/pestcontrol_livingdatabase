@@ -288,7 +288,7 @@ def main():
         nrows=args.n_rows)
     LOGGER.info(f'loaded {args.csv_path}')
     table = table.dropna()
-    # ee_poly = None
+    ee_poly = None
     # if args.polygon_path:
     #     # convert to GEE polygon
     #     gp_poly = geopandas.read_file(args.polygon_path).to_crs('EPSG:4326')
