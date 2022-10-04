@@ -203,7 +203,7 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
                         mask_image).rename([
                             f'{band_name}-{dataset_id}-{mask_id}' for band_name in modis_band_names])
                     all_bands = all_bands.addBands(masked_modis_band_stack)
-                    all_bands = all_bands.addBands(mask_image.rename(f'{mask_id}-pixel-prop'))
+                    all_bands = all_bands.addBands(mask_image.rename(f'{dataset_id}-{mask_id}-pixel-prop'))
                     # TODO: this is where to add the Poly in/out if needed
                     # polymask = natural_mask.updateMask(ee.Image(1).clip(ee_poly)).unmask().gt(0)
                     # inv_polymask = polymask.unmask().Not()
