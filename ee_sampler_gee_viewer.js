@@ -1,62 +1,67 @@
-var test_point = ee.Geometry.Point([-120.369644, 36.41762]);
+var test_point = ee.Geometry.Point([-120.286646, 36.512154]);
+var blob = test_point.buffer(8000);
 
 var datasets = {
     '(*clear*)': '',
-    'MODIS_Greenup_1': ['MODIS/006/MCD12Q2', 'Greenup_1'],
-    'MODIS_MidGreenup_1': ['MODIS/006/MCD12Q2', 'MidGreenup_1'],
-    'MODIS_Peak_1': ['MODIS/006/MCD12Q2', 'Peak_1'],
-    'MODIS_Maturity_1': ['MODIS/006/MCD12Q2', 'Maturity_1'],
-    'MODIS_MidGreendown_1': ['MODIS/006/MCD12Q2', 'MidGreendown_1'],
-    'MODIS_Senescence_1': ['MODIS/006/MCD12Q2', 'Senescence_1'],
-    'MODIS_Dormancy_1': ['MODIS/006/MCD12Q2', 'Dormancy_1'],
-    'MODIS_EVI_Minimum_1': ['MODIS/006/MCD12Q2', 'EVI_Minimum_1'],
-    'MODIS_EVI_Amplitude_1': ['MODIS/006/MCD12Q2', 'EVI_Amplitude_1'],
-    'MODIS_EVI_Area_1': ['MODIS/006/MCD12Q2', 'EVI_Area_1'],
-    'MODIS_QA_Overall_1': ['MODIS/006/MCD12Q2', 'QA_Overall_1'],
-    'MODIS/006/MCD12Q2/2001': ['MODIS/006/MCD12Q2', 'LC_Type2', 2001],
-    'MODIS/006/MCD12Q2/2002': ['MODIS/006/MCD12Q2', 'LC_Type2', 2002],
-    'MODIS/006/MCD12Q2/2003': ['MODIS/006/MCD12Q2', 'LC_Type2', 2003],
-    'MODIS/006/MCD12Q2/2004': ['MODIS/006/MCD12Q2', 'LC_Type2', 2004],
-    'MODIS/006/MCD12Q2/2005': ['MODIS/006/MCD12Q2', 'LC_Type2', 2005],
-    'MODIS/006/MCD12Q2/2006': ['MODIS/006/MCD12Q2', 'LC_Type2', 2006],
-    'MODIS/006/MCD12Q2/2007': ['MODIS/006/MCD12Q2', 'LC_Type2', 2007],
-    'MODIS/006/MCD12Q2/2008': ['MODIS/006/MCD12Q2', 'LC_Type2', 2008],
-    'MODIS/006/MCD12Q2/2009': ['MODIS/006/MCD12Q2', 'LC_Type2', 2009],
-    'MODIS/006/MCD12Q2/2010': ['MODIS/006/MCD12Q2', 'LC_Type2', 2010],
-    'MODIS/006/MCD12Q2/2011': ['MODIS/006/MCD12Q2', 'LC_Type2', 2011],
-    'MODIS/006/MCD12Q2/2012': ['MODIS/006/MCD12Q2', 'LC_Type2', 2012],
-    'MODIS/006/MCD12Q2/2013': ['MODIS/006/MCD12Q2', 'LC_Type2', 2013],
-    'MODIS/006/MCD12Q2/2014': ['MODIS/006/MCD12Q2', 'LC_Type2', 2014],
-    'MODIS/006/MCD12Q2/2015': ['MODIS/006/MCD12Q2', 'LC_Type2', 2015],
-    'MODIS/006/MCD12Q2/2016': ['MODIS/006/MCD12Q2', 'LC_Type2', 2016],
-    'USDA/NASS/CDL/1997': ['USDA/NASS/CDL', 'cropland', 1997],
-    'USDA/NASS/CDL/1998': ['USDA/NASS/CDL', 'cropland', 1998],
-    'USDA/NASS/CDL/1999': ['USDA/NASS/CDL', 'cropland', 1999],
-    'USDA/NASS/CDL/2000': ['USDA/NASS/CDL', 'cropland', 2000],
-    'USDA/NASS/CDL/2001': ['USDA/NASS/CDL', 'cropland', 2001],
-    'USDA/NASS/CDL/2002': ['USDA/NASS/CDL', 'cropland', 2002],
-    'USDA/NASS/CDL/2003': ['USDA/NASS/CDL', 'cropland', 2003],
-    'USDA/NASS/CDL/2004': ['USDA/NASS/CDL', 'cropland', 2004],
-    'USDA/NASS/CDL/2005': ['USDA/NASS/CDL', 'cropland', 2005],
-    'USDA/NASS/CDL/2006': ['USDA/NASS/CDL', 'cropland', 2006],
-    'USDA/NASS/CDL/2007': ['USDA/NASS/CDL', 'cropland', 2007],
-    'USDA/NASS/CDL/2008': ['USDA/NASS/CDL', 'cropland', 2008],
-    'USDA/NASS/CDL/2009': ['USDA/NASS/CDL', 'cropland', 2009],
-    'USDA/NASS/CDL/2010': ['USDA/NASS/CDL', 'cropland', 2010],
-    'USDA/NASS/CDL/2011': ['USDA/NASS/CDL', 'cropland', 2011],
-    'USDA/NASS/CDL/2012': ['USDA/NASS/CDL', 'cropland', 2012],
-    'USDA/NASS/CDL/2013': ['USDA/NASS/CDL', 'cropland', 2013],
-    'USDA/NASS/CDL/2014': ['USDA/NASS/CDL', 'cropland', 2014],
-    'USDA/NASS/CDL/2015': ['USDA/NASS/CDL', 'cropland', 2015],
-    'USDA/NASS/CDL/2016': ['USDA/NASS/CDL', 'cropland', 2016],
-    'USGS/NLCD_RELEASES/2016_REL/1992': ['USGS/NLCD_RELEASES/2016_REL', 'landcover', 1992],
-    'USGS/NLCD_RELEASES/2016_REL/2001': ['USGS/NLCD_RELEASES/2016_REL', 'landcover', 2001],
-    'USGS/NLCD_RELEASES/2016_REL/2004': ['USGS/NLCD_RELEASES/2016_REL', 'landcover', 2004],
-    'USGS/NLCD_RELEASES/2016_REL/2006': ['USGS/NLCD_RELEASES/2016_REL', 'landcover', 2006],
-    'USGS/NLCD_RELEASES/2016_REL/2008': ['USGS/NLCD_RELEASES/2016_REL', 'landcover', 2008],
-    'USGS/NLCD_RELEASES/2016_REL/2011': ['USGS/NLCD_RELEASES/2016_REL', 'landcover', 2011],
-    'USGS/NLCD_RELEASES/2016_REL/2013': ['USGS/NLCD_RELEASES/2016_REL', 'landcover', 2013],
-    'USGS/NLCD_RELEASES/2016_REL/2016': ['USGS/NLCD_RELEASES/2016_REL', 'landcover', 2016],
+    'Greenup_1-modis-natural': ['projects/ecoshard-202922/assets/allbands', 'image', 'Greenup_1-modis-natural'],
+    'Greenup_1-modis-cultivated': ['projects/ecoshard-202922/assets/allbands', 'image', 'Greenup_1-modis-cultivated'],
+    'nat-pixel-prop': ['projects/ecoshard-202922/assets/allbands', 'image', 'natural-pixel-prop'],
+    'cult-pixel-prop': ['projects/ecoshard-202922/assets/allbands', 'image', 'cultivated-pixel-prop'],
+    'MODIS_Greenup_1': ['MODIS/006/MCD12Q2', 'imagecollection', 'Greenup_1'],
+    'MODIS_MidGreenup_1': ['MODIS/006/MCD12Q2', 'imagecollection', 'MidGreenup_1'],
+    'MODIS_Peak_1': ['MODIS/006/MCD12Q2', 'imagecollection', 'Peak_1'],
+    'MODIS_Maturity_1': ['MODIS/006/MCD12Q2', 'imagecollection', 'Maturity_1'],
+    'MODIS_MidGreendown_1': ['MODIS/006/MCD12Q2', 'imagecollection', 'MidGreendown_1'],
+    'MODIS_Senescence_1': ['MODIS/006/MCD12Q2', 'imagecollection', 'Senescence_1'],
+    'MODIS_Dormancy_1': ['MODIS/006/MCD12Q2', 'imagecollection', 'Dormancy_1'],
+    'MODIS_EVI_Minimum_1': ['MODIS/006/MCD12Q2', 'imagecollection', 'EVI_Minimum_1'],
+    'MODIS_EVI_Amplitude_1': ['MODIS/006/MCD12Q2', 'imagecollection', 'EVI_Amplitude_1'],
+    'MODIS_EVI_Area_1': ['MODIS/006/MCD12Q2', 'imagecollection', 'EVI_Area_1'],
+    'MODIS_QA_Overall_1': ['MODIS/006/MCD12Q2', 'imagecollection', 'QA_Overall_1'],
+    'MODIS/006/MCD12Q1/2001': ['MODIS/006/MCD12Q1', 'imagecollection', 'LC_Type2', 2001],
+    'MODIS/006/MCD12Q1/2002': ['MODIS/006/MCD12Q1', 'imagecollection', 'LC_Type2', 2002],
+    'MODIS/006/MCD12Q1/2003': ['MODIS/006/MCD12Q1', 'imagecollection', 'LC_Type2', 2003],
+    'MODIS/006/MCD12Q1/2004': ['MODIS/006/MCD12Q1', 'imagecollection', 'LC_Type2', 2004],
+    'MODIS/006/MCD12Q1/2005': ['MODIS/006/MCD12Q1', 'imagecollection', 'LC_Type2', 2005],
+    'MODIS/006/MCD12Q1/2006': ['MODIS/006/MCD12Q1', 'imagecollection', 'LC_Type2', 2006],
+    'MODIS/006/MCD12Q1/2007': ['MODIS/006/MCD12Q1', 'imagecollection', 'LC_Type2', 2007],
+    'MODIS/006/MCD12Q1/2008': ['MODIS/006/MCD12Q1', 'imagecollection', 'LC_Type2', 2008],
+    'MODIS/006/MCD12Q1/2009': ['MODIS/006/MCD12Q1', 'imagecollection', 'LC_Type2', 2009],
+    'MODIS/006/MCD12Q1/2010': ['MODIS/006/MCD12Q1', 'imagecollection', 'LC_Type2', 2010],
+    'MODIS/006/MCD12Q1/2011': ['MODIS/006/MCD12Q1', 'imagecollection', 'LC_Type2', 2011],
+    'MODIS/006/MCD12Q1/2012': ['MODIS/006/MCD12Q1', 'imagecollection', 'LC_Type2', 2012],
+    'MODIS/006/MCD12Q1/2013': ['MODIS/006/MCD12Q1', 'imagecollection', 'LC_Type2', 2013],
+    'MODIS/006/MCD12Q1/2014': ['MODIS/006/MCD12Q1', 'imagecollection', 'LC_Type2', 2014],
+    'MODIS/006/MCD12Q1/2015': ['MODIS/006/MCD12Q1', 'imagecollection', 'LC_Type2', 2015],
+    'MODIS/006/MCD12Q1/2016': ['MODIS/006/MCD12Q1', 'imagecollection', 'LC_Type2', 2016],
+    'USDA/NASS/CDL/1997': ['USDA/NASS/CDL', 'imagecollection', 'cropland', 1997],
+    'USDA/NASS/CDL/1998': ['USDA/NASS/CDL', 'imagecollection', 'cropland', 1998],
+    'USDA/NASS/CDL/1999': ['USDA/NASS/CDL', 'imagecollection', 'cropland', 1999],
+    'USDA/NASS/CDL/2000': ['USDA/NASS/CDL', 'imagecollection', 'cropland', 2000],
+    'USDA/NASS/CDL/2001': ['USDA/NASS/CDL', 'imagecollection', 'cropland', 2001],
+    'USDA/NASS/CDL/2002': ['USDA/NASS/CDL', 'imagecollection', 'cropland', 2002],
+    'USDA/NASS/CDL/2003': ['USDA/NASS/CDL', 'imagecollection', 'cropland', 2003],
+    'USDA/NASS/CDL/2004': ['USDA/NASS/CDL', 'imagecollection', 'cropland', 2004],
+    'USDA/NASS/CDL/2005': ['USDA/NASS/CDL', 'imagecollection', 'cropland', 2005],
+    'USDA/NASS/CDL/2006': ['USDA/NASS/CDL', 'imagecollection', 'cropland', 2006],
+    'USDA/NASS/CDL/2007': ['USDA/NASS/CDL', 'imagecollection', 'cropland', 2007],
+    'USDA/NASS/CDL/2008': ['USDA/NASS/CDL', 'imagecollection', 'cropland', 2008],
+    'USDA/NASS/CDL/2009': ['USDA/NASS/CDL', 'imagecollection', 'cropland', 2009],
+    'USDA/NASS/CDL/2010': ['USDA/NASS/CDL', 'imagecollection', 'cropland', 2010],
+    'USDA/NASS/CDL/2011': ['USDA/NASS/CDL', 'imagecollection', 'cropland', 2011],
+    'USDA/NASS/CDL/2012': ['USDA/NASS/CDL', 'imagecollection', 'cropland', 2012],
+    'USDA/NASS/CDL/2013': ['USDA/NASS/CDL', 'imagecollection', 'cropland', 2013],
+    'USDA/NASS/CDL/2014': ['USDA/NASS/CDL', 'imagecollection', 'cropland', 2014],
+    'USDA/NASS/CDL/2015': ['USDA/NASS/CDL', 'imagecollection', 'cropland', 2015],
+    'USDA/NASS/CDL/2016': ['USDA/NASS/CDL', 'imagecollection', 'cropland', 2016],
+    'USGS/NLCD_RELEASES/2016_REL/1992': ['USGS/NLCD_RELEASES/2016_REL', 'imagecollection', 'landcover', 1992],
+    'USGS/NLCD_RELEASES/2016_REL/2001': ['USGS/NLCD_RELEASES/2016_REL', 'imagecollection', 'landcover', 2001],
+    'USGS/NLCD_RELEASES/2016_REL/2004': ['USGS/NLCD_RELEASES/2016_REL', 'imagecollection', 'landcover', 2004],
+    'USGS/NLCD_RELEASES/2016_REL/2006': ['USGS/NLCD_RELEASES/2016_REL', 'imagecollection', 'landcover', 2006],
+    'USGS/NLCD_RELEASES/2016_REL/2008': ['USGS/NLCD_RELEASES/2016_REL', 'imagecollection', 'landcover', 2008],
+    'USGS/NLCD_RELEASES/2016_REL/2011': ['USGS/NLCD_RELEASES/2016_REL', 'imagecollection', 'landcover', 2011],
+    'USGS/NLCD_RELEASES/2016_REL/2013': ['USGS/NLCD_RELEASES/2016_REL', 'imagecollection', 'landcover', 2013],
+    'USGS/NLCD_RELEASES/2016_REL/2016': ['USGS/NLCD_RELEASES/2016_REL', 'imagecollection', 'landcover', 2016],
 
 };
 
@@ -79,7 +84,7 @@ function changeColorScheme(key, active_context) {
 
 var linkedMap = ui.Map();
 Map.setCenter(0, 0, 2);
-Map.setCenter(test_point.getInfo().coordinates[0], test_point.getInfo().coordinates[1], 5);
+Map.setCenter(test_point.getInfo().coordinates[0], test_point.getInfo().coordinates[1], 12);
 var linker = ui.Map.Linker([ui.root.widgets().get(0), linkedMap]);
 // Create a SplitPanel which holds the linked maps side-by-side.
 var splitPanel = ui.SplitPanel({
@@ -105,6 +110,7 @@ var panel_list = [];
 
     active_context.map.style().set('cursor', 'crosshair');
     active_context.map.addLayer(test_point, {'color': '#FF0000'});
+    active_context.map.addLayer(blob, {'color': '#FF0000'});
     active_context.visParams = {
       min: 0.0,
       max: 100.0,
@@ -143,15 +149,28 @@ var panel_list = [];
             self.setDisabled(false);
             return;
           }
-          active_context.raster = ee.ImageCollection(
-            datasets[key][0]);
-          if (datasets[key].length == 3) { // has a date too
-              var year = datasets[key][2];
-              active_context.raster = active_context.raster.filter(
-                    ee.Filter.date(
-                        year+'-01-01', year+'-12-31'));
+          var year = null;
+          if (datasets[key][1] == 'imagecollection') {
+            active_context.raster = ee.ImageCollection(
+              datasets[key][0]);
+            if (datasets[key].length == 4) { // has a date too
+                year = datasets[key][3];
+                active_context.raster = active_context.raster.filter(
+                      ee.Filter.date(
+                          year+'-01-01', year+'-12-31'));
+            }
+            active_context.raster = active_context.raster.select(datasets[key][2]).first().rename('B0');
+          } else { //image
+            active_context.raster = ee.Image(
+              datasets[key][0]);
+            if (datasets[key].length == 4) { // has a date too
+                year = datasets[key][3];
+                active_context.raster = active_context.raster.filter(
+                      ee.Filter.date(
+                          year+'-01-01', year+'-12-31'));
+            }
+            active_context.raster = active_context.raster.select(datasets[key][2]).rename('B0');
           }
-          active_context.raster = active_context.raster.select(datasets[key][1]).first().rename('B0');
 
           var mean_reducer = ee.Reducer.percentile([10, 90], ['p10', 'p90']);
           var meanDictionary = active_context.raster.reduceRegion({

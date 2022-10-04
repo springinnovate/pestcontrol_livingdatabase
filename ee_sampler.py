@@ -37,7 +37,7 @@ EXPECTED_INI_SECTIONS = {
     'mask_types'
 }
 
-SAMPLE_SCALE = 30  # this is the raster regolution of which to sample the rasters at
+SAMPLE_SCALE = 500  # this is the raster regolution of which to sample the rasters at
 
 REDUCER = 'mean'
 
@@ -84,16 +84,35 @@ def build_landcover_masks(year, dataset_info, ee_poly):
             dataset = imagecollection
         band = dataset.select(dataset_info['band_name'])
         band.getInfo()
-        mask_dict = {mask_type: ee.Image(0) for mask_type in dataset_info['mask_types']}
+        mask_dict = {}
         for mask_type in dataset_info['mask_types']:
+            mask_dict[mask_type] = None
             for code_value in dataset_info['mask_types'][mask_type]:
+                LOGGER.debug(f'************ {mask_type} {code_value}')
+
                 if isinstance(code_value, tuple):
-                    mask_dict[mask_type] = mask_dict[mask_type].Or(
-                        band.gte(code_value[0]).And(band.lte(code_value[1])))
+                    local_mask = (band.gte(code_value[0])).And(band.lte(code_value[1]))
+                    LOGGER.debug(local_mask.getInfo())
+
                 else:
-                    mask_dict[mask_type] = mask_dict[mask_type].Or(
-                        band.eq(code_value))
-            mask_dict[mask_type].getInfo()
+                    local_mask = band.eq(code_value)
+                if mask_dict[mask_type] is None:
+                    mask_dict[mask_type] = local_mask
+                else:
+                    mask_dict[mask_type] = mask_dict[mask_type].Or(local_mask)
+            # LOGGER.debug(mask_dict[mask_type].getInfo())
+            # task = ee.batch.Export.image.toAsset(**{
+            #     'image': mask_dict[mask_type],
+            #     'description': f'{dataset_info["band_name"]}_{mask_type}',
+            #     'assetId': f'projects/ecoshard-202922/assets/v1_{dataset_info["band_name"]}_{mask_type}',
+            #     'scale': 30,
+            #     'maxPixels': 1e13,
+            #     'region': [-125, 34, -115, 40],
+            #     #'region': region,
+            # })
+            # task.start()
+
+
         return mask_dict, closest_year_image
     except Exception:
         LOGGER.exception(f"ERROR ON {dataset_info['gee_dataset']} {dataset_info['band_name']}, {year}")
@@ -182,7 +201,7 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
                 for mask_id, mask_image in mask_map.items():
                     masked_modis_band_stack = modis_band_stack.updateMask(
                         mask_image).rename([
-                            f'{band_name}-{mask_id}' for band_name in modis_band_names])
+                            f'{band_name}-{dataset_id}-{mask_id}' for band_name in modis_band_names])
                     all_bands = all_bands.addBands(masked_modis_band_stack)
                     all_bands = all_bands.addBands(mask_image.rename(f'{mask_id}-pixel-prop'))
                     # TODO: this is where to add the Poly in/out if needed
@@ -203,10 +222,32 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
                         POLY_IN_FIELD: area_in})
                 year_points = year_points.map(area_in_out).getInfo()
 
+        LOGGER.debug(ee.Geometry.Polygon(year_points.getInfo()['features'][0]['geometry']['coordinates']).area().getInfo())
+        LOGGER.debug(3.14159*8000**2)
         samples = all_bands.reduceRegions(**{
             'collection': year_points,
             'reducer': REDUCER,
-            'scale': SAMPLE_SCALE}).getInfo()
+            'scale': SAMPLE_SCALE,
+        }).getInfo()
+
+        # samples = all_bands.sampleRegions(**{
+        #     'collection': year_points,
+        #     'reducer': REDUCER,
+        #     'scale': SAMPLE_SCALE,
+        # }).getInfo()
+
+        LOGGER.debug(year_points.first().getInfo())
+        task = ee.batch.Export.image.toAsset(**{
+            'image': all_bands,
+            'description': 'allbands',
+            'assetId': 'projects/ecoshard-202922/assets/allbands',
+            'scale': SAMPLE_SCALE,
+            'maxPixels': 1e13,
+            'region': year_points.first().getInfo()['geometry']['coordinates'],
+            #'region': region,
+        })
+        task.start()
+
         sample_list.extend(samples['features'])
 
     header_fields = [x['id'] for x in all_bands.getInfo()['bands']]
@@ -302,7 +343,7 @@ def main():
     for year in table[args.year_field].unique():
         pts_by_year[year] = ee.FeatureCollection([
             ee.Feature(
-                ee.Geometry.Point(row[args.long_field], row[args.lat_field]).buffer(args.buffer),
+                ee.Geometry.Point(row[args.long_field], row[args.lat_field]).buffer(args.buffer).bounds(),
                 row.to_dict())
             for index, row in table[
                 table[args.year_field] == year].dropna().iterrows()])
