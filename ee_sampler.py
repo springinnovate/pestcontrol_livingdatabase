@@ -222,31 +222,23 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
                         POLY_IN_FIELD: area_in})
                 year_points = year_points.map(area_in_out).getInfo()
 
-        LOGGER.debug(ee.Geometry.Polygon(year_points.getInfo()['features'][0]['geometry']['coordinates']).area().getInfo())
-        LOGGER.debug(3.14159*8000**2)
         samples = all_bands.reduceRegions(**{
             'collection': year_points,
             'reducer': REDUCER,
             'scale': SAMPLE_SCALE,
         }).getInfo()
 
-        # samples = all_bands.sampleRegions(**{
-        #     'collection': year_points,
-        #     'reducer': REDUCER,
-        #     'scale': SAMPLE_SCALE,
-        # }).getInfo()
-
         LOGGER.debug(year_points.first().getInfo())
-        task = ee.batch.Export.image.toAsset(**{
-            'image': all_bands,
-            'description': 'allbands',
-            'assetId': 'projects/ecoshard-202922/assets/allbands',
-            'scale': SAMPLE_SCALE,
-            'maxPixels': 1e13,
-            'region': year_points.first().getInfo()['geometry']['coordinates'],
-            #'region': region,
-        })
-        task.start()
+        # task = ee.batch.Export.image.toAsset(**{
+        #     'image': all_bands,
+        #     'description': 'allbands',
+        #     'assetId': 'projects/ecoshard-202922/assets/allbands',
+        #     'scale': SAMPLE_SCALE,
+        #     'maxPixels': 1e13,
+        #     'region': year_points.first().getInfo()['geometry']['coordinates'],
+        #     #'region': region,
+        # })
+        # task.start()
 
         sample_list.extend(samples['features'])
 
