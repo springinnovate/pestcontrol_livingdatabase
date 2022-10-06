@@ -170,12 +170,13 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
     modis_phen = ee.ImageCollection(MODIS_DATASET_NAME)
 
     sample_list = []
-    header_fields = []
+    header_fields = julian_day_variables + raw_variables
     for year in pts_by_year.keys():
         LOGGER.debug(f'processing year {year}')
         year_points = pts_by_year[year]
 
         LOGGER.info(f'parse out MODIS variables for year {year}')
+        modis_band_stack = None
         if VALID_MODIS_RANGE[0] <= year <= VALID_MODIS_RANGE[1]:
             LOGGER.debug(f'modis year: {year}')
             current_year = datetime.strptime(
@@ -197,22 +198,6 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
 
             all_bands = modis_band_stack
 
-            for dataset_id in datasets_to_process:
-                mask_map, nearest_year_image = build_landcover_masks(
-                    year, datasets[dataset_id], ee_poly)
-                nearest_year_image = nearest_year_image.rename(f'{dataset_id}-nearest_year')
-                for mask_id, mask_image in mask_map.items():
-                    masked_modis_band_stack = modis_band_stack.updateMask(
-                        mask_image).rename([
-                            f'{band_name}-{dataset_id}-{mask_id}' for band_name in modis_band_names])
-                    all_bands = all_bands.addBands(masked_modis_band_stack)
-                    all_bands = all_bands.addBands(mask_image.rename(f'{dataset_id}-{mask_id}-pixel-prop'))
-                    # TODO: this is where to add the Poly in/out if needed
-                    # polymask = natural_mask.updateMask(ee.Image(1).clip(ee_poly)).unmask().gt(0)
-                    # inv_polymask = polymask.unmask().Not()
-
-                all_bands = all_bands.addBands(nearest_year_image)
-
             # determine area in/out of point area
             if ee_poly:
                 LOGGER.debug(f'ee_poly {ee_poly}')
@@ -227,6 +212,24 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
         else:
             all_bands = ee.Image().rename(GEE_BUG_WORKAROUND_BANDNAME)
             all_bands = all_bands.addBands(ee.Image(1).rename('modis_invalid_year'))
+
+        for dataset_id in datasets_to_process:
+            mask_map, nearest_year_image = build_landcover_masks(
+                year, datasets[dataset_id], ee_poly)
+            nearest_year_image = nearest_year_image.rename(f'{dataset_id}-nearest_year')
+            for mask_id, mask_image in mask_map.items():
+                if modis_band_stack is not None:
+                    masked_modis_band_stack = modis_band_stack.updateMask(
+                        mask_image).rename([
+                            f'{band_name}-{dataset_id}-{mask_id}' for band_name in modis_band_names])
+                    all_bands = all_bands.addBands(masked_modis_band_stack)
+                all_bands = all_bands.addBands(mask_image.rename(f'{dataset_id}-{mask_id}-pixel-prop'))
+                # TODO: this is where to add the Poly in/out if needed
+                # polymask = natural_mask.updateMask(ee.Image(1).clip(ee_poly)).unmask().gt(0)
+                # inv_polymask = polymask.unmask().Not()
+
+            all_bands = all_bands.addBands(nearest_year_image)
+
         samples = all_bands.reduceRegions(**{
             'collection': year_points,
             'reducer': REDUCER,
