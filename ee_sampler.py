@@ -168,11 +168,12 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
     modis_phen = ee.ImageCollection(MODIS_DATASET_NAME)
 
     sample_list = []
+    header_fields = set()
     for year in pts_by_year.keys():
         LOGGER.debug(f'processing year {year}')
         year_points = pts_by_year[year]
 
-        LOGGER.info('parse out MODIS variables for year {year}')
+        LOGGER.info(f'parse out MODIS variables for year {year}')
         if VALID_MODIS_RANGE[0] <= year <= VALID_MODIS_RANGE[1]:
             LOGGER.debug(f'modis year: {year}')
             current_year = datetime.strptime(
@@ -221,14 +222,15 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
                         POLY_OUT_FIELD: feature_area.subtract(area_in),
                         POLY_IN_FIELD: area_in})
                 year_points = year_points.map(area_in_out).getInfo()
-
+        else:
+            all_bands = ee.Image()
+            all_bands = all_bands.addBands(ee.Image(1).rename('modis_invalid_year'))
         samples = all_bands.reduceRegions(**{
             'collection': year_points,
             'reducer': REDUCER,
             'scale': SAMPLE_SCALE,
         }).getInfo()
 
-        LOGGER.debug(year_points.first().getInfo())
         # task = ee.batch.Export.image.toAsset(**{
         #     'image': all_bands,
         #     'description': 'allbands',
@@ -241,8 +243,10 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
         # task.start()
 
         sample_list.extend(samples['features'])
+        local_header_fields = [x['id'] for x in all_bands.getInfo()['bands']]
+        header_fields |= set(local_header_fields)
 
-    header_fields = [x['id'] for x in all_bands.getInfo()['bands']]
+    #header_fields = [x['id'] for x in all_bands.getInfo()['bands']]
     return header_fields, sample_list
 
 
