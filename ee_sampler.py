@@ -37,6 +37,8 @@ EXPECTED_INI_SECTIONS = {
     'mask_types'
 }
 
+GEE_BUG_WORKAROUND_BANDNAME = 'gee_bug_single_band_doesnt_get_name'
+
 SAMPLE_SCALE = 500  # this is the raster regolution of which to sample the rasters at
 
 REDUCER = 'mean'
@@ -168,7 +170,7 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
     modis_phen = ee.ImageCollection(MODIS_DATASET_NAME)
 
     sample_list = []
-    header_fields = set()
+    header_fields = []
     for year in pts_by_year.keys():
         LOGGER.debug(f'processing year {year}')
         year_points = pts_by_year[year]
@@ -223,7 +225,7 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
                         POLY_IN_FIELD: area_in})
                 year_points = year_points.map(area_in_out).getInfo()
         else:
-            all_bands = ee.Image()
+            all_bands = ee.Image().rename(GEE_BUG_WORKAROUND_BANDNAME)
             all_bands = all_bands.addBands(ee.Image(1).rename('modis_invalid_year'))
         samples = all_bands.reduceRegions(**{
             'collection': year_points,
@@ -243,8 +245,11 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
         # task.start()
 
         sample_list.extend(samples['features'])
-        local_header_fields = [x['id'] for x in all_bands.getInfo()['bands']]
-        header_fields |= set(local_header_fields)
+        local_header_fields = [
+            x['id'] for x in all_bands.getInfo()['bands']
+            if x['id'] not in header_fields and
+            x['id'] != GEE_BUG_WORKAROUND_BANDNAME]
+        header_fields += local_header_fields
 
     #header_fields = [x['id'] for x in all_bands.getInfo()['bands']]
     return header_fields, sample_list
