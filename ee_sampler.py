@@ -3,12 +3,10 @@ from datetime import datetime
 import argparse
 import configparser
 import glob
-import json
 import logging
 import os
 import sys
 
-import geopandas
 import ee
 import numpy
 import pandas
@@ -39,8 +37,6 @@ EXPECTED_INI_SECTIONS = {
 
 GEE_BUG_WORKAROUND_BANDNAME = 'gee_bug_single_band_doesnt_get_name'
 
-SAMPLE_SCALE = 500  # this is the raster regolution of which to sample the rasters at
-
 REDUCER = 'mean'
 
 POLY_IN_FIELD = 'POLY-in'
@@ -50,7 +46,7 @@ MODIS_DATASET_NAME = 'MODIS/006/MCD12Q2'  # 500m resolution
 VALID_MODIS_RANGE = (2001, 2019)
 
 
-def build_landcover_masks(year, dataset_info, ee_poly):
+def build_landcover_masks(year, dataset_info):
     """Build landcover type masks and nearest year calculation.
 
     Args:
@@ -114,7 +110,6 @@ def build_landcover_masks(year, dataset_info, ee_poly):
             # })
             # task.start()
 
-
         return mask_dict, closest_year_image
     except Exception:
         LOGGER.exception(f"ERROR ON {dataset_info['gee_dataset']} {dataset_info['band_name']}, {year}")
@@ -129,7 +124,7 @@ def _get_closest_num(number_list, candidate):
     return int(number_list[index])
 
 
-def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
+def _sample_pheno(pts_by_year, buffer, sample_scale, datasets, datasets_to_process):
     """Sample phenology variables from https://docs.google.com/spreadsheets/d/1nbmCKwIG29PF6Un3vN6mQGgFSWG_vhB6eky7wVqVwPo
 
     Args:
@@ -137,14 +132,15 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
             by year, these are the points that are used to sample underlying
             datasets.
         buffer (float): buffer size of sample points in m
+        sample_scale (float): sample size in m to treat underlying pixels
         datasets (dict): mapping of dataset id -> dataset info
         datasets_to_process (list): list of ids in ``datasets`` to process
-        ee_poly (ee.Polygon): if not None, additionally filter samples on the
-            nlcd/corine datasets to see what's in or out.
 
     Returns:
-        header_fields (list):
-
+        header_fields (list): list of fields to put in a CSV table
+            corresponding to sampled bands
+        sample_list (list): samples indexed by header fields corresponding
+            to the individual points in ``pts_by_year``.
     """
     # these variables are measured in days since 1-1-1970
     LOGGER.debug('starting phenological sampling')
@@ -198,24 +194,13 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
 
             all_bands = modis_band_stack
 
-            # determine area in/out of point area
-            if ee_poly:
-                LOGGER.debug(f'ee_poly {ee_poly}')
-
-                def area_in_out(feature):
-                    feature_area = feature.area()
-                    area_in = ee_poly.intersection(feature.geometry()).area()
-                    return feature.set({
-                        POLY_OUT_FIELD: feature_area.subtract(area_in),
-                        POLY_IN_FIELD: area_in})
-                year_points = year_points.map(area_in_out).getInfo()
         else:
             all_bands = ee.Image().rename(GEE_BUG_WORKAROUND_BANDNAME)
             all_bands = all_bands.addBands(ee.Image(1).rename('modis_invalid_year'))
 
         for dataset_id in datasets_to_process:
             mask_map, nearest_year_image = build_landcover_masks(
-                year, datasets[dataset_id], ee_poly)
+                year, datasets[dataset_id])
             nearest_year_image = nearest_year_image.rename(f'{dataset_id}-nearest_year')
             for mask_id, mask_image in mask_map.items():
                 if modis_band_stack is not None:
@@ -223,17 +208,18 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
                         mask_image).rename([
                             f'{band_name}-{dataset_id}-{mask_id}' for band_name in modis_band_names])
                     all_bands = all_bands.addBands(masked_modis_band_stack)
+                    # get modis mask
+                    modis_mask = modis_band_stack.select(modis_band_stack.bandNames().getInfo()[0]).mask()
+                    modis_overlap_mask = modis_mask.And(mask_image)
+                    all_bands = all_bands.addBands(modis_overlap_mask.rename(f'{dataset_id}-{mask_id}-valid-modis-overlap-prop'))
                 all_bands = all_bands.addBands(mask_image.rename(f'{dataset_id}-{mask_id}-pixel-prop'))
-                # TODO: this is where to add the Poly in/out if needed
-                # polymask = natural_mask.updateMask(ee.Image(1).clip(ee_poly)).unmask().gt(0)
-                # inv_polymask = polymask.unmask().Not()
 
             all_bands = all_bands.addBands(nearest_year_image)
 
         samples = all_bands.reduceRegions(**{
             'collection': year_points,
             'reducer': REDUCER,
-            'scale': SAMPLE_SCALE,
+            'scale': sample_scale,
         }).getInfo()
 
         # task = ee.batch.Export.image.toAsset(**{
@@ -254,7 +240,6 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
             x['id'] != GEE_BUG_WORKAROUND_BANDNAME]
         header_fields += local_header_fields
 
-    #header_fields = [x['id'] for x in all_bands.getInfo()['bands']]
     return header_fields, sample_list
 
 
@@ -296,15 +281,13 @@ def main():
     parser.add_argument('--long_field', default='field_longitude', help='field name in csv_path for longitude, default `long_field`')
     parser.add_argument('--lat_field', default='field_latitude', help='field name in csv_path for latitude, default `lat_field`')
     parser.add_argument('--buffer', type=float, default=1000, help='buffer distance in meters around point to do aggregate analysis, default 1000m')
-    #parser.add_argument('--polygon_path', type=str, help='path to local polygon to sample')
+    parser.add_argument('--sample_scale', type=float, default=500, help='underlying pixel size to sample at, defaults to 500m (modis resolution)')
     parser.add_argument('--n_rows', type=int, help='limit csv read to this many rows')
     parser.add_argument('--authenticate', action='store_true', help='Pass this flag if you need to reauthenticate with GEE')
     for dataset_id in datasets:
         parser.add_argument(
             f'--dataset_{dataset_id}', default=False, action='store_true',
             help=f'use the {dataset_id} {datasets[dataset_id]["band_name"]} {datasets[dataset_id]["gee_dataset"]} dataset for masking')
-    # 2) the natural habitat eo characteristics in and out of polygon
-    # 3) proportion of area outside of polygon
 
     args = parser.parse_args()
 
@@ -333,15 +316,6 @@ def main():
         nrows=args.n_rows)
     LOGGER.info(f'loaded {args.csv_path}')
     table = table.dropna()
-    ee_poly = None
-    # if args.polygon_path:
-    #     # convert to GEE polygon
-    #     gp_poly = geopandas.read_file(args.polygon_path).to_crs('EPSG:4326')
-    #     json_poly = json.loads(gp_poly.to_json())
-    #     coords = []
-    #     for json_feature in json_poly['features']:
-    #         coords.append(json_feature['geometry']['coordinates'])
-    #     ee_poly = ee.Geometry.MultiPolygon(coords)
 
     pts_by_year = {}
     for year in table[args.year_field].unique():
@@ -354,7 +328,8 @@ def main():
 
     LOGGER.debug('calculating pheno variables')
     header_fields, sample_list = _sample_pheno(
-        pts_by_year, args.buffer, datasets, datasets_to_process, ee_poly)
+        pts_by_year, args.buffer, args.sample_scale, datasets,
+        datasets_to_process)
 
     with open(f'sampled_{args.buffer}m_{landcover_substring}_{os.path.basename(args.csv_path)}', 'w') as table_file:
         table_file.write(
