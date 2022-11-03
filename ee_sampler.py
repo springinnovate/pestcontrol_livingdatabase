@@ -33,8 +33,10 @@ EXPECTED_INI_ELEMENTS = {
     'valid_years',
     'filter_by',
 }
+PRECIP_SECTION = 'precip'
+
 EXPECTED_INI_SECTIONS = {
-    'mask_types'
+    'mask_types', PRECIP_SECTION
 }
 
 SAMPLE_SCALE = 500  # this is the raster regolution of which to sample the rasters at
@@ -48,7 +50,7 @@ MODIS_DATASET_NAME = 'MODIS/006/MCD12Q2'  # 500m resolution
 VALID_MODIS_RANGE = (2001, 2019)
 
 
-def build_landcover_masks(year, dataset_info, ee_poly):
+def build_landcover_masks(year, dataset_info):
     """Build landcover type masks and nearest year calculation.
 
     Args:
@@ -85,33 +87,35 @@ def build_landcover_masks(year, dataset_info, ee_poly):
         band = dataset.select(dataset_info['band_name'])
         band.getInfo()
         mask_dict = {}
-        for mask_type in dataset_info['mask_types']:
-            mask_dict[mask_type] = None
-            for code_value in dataset_info['mask_types'][mask_type]:
-                LOGGER.debug(f'************ {mask_type} {code_value}')
+        if 'mask_types' in dataset_info:
+            for mask_type in dataset_info['mask_types']:
+                mask_dict[mask_type] = None
+                for code_value in dataset_info['mask_types'][mask_type]:
+                    LOGGER.debug(f'************ {mask_type} {code_value}')
 
-                if isinstance(code_value, tuple):
-                    local_mask = (band.gte(code_value[0])).And(band.lte(code_value[1]))
-                    LOGGER.debug(local_mask.getInfo())
+                    if isinstance(code_value, tuple):
+                        local_mask = (band.gte(code_value[0])).And(band.lte(code_value[1]))
+                        LOGGER.debug(local_mask.getInfo())
 
-                else:
-                    local_mask = band.eq(code_value)
-                if mask_dict[mask_type] is None:
-                    mask_dict[mask_type] = local_mask
-                else:
-                    mask_dict[mask_type] = mask_dict[mask_type].Or(local_mask)
-            # LOGGER.debug(mask_dict[mask_type].getInfo())
-            # task = ee.batch.Export.image.toAsset(**{
-            #     'image': mask_dict[mask_type],
-            #     'description': f'{dataset_info["band_name"]}_{mask_type}',
-            #     'assetId': f'projects/ecoshard-202922/assets/v1_{dataset_info["band_name"]}_{mask_type}',
-            #     'scale': 30,
-            #     'maxPixels': 1e13,
-            #     'region': [-125, 34, -115, 40],
-            #     #'region': region,
-            # })
-            # task.start()
+                    else:
+                        local_mask = band.eq(code_value)
+                    if mask_dict[mask_type] is None:
+                        mask_dict[mask_type] = local_mask
+                    else:
+                        mask_dict[mask_type] = mask_dict[mask_type].Or(local_mask)
 
+        # Leftover code to dump to a GEE asset for debugging
+        # LOGGER.debug(mask_dict[mask_type].getInfo())
+        # task = ee.batch.Export.image.toAsset(**{
+        #     'image': mask_dict[mask_type],
+        #     'description': f'{dataset_info["band_name"]}_{mask_type}',
+        #     'assetId': f'projects/ecoshard-202922/assets/v1_{dataset_info["band_name"]}_{mask_type}',
+        #     'scale': 30,
+        #     'maxPixels': 1e13,
+        #     'region': [-125, 34, -115, 40],
+        #     #'region': region,
+        # })
+        # task.start()
 
         return mask_dict, closest_year_image
     except Exception:
@@ -127,7 +131,7 @@ def _get_closest_num(number_list, candidate):
     return int(number_list[index])
 
 
-def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
+def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, cmd_args):
     """Sample phenology variables from https://docs.google.com/spreadsheets/d/1nbmCKwIG29PF6Un3vN6mQGgFSWG_vhB6eky7wVqVwPo
 
     Args:
@@ -137,8 +141,7 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
         buffer (float): buffer size of sample points in m
         datasets (dict): mapping of dataset id -> dataset info
         datasets_to_process (list): list of ids in ``datasets`` to process
-        ee_poly (ee.Polygon): if not None, additionally filter samples on the
-            nlcd/corine datasets to see what's in or out.
+        cmd_args (parseargs): command line arguments used to start process
 
     Returns:
         header_fields (list):
@@ -192,11 +195,43 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
             raw_variable_bands = raw_variable_bands.rename(raw_variables)
             modis_band_stack = julian_day_bands.addBands(raw_variable_bands)
 
+            # TODO: add precip here
+            for precip_dataset_id in datasets_to_process:
+                if not precip_dataset_id.startswith('precip_'):
+                    continue
+                precip_dataset = ee.ImageCollection(datasets[precip_dataset_id]['gee_dataset']).select(datasets[precip_dataset_id]['band_name'])
+
+                start_day, end_day = cmd_args.precip_season_start_end
+                agg_days = cmd_args.precip_aggregation_days
+                current_day = start_day
+                start_date = ee.Date(f'{year}-01-01').advance(start_day, 'day')
+                end_date = ee.Date(f'{year}-01-01').advance(end_day, 'day')
+                precip_band = precip_dataset.filterDate(
+                    start_date, end_date).reduce('sum').rename(
+                    f'{precip_dataset_id}_{start_day}_{end_day}')
+
+                while True:
+                    if current_day >= end_day:
+                        break
+                    LOGGER.debug(f'{current_day} to {end_day}')
+                    # advance agg days - 1 since end is inclusive (1 day is just current day not today and tomorrow)
+                    if agg_days + current_day > end_day:
+                        agg_days = end_day-current_day
+                    end_date = start_date.advance(agg_days, 'day')
+                    LOGGER.debug(f'{start_date.getInfo()} {end_date.getInfo()}')
+                    period_precip_sample = precip_dataset.select(datasets[precip_dataset_id]['band_name']).filterDate(
+                        start_date, end_date).reduce('sum').rename(f'{precip_dataset_id}_{current_day}_{current_day+agg_days}')
+                    precip_band = precip_band.addBands(period_precip_sample)
+                    start_date = end_date
+                    current_day += agg_days
+
+                modis_band_stack = modis_band_stack.addBands(precip_band)
+
             all_bands = modis_band_stack
 
             for dataset_id in datasets_to_process:
                 mask_map, nearest_year_image = build_landcover_masks(
-                    year, datasets[dataset_id], ee_poly)
+                    year, datasets[dataset_id])
                 nearest_year_image = nearest_year_image.rename(f'{dataset_id}-nearest_year')
                 for mask_id, mask_image in mask_map.items():
                     masked_modis_band_stack = modis_band_stack.updateMask(
@@ -204,23 +239,8 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, ee_poly):
                             f'{band_name}-{dataset_id}-{mask_id}' for band_name in modis_band_names])
                     all_bands = all_bands.addBands(masked_modis_band_stack)
                     all_bands = all_bands.addBands(mask_image.rename(f'{dataset_id}-{mask_id}-pixel-prop'))
-                    # TODO: this is where to add the Poly in/out if needed
-                    # polymask = natural_mask.updateMask(ee.Image(1).clip(ee_poly)).unmask().gt(0)
-                    # inv_polymask = polymask.unmask().Not()
 
                 all_bands = all_bands.addBands(nearest_year_image)
-
-            # determine area in/out of point area
-            if ee_poly:
-                LOGGER.debug(f'ee_poly {ee_poly}')
-
-                def area_in_out(feature):
-                    feature_area = feature.area()
-                    area_in = ee_poly.intersection(feature.geometry()).area()
-                    return feature.set({
-                        POLY_OUT_FIELD: feature_area.subtract(area_in),
-                        POLY_IN_FIELD: area_in})
-                year_points = year_points.map(area_in_out).getInfo()
 
         samples = all_bands.reduceRegions(**{
             'collection': year_points,
@@ -258,25 +278,30 @@ def parse_ini(ini_path):
         if element_id not in dataset_config[basename]:
             raise ValueError(f'expected an entry called {element_id} but only found {dataset_config[basename].items()}')
         dataset_result[element_id] = dataset_config[basename][element_id]
+    found_expected_section = False
     for section_id in EXPECTED_INI_SECTIONS:
-        if section_id not in dataset_config:
-            raise ValueError(f'expected a section called {section_id} but only found {dataset_config.sections()}')
-        dataset_result[section_id] = {}
-        for element_id in dataset_config[section_id].items():
-            LOGGER.debug(element_id)
-            dataset_result[section_id][element_id[0]] = eval(element_id[1])
+        if section_id in dataset_config:
+            found_expected_section = True
+            break
+    if not found_expected_section:
+        raise ValueError(
+            f'expected any one of sections called {EXPECTED_INI_SECTIONS} but only found {dataset_config.sections()}')
+    dataset_result[section_id] = {}
+    for element_id in dataset_config[section_id].items():
+        LOGGER.debug(element_id)
+        dataset_result[section_id][element_id[0]] = eval(element_id[1])
     return dataset_result
 
 
 def main():
     """Entry point."""
-    datasets = {}
+    args_datasets = {}
     for ini_path in glob.glob(os.path.join(INI_DIR, '*.ini')):
         dataset_config = parse_ini(ini_path)
         basename = os.path.basename(os.path.splitext(ini_path)[0])
-        datasets[basename] = dataset_config
+        args_datasets[basename] = dataset_config
 
-    LOGGER.debug(datasets)
+    LOGGER.debug(args_datasets)
     parser = argparse.ArgumentParser(
         description='sample points on GEE data')
     parser.add_argument('csv_path', help='path to CSV data table')
@@ -284,25 +309,45 @@ def main():
     parser.add_argument('--long_field', default='field_longitude', help='field name in csv_path for longitude, default `long_field`')
     parser.add_argument('--lat_field', default='field_latitude', help='field name in csv_path for latitude, default `lat_field`')
     parser.add_argument('--buffer', type=float, default=1000, help='buffer distance in meters around point to do aggregate analysis, default 1000m')
-    #parser.add_argument('--polygon_path', type=str, help='path to local polygon to sample')
     parser.add_argument('--n_rows', type=int, help='limit csv read to this many rows')
     parser.add_argument('--authenticate', action='store_true', help='Pass this flag if you need to reauthenticate with GEE')
-    for dataset_id in datasets:
+    for dataset_id in args_datasets:
         parser.add_argument(
             f'--dataset_{dataset_id}', default=False, action='store_true',
-            help=f'use the {dataset_id} {datasets[dataset_id]["band_name"]} {datasets[dataset_id]["gee_dataset"]} dataset for masking')
+            help=f'use the {dataset_id} {args_datasets[dataset_id]["band_name"]} {args_datasets[dataset_id]["gee_dataset"]} dataset for masking')
+    parser.add_argument(
+        '--precip_season_start_end', type=int, nargs=2, help=(
+            'Two arguments defining the START day offset of the season from number of days away from Jan 1 of the '
+            'current year (can be negative) to number of days away from Jan 1 for end of season (e.x. -100, 100 '
+            'defines a season starting at Sep 23 of previous year to April 10 of current year.'))
+    parser.add_argument(
+        '--precip_aggregation_days', type=int, help='number of days to aggregate precipitation over to report in periods.')
     # 2) the natural habitat eo characteristics in and out of polygon
     # 3) proportion of area outside of polygon
 
     args = parser.parse_args()
 
-    default_config = configparser.ConfigParser(allow_no_value=True)
-    default_config.read('global_config.ini')
-
     datasets_to_process = [
         x.split('dataset_')[1]
         for x in vars(args)
         if x.startswith('dataset') and vars(args)[x]]
+    datasets = {}
+
+    precip_required = False
+    for ini_path in [
+            os.path.join(INI_DIR, f'{dataset_id}.ini')
+            for dataset_id in datasets_to_process]:
+        dataset_config = parse_ini(ini_path)
+        basename = os.path.basename(os.path.splitext(ini_path)[0])
+        datasets[basename] = dataset_config
+        if PRECIP_SECTION in datasets[basename]:
+            precip_required = True
+
+    if precip_required:
+        if args.precip_season_start_end is None:
+            raise ValueError('Expected --precip_season_start_end because one of the datasets is a precip dataset')
+        if args.precip_aggregation_days is None:
+            raise ValueError('Expected --precip_aggregation_days because one of the datasets is a precip dataset')
     landcover_substring = '_'.join(datasets_to_process)
     LOGGER.debug(landcover_substring)
     if args.authenticate:
@@ -321,15 +366,6 @@ def main():
         nrows=args.n_rows)
     LOGGER.info(f'loaded {args.csv_path}')
     table = table.dropna()
-    ee_poly = None
-    # if args.polygon_path:
-    #     # convert to GEE polygon
-    #     gp_poly = geopandas.read_file(args.polygon_path).to_crs('EPSG:4326')
-    #     json_poly = json.loads(gp_poly.to_json())
-    #     coords = []
-    #     for json_feature in json_poly['features']:
-    #         coords.append(json_feature['geometry']['coordinates'])
-    #     ee_poly = ee.Geometry.MultiPolygon(coords)
 
     pts_by_year = {}
     for year in table[args.year_field].unique():
@@ -342,7 +378,7 @@ def main():
 
     LOGGER.debug('calculating pheno variables')
     header_fields, sample_list = _sample_pheno(
-        pts_by_year, args.buffer, datasets, datasets_to_process, ee_poly)
+        pts_by_year, args.buffer, datasets, datasets_to_process, args)
 
     with open(f'sampled_{args.buffer}m_{landcover_substring}_{os.path.basename(args.csv_path)}', 'w') as table_file:
         table_file.write(
