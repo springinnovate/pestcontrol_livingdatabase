@@ -224,8 +224,6 @@ def _sample_pheno(pts_by_year, buffer, sample_scale, datasets, datasets_to_proce
 
         for dataset_id in datasets_to_process:
             LOGGER.debug(f'masking {dataset_id}')
-            if dataset_id.startswith('precip_'):
-                continue
             mask_map, nearest_year_image = build_landcover_masks(
                 year, datasets[dataset_id])
             nearest_year_image = nearest_year_image.rename(f'{dataset_id}-nearest_year')
