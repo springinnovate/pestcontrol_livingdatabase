@@ -3,12 +3,10 @@ from datetime import datetime
 import argparse
 import configparser
 import glob
-import json
 import logging
 import os
 import sys
 
-import geopandas
 import ee
 import numpy
 import pandas
@@ -39,7 +37,7 @@ EXPECTED_INI_SECTIONS = {
     'mask_types', PRECIP_SECTION
 }
 
-SAMPLE_SCALE = 500  # this is the raster regolution of which to sample the rasters at
+GEE_BUG_WORKAROUND_BANDNAME = 'gee_bug_single_band_doesnt_get_name'
 
 REDUCER = 'mean'
 
@@ -104,19 +102,6 @@ def build_landcover_masks(year, dataset_info):
                     else:
                         mask_dict[mask_type] = mask_dict[mask_type].Or(local_mask)
 
-        # Leftover code to dump to a GEE asset for debugging
-        # LOGGER.debug(mask_dict[mask_type].getInfo())
-        # task = ee.batch.Export.image.toAsset(**{
-        #     'image': mask_dict[mask_type],
-        #     'description': f'{dataset_info["band_name"]}_{mask_type}',
-        #     'assetId': f'projects/ecoshard-202922/assets/v1_{dataset_info["band_name"]}_{mask_type}',
-        #     'scale': 30,
-        #     'maxPixels': 1e13,
-        #     'region': [-125, 34, -115, 40],
-        #     #'region': region,
-        # })
-        # task.start()
-
         return mask_dict, closest_year_image
     except Exception:
         LOGGER.exception(f"ERROR ON {dataset_info['gee_dataset']} {dataset_info['band_name']}, {year}")
@@ -131,7 +116,7 @@ def _get_closest_num(number_list, candidate):
     return int(number_list[index])
 
 
-def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, cmd_args):
+def _sample_pheno(pts_by_year, buffer, sample_scale, datasets, datasets_to_process, cmd_args):
     """Sample phenology variables from https://docs.google.com/spreadsheets/d/1nbmCKwIG29PF6Un3vN6mQGgFSWG_vhB6eky7wVqVwPo
 
     Args:
@@ -139,13 +124,16 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, cmd_args):
             by year, these are the points that are used to sample underlying
             datasets.
         buffer (float): buffer size of sample points in m
+        sample_scale (float): sample size in m to treat underlying pixels
         datasets (dict): mapping of dataset id -> dataset info
         datasets_to_process (list): list of ids in ``datasets`` to process
         cmd_args (parseargs): command line arguments used to start process
 
     Returns:
-        header_fields (list):
-
+        header_fields (list): list of fields to put in a CSV table
+            corresponding to sampled bands
+        sample_list (list): samples indexed by header fields corresponding
+            to the individual points in ``pts_by_year``.
     """
     # these variables are measured in days since 1-1-1970
     LOGGER.debug('starting phenological sampling')
@@ -171,11 +159,13 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, cmd_args):
     modis_phen = ee.ImageCollection(MODIS_DATASET_NAME)
 
     sample_list = []
+    header_fields = julian_day_variables + raw_variables
     for year in pts_by_year.keys():
         LOGGER.debug(f'processing year {year}')
         year_points = pts_by_year[year]
 
-        LOGGER.info('parse out MODIS variables for year {year}')
+        LOGGER.info(f'parse out MODIS variables for year {year}')
+        modis_band_stack = None
         if VALID_MODIS_RANGE[0] <= year <= VALID_MODIS_RANGE[1]:
             LOGGER.debug(f'modis year: {year}')
             current_year = datetime.strptime(
@@ -197,26 +187,68 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, cmd_args):
 
             all_bands = modis_band_stack
 
-            for dataset_id in datasets_to_process:
-                mask_map, nearest_year_image = build_landcover_masks(
-                    year, datasets[dataset_id])
-                nearest_year_image = nearest_year_image.rename(f'{dataset_id}-nearest_year')
-                for mask_id, mask_image in mask_map.items():
+        else:
+            all_bands = ee.Image().rename(GEE_BUG_WORKAROUND_BANDNAME)
+            all_bands = all_bands.addBands(ee.Image(1).rename('modis_invalid_year'))
+
+        for precip_dataset_id in datasets_to_process:
+            if not precip_dataset_id.startswith('precip_'):
+                continue
+            precip_dataset = ee.ImageCollection(datasets[precip_dataset_id]['gee_dataset']).select(datasets[precip_dataset_id]['band_name'])
+
+            start_day, end_day = cmd_args.precip_season_start_end
+            agg_days = cmd_args.precip_aggregation_days
+            current_day = start_day
+            start_date = ee.Date(f'{year}-01-01').advance(start_day, 'day')
+            end_date = ee.Date(f'{year}-01-01').advance(end_day, 'day')
+            precip_band = precip_dataset.filterDate(
+                start_date, end_date).reduce('sum').rename(
+                f'{precip_dataset_id}_{start_day}_{end_day}')
+
+            while True:
+                if current_day >= end_day:
+                    break
+                LOGGER.debug(f'{current_day} to {end_day}')
+                # advance agg days - 1 since end is inclusive (1 day is just current day not today and tomorrow)
+                if agg_days + current_day > end_day:
+                    agg_days = end_day-current_day
+                end_date = start_date.advance(agg_days, 'day')
+                period_precip_sample = precip_dataset.select(datasets[precip_dataset_id]['band_name']).filterDate(
+                    start_date, end_date).reduce('sum').rename(f'{precip_dataset_id}_{current_day}_{current_day+agg_days}')
+                precip_band = precip_band.addBands(period_precip_sample)
+                start_date = end_date
+                current_day += agg_days
+
+            LOGGER.debug('adding all precip bands to modis')
+            all_bands = all_bands.addBands(precip_band)
+
+        for dataset_id in datasets_to_process:
+            LOGGER.debug(f'masking {dataset_id}')
+            if dataset_id.startswith('precip_'):
+                continue
+            mask_map, nearest_year_image = build_landcover_masks(
+                year, datasets[dataset_id])
+            nearest_year_image = nearest_year_image.rename(f'{dataset_id}-nearest_year')
+            for mask_id, mask_image in mask_map.items():
+                if modis_band_stack is not None:
                     masked_modis_band_stack = modis_band_stack.updateMask(
                         mask_image).rename([
                             f'{band_name}-{dataset_id}-{mask_id}' for band_name in modis_band_names])
                     all_bands = all_bands.addBands(masked_modis_band_stack)
-                    all_bands = all_bands.addBands(mask_image.rename(f'{dataset_id}-{mask_id}-pixel-prop'))
+                    # get modis mask
+                    modis_mask = modis_band_stack.select(modis_band_stack.bandNames().getInfo()[0]).mask()
+                    modis_overlap_mask = modis_mask.And(mask_image)
+                    all_bands = all_bands.addBands(modis_overlap_mask.rename(f'{dataset_id}-{mask_id}-valid-modis-overlap-prop'))
+                all_bands = all_bands.addBands(mask_image.rename(f'{dataset_id}-{mask_id}-pixel-prop'))
 
-                all_bands = all_bands.addBands(nearest_year_image)
+            all_bands = all_bands.addBands(nearest_year_image)
 
         samples = all_bands.reduceRegions(**{
             'collection': year_points,
             'reducer': REDUCER,
-            'scale': SAMPLE_SCALE,
+            'scale': sample_scale,
         }).getInfo()
 
-        LOGGER.debug(year_points.first().getInfo())
         # task = ee.batch.Export.image.toAsset(**{
         #     'image': all_bands,
         #     'description': 'allbands',
@@ -229,8 +261,12 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, cmd_args):
         # task.start()
 
         sample_list.extend(samples['features'])
+        local_header_fields = [
+            x['id'] for x in all_bands.getInfo()['bands']
+            if x['id'] not in header_fields and
+            x['id'] != GEE_BUG_WORKAROUND_BANDNAME]
+        header_fields += local_header_fields
 
-    header_fields = [x['id'] for x in all_bands.getInfo()['bands']]
     return header_fields, sample_list
 
 
@@ -277,6 +313,7 @@ def main():
     parser.add_argument('--long_field', default='field_longitude', help='field name in csv_path for longitude, default `long_field`')
     parser.add_argument('--lat_field', default='field_latitude', help='field name in csv_path for latitude, default `lat_field`')
     parser.add_argument('--buffer', type=float, default=1000, help='buffer distance in meters around point to do aggregate analysis, default 1000m')
+    parser.add_argument('--sample_scale', type=float, default=500, help='underlying pixel size to sample at, defaults to 500m (modis resolution)')
     parser.add_argument('--n_rows', type=int, help='limit csv read to this many rows')
     parser.add_argument('--authenticate', action='store_true', help='Pass this flag if you need to reauthenticate with GEE')
     for dataset_id in args_datasets:
@@ -346,7 +383,7 @@ def main():
 
     LOGGER.debug('calculating pheno variables')
     header_fields, sample_list = _sample_pheno(
-        pts_by_year, args.buffer, datasets, datasets_to_process, args)
+        pts_by_year, args.buffer, args.sample_scale, datasets, datasets_to_process, args)
 
     with open(f'sampled_{args.buffer}m_{landcover_substring}_{os.path.basename(args.csv_path)}', 'w') as table_file:
         table_file.write(
