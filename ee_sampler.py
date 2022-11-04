@@ -165,13 +165,14 @@ def _sample_pheno(pts_by_year, buffer, sample_scale, datasets, datasets_to_proce
         year_points = pts_by_year[year]
 
         LOGGER.info(f'parse out MODIS variables for year {year}')
-        modis_band_stack = None
+        raw_band_stack = None
+        raw_band_names = None
         if VALID_MODIS_RANGE[0] <= year <= VALID_MODIS_RANGE[1]:
             LOGGER.debug(f'modis year: {year}')
             current_year = datetime.strptime(
                 f'{year}-01-01', "%Y-%m-%d")
             days_since_epoch = (current_year - epoch_date).days
-            modis_band_names = julian_day_variables + raw_variables
+            raw_band_names = julian_day_variables + raw_variables
             bands_since_1970 = modis_phen.select(
                 julian_day_variables).filterDate(
                 f'{year}-01-01', f'{year}-12-31')
@@ -183,9 +184,9 @@ def _sample_pheno(pts_by_year, buffer, sample_scale, datasets, datasets_to_proce
                 f'{year}-01-01', f'{year}-12-31').toBands()
 
             raw_variable_bands = raw_variable_bands.rename(raw_variables)
-            modis_band_stack = julian_day_bands.addBands(raw_variable_bands)
+            raw_band_stack = julian_day_bands.addBands(raw_variable_bands)
 
-            all_bands = modis_band_stack
+            all_bands = raw_band_stack
 
         else:
             all_bands = ee.Image().rename(GEE_BUG_WORKAROUND_BANDNAME)
@@ -201,9 +202,10 @@ def _sample_pheno(pts_by_year, buffer, sample_scale, datasets, datasets_to_proce
             current_day = start_day
             start_date = ee.Date(f'{year}-01-01').advance(start_day, 'day')
             end_date = ee.Date(f'{year}-01-01').advance(end_day, 'day')
+            total_precip_bandname = f'{precip_dataset_id}_{start_day}_{end_day}'
+            raw_band_names.append(total_precip_bandname)
             precip_band = precip_dataset.filterDate(
-                start_date, end_date).reduce('sum').rename(
-                f'{precip_dataset_id}_{start_day}_{end_day}')
+                start_date, end_date).reduce('sum').rename(total_precip_bandname)
 
             while True:
                 if current_day >= end_day:
@@ -213,14 +215,20 @@ def _sample_pheno(pts_by_year, buffer, sample_scale, datasets, datasets_to_proce
                 if agg_days + current_day > end_day:
                     agg_days = end_day-current_day
                 end_date = start_date.advance(agg_days, 'day')
+                period_precip_bandname = f'{precip_dataset_id}_{current_day}_{current_day+agg_days}'
+                raw_band_names.append(period_precip_bandname)
                 period_precip_sample = precip_dataset.select(datasets[precip_dataset_id]['band_name']).filterDate(
-                    start_date, end_date).reduce('sum').rename(f'{precip_dataset_id}_{current_day}_{current_day+agg_days}')
+                    start_date, end_date).reduce('sum').rename(period_precip_bandname)
                 precip_band = precip_band.addBands(period_precip_sample)
                 start_date = end_date
                 current_day += agg_days
 
             LOGGER.debug('adding all precip bands to modis')
             all_bands = all_bands.addBands(precip_band)
+            if raw_band_stack is not None:
+                raw_band_stack = raw_band_stack.addBands(precip_band)
+            else:
+                raw_band_stack = precip_band
 
         for dataset_id in datasets_to_process:
             LOGGER.debug(f'masking {dataset_id}')
@@ -228,13 +236,13 @@ def _sample_pheno(pts_by_year, buffer, sample_scale, datasets, datasets_to_proce
                 year, datasets[dataset_id])
             nearest_year_image = nearest_year_image.rename(f'{dataset_id}-nearest_year')
             for mask_id, mask_image in mask_map.items():
-                if modis_band_stack is not None:
-                    masked_modis_band_stack = modis_band_stack.updateMask(
+                if raw_band_stack is not None:
+                    masked_raw_band_stack = raw_band_stack.updateMask(
                         mask_image).rename([
-                            f'{band_name}-{dataset_id}-{mask_id}' for band_name in modis_band_names])
-                    all_bands = all_bands.addBands(masked_modis_band_stack)
+                            f'{band_name}-{dataset_id}-{mask_id}' for band_name in raw_band_names])
+                    all_bands = all_bands.addBands(masked_raw_band_stack)
                     # get modis mask
-                    modis_mask = modis_band_stack.select(modis_band_stack.bandNames().getInfo()[0]).mask()
+                    modis_mask = raw_band_stack.select(raw_band_stack.bandNames().getInfo()[0]).mask()
                     modis_overlap_mask = modis_mask.And(mask_image)
                     all_bands = all_bands.addBands(modis_overlap_mask.rename(f'{dataset_id}-{mask_id}-valid-modis-overlap-prop'))
                 all_bands = all_bands.addBands(mask_image.rename(f'{dataset_id}-{mask_id}-pixel-prop'))
