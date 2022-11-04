@@ -166,13 +166,13 @@ def _sample_pheno(pts_by_year, buffer, sample_scale, datasets, datasets_to_proce
 
         LOGGER.info(f'parse out MODIS variables for year {year}')
         raw_band_stack = None
-        raw_band_names = None
+        raw_band_names = []
         if VALID_MODIS_RANGE[0] <= year <= VALID_MODIS_RANGE[1]:
             LOGGER.debug(f'modis year: {year}')
             current_year = datetime.strptime(
                 f'{year}-01-01', "%Y-%m-%d")
             days_since_epoch = (current_year - epoch_date).days
-            raw_band_names = julian_day_variables + raw_variables
+            raw_band_names.extend(julian_day_variables + raw_variables)
             bands_since_1970 = modis_phen.select(
                 julian_day_variables).filterDate(
                 f'{year}-01-01', f'{year}-12-31')
