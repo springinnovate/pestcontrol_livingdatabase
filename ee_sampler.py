@@ -195,38 +195,6 @@ def _sample_pheno(pts_by_year, buffer, datasets, datasets_to_process, cmd_args):
             raw_variable_bands = raw_variable_bands.rename(raw_variables)
             modis_band_stack = julian_day_bands.addBands(raw_variable_bands)
 
-            # TODO: add precip here
-            for precip_dataset_id in datasets_to_process:
-                if not precip_dataset_id.startswith('precip_'):
-                    continue
-                precip_dataset = ee.ImageCollection(datasets[precip_dataset_id]['gee_dataset']).select(datasets[precip_dataset_id]['band_name'])
-
-                start_day, end_day = cmd_args.precip_season_start_end
-                agg_days = cmd_args.precip_aggregation_days
-                current_day = start_day
-                start_date = ee.Date(f'{year}-01-01').advance(start_day, 'day')
-                end_date = ee.Date(f'{year}-01-01').advance(end_day, 'day')
-                precip_band = precip_dataset.filterDate(
-                    start_date, end_date).reduce('sum').rename(
-                    f'{precip_dataset_id}_{start_day}_{end_day}')
-
-                while True:
-                    if current_day >= end_day:
-                        break
-                    LOGGER.debug(f'{current_day} to {end_day}')
-                    # advance agg days - 1 since end is inclusive (1 day is just current day not today and tomorrow)
-                    if agg_days + current_day > end_day:
-                        agg_days = end_day-current_day
-                    end_date = start_date.advance(agg_days, 'day')
-                    LOGGER.debug(f'{start_date.getInfo()} {end_date.getInfo()}')
-                    period_precip_sample = precip_dataset.select(datasets[precip_dataset_id]['band_name']).filterDate(
-                        start_date, end_date).reduce('sum').rename(f'{precip_dataset_id}_{current_day}_{current_day+agg_days}')
-                    precip_band = precip_band.addBands(period_precip_sample)
-                    start_date = end_date
-                    current_day += agg_days
-
-                modis_band_stack = modis_band_stack.addBands(precip_band)
-
             all_bands = modis_band_stack
 
             for dataset_id in datasets_to_process:
