@@ -167,7 +167,9 @@ def _sample_pheno(pts_by_year, buffer, sample_scale, datasets, datasets_to_proce
         LOGGER.info(f'parse out MODIS variables for year {year}')
         raw_band_stack = None
         raw_band_names = []
+        valid_modis_year = False
         if VALID_MODIS_RANGE[0] <= year <= VALID_MODIS_RANGE[1]:
+            valid_modis_year = True
             LOGGER.debug(f'modis year: {year}')
             current_year = datetime.strptime(
                 f'{year}-01-01', "%Y-%m-%d")
@@ -187,10 +189,11 @@ def _sample_pheno(pts_by_year, buffer, sample_scale, datasets, datasets_to_proce
             raw_band_stack = julian_day_bands.addBands(raw_variable_bands)
 
             all_bands = raw_band_stack
+            all_bands = all_bands.addBands(ee.Image(1).rename('valid_modis_year'))
 
         else:
             all_bands = ee.Image().rename(GEE_BUG_WORKAROUND_BANDNAME)
-            all_bands = all_bands.addBands(ee.Image(1).rename('modis_invalid_year'))
+            all_bands = all_bands.addBands(ee.Image(0).rename('valid_modis_year'))
 
         for precip_dataset_id in datasets_to_process:
             if not precip_dataset_id.startswith('precip_'):
@@ -242,9 +245,11 @@ def _sample_pheno(pts_by_year, buffer, sample_scale, datasets, datasets_to_proce
                             f'{band_name}-{dataset_id}-{mask_id}' for band_name in raw_band_names])
                     all_bands = all_bands.addBands(masked_raw_band_stack)
                     # get modis mask
-                    modis_mask = raw_band_stack.select(raw_band_stack.bandNames().getInfo()[0]).mask()
-                    modis_overlap_mask = modis_mask.And(mask_image)
-                    all_bands = all_bands.addBands(modis_overlap_mask.rename(f'{dataset_id}-{mask_id}-valid-modis-overlap-prop'))
+                    if valid_modis_year:
+                        modis_mask = raw_band_stack.select(raw_band_stack.bandNames().getInfo()[0]).mask()
+                        modis_overlap_mask = modis_mask.And(mask_image)
+                        all_bands = all_bands.addBands(modis_overlap_mask.rename(f'{dataset_id}-{mask_id}-valid-modis-overlap-prop'))
+
                 all_bands = all_bands.addBands(mask_image.rename(f'{dataset_id}-{mask_id}-pixel-prop'))
 
             all_bands = all_bands.addBands(nearest_year_image)
