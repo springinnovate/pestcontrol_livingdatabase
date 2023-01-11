@@ -1,4 +1,3 @@
-//import 'leaflet/dist/leaflet.css';
 /*import {
   MapContainer,
   TileLayer,
@@ -9,59 +8,38 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import './App.css';
-//import { MapContainer, TileLayer, useMap, Marker, Popup } from 'react-leaflet'
-
+import 'leaflet/dist/leaflet.css';
+import { MapContainer, TileLayer, useMap } from 'react-leaflet'
 //import "bootstrap/dist/css/bootstrap.min.css";
+
+function MapControl({center}) {
+  const map = useMap();
+  map.setView(center, 10);
+  return null;
+}
 
 function App() {
   const [currentTime, setCurrentTime] = useState(0);
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [fileData, setFileData] = useState(null);
-
-  /*useEffect(() => {
-    setSelectedFile(event.target.files[0]);
-  });
-*/
+  const [mapCenter, setMapCenter] = useState([51.0, 19.0]);
   useEffect(() => {
     fetch('/time').then(res => res.json()).then(data => {
       setCurrentTime(data.time);
     });
+
   }, []);
 
   const onFileChange = event => {
-    setSelectedFile(event.target.files[0]);
     const formData = new FormData();
     formData.append(
       "file",
       event.target.files[0]
     );
-    //setFileData(selectedFile);
-
     // Request made to the backend api
     // Send formData object
     axios.post("/uploadfile", formData).then(
       res => {
-        var data = res.data.data;
-        setFileData(data);
-      });
-  };
-
-  // On file upload (click the upload button)
-  const onFileUpload = (state) => {
-    // Details of the uploaded file
-    const formData = new FormData();
-    formData.append(
-      "file",
-      selectedFile
-    );
-    //setFileData(selectedFile);
-
-    // Request made to the backend api
-    // Send formData object
-    axios.post("/uploadfile", formData).then(
-      res => {
-        var data = res.data.data;
-        setFileData(data);
+        var data = res.data;
+        setMapCenter(data.center);
       });
   };
 
@@ -75,24 +53,19 @@ function App() {
         <div>
           <p>Upload CSV file</p>
           <input type="file" onChange={onFileChange} />
-          <button onClick={onFileUpload}>
-            Upload
-          </button>
         </div>
-        <p>{fileData}</p>
-        <div id="map">
-        {/*<MapContainer center={[51.505, -0.09]} zoom={13} scrollWheelZoom={false}>
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          />
-          <Marker position={[51.505, -0.09]}>
-            <Popup>
-              A pretty CSS3 popup. <br /> Easily customizable.
-            </Popup>
-          </Marker>
-        </MapContainer>*/}
-        </div>
+        <p>Center: ({mapCenter[0]},{mapCenter[1]})</p>
+      <MapContainer
+        className="markercluster-map"
+        center={mapCenter}
+        zoom={4}
+        maxZoom={18}>
+        <TileLayer
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors'
+        />
+        <MapControl center={mapCenter} />
+    </MapContainer>
       </header>
     </div>
   );
