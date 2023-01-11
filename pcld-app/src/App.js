@@ -1,6 +1,16 @@
+//import 'leaflet/dist/leaflet.css';
+/*import {
+  MapContainer,
+  TileLayer,
+  useMap,
+  Marker,
+  Popup
+} from 'https://cdn.esm.sh/react-leaflet'*/
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import './App.css';
+//import { MapContainer, TileLayer, useMap, Marker, Popup } from 'react-leaflet'
+
 //import "bootstrap/dist/css/bootstrap.min.css";
 
 function App() {
@@ -20,6 +30,20 @@ function App() {
 
   const onFileChange = event => {
     setSelectedFile(event.target.files[0]);
+    const formData = new FormData();
+    formData.append(
+      "file",
+      event.target.files[0]
+    );
+    //setFileData(selectedFile);
+
+    // Request made to the backend api
+    // Send formData object
+    axios.post("/uploadfile", formData).then(
+      res => {
+        var data = res.data.data;
+        setFileData(data);
+      });
   };
 
   // On file upload (click the upload button)
@@ -56,6 +80,19 @@ function App() {
           </button>
         </div>
         <p>{fileData}</p>
+        <div id="map">
+        {/*<MapContainer center={[51.505, -0.09]} zoom={13} scrollWheelZoom={false}>
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+          <Marker position={[51.505, -0.09]}>
+            <Popup>
+              A pretty CSS3 popup. <br /> Easily customizable.
+            </Popup>
+          </Marker>
+        </MapContainer>*/}
+        </div>
       </header>
     </div>
   );
