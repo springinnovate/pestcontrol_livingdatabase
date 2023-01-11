@@ -9,8 +9,26 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import './App.css';
 import 'leaflet/dist/leaflet.css';
-import { MapContainer, TileLayer, useMap } from 'react-leaflet'
+import L from 'leaflet';
+import { MapContainer, TileLayer, useMap, Marker } from 'react-leaflet';
 //import "bootstrap/dist/css/bootstrap.min.css";
+
+function LocationMarkers({markers}) {
+  const covidIcon = L.icon({
+      iconUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e5/Redpoint.svg/768px-Redpoint.svg.png',
+
+      iconSize:     [4, 4], // size of the icon
+      iconAnchor:   [0, 0], // point of the icon which will correspond to marker's location
+      popupAnchor:  [0, 0] // point from which the popup should open relative to the iconAnchor
+  });
+  return (
+    <React.Fragment>
+      {markers.map(coord => <Marker position={
+        [coord[0], coord[1]]
+      } icon={covidIcon}></Marker>)}
+    </React.Fragment>
+    );
+}
 
 function MapControl({center}) {
   const map = useMap();
@@ -20,7 +38,9 @@ function MapControl({center}) {
 
 function App() {
   const [currentTime, setCurrentTime] = useState(0);
+  const [dataInfo, setDataInfo] = useState(null);
   const [mapCenter, setMapCenter] = useState([51.0, 19.0]);
+  const [markers, setMarkers] = useState([]);
   useEffect(() => {
     fetch('/time').then(res => res.json()).then(data => {
       setCurrentTime(data.time);
@@ -39,7 +59,9 @@ function App() {
     axios.post("/uploadfile", formData).then(
       res => {
         var data = res.data;
+        setDataInfo(data.info);
         setMapCenter(data.center);
+        setMarkers(data.points);
       });
   };
 
@@ -55,6 +77,7 @@ function App() {
           <input type="file" onChange={onFileChange} />
         </div>
         <p>Center: ({mapCenter[0]},{mapCenter[1]})</p>
+        <p>{dataInfo}</p>
       <MapContainer
         className="markercluster-map"
         center={mapCenter}
@@ -65,6 +88,7 @@ function App() {
           attribution='&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors'
         />
         <MapControl center={mapCenter} />
+        <LocationMarkers markers={markers} />
     </MapContainer>
       </header>
     </div>
