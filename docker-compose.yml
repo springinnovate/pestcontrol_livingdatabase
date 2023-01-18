@@ -1,0 +1,9 @@
+version: '3.6'
+
+services:
+  frontend:
+    container_name: frontend
+    build: docker_contexts/frontend
+    ports:
+      - 8080:3000
+    tty: true
