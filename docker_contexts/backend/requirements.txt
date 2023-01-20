@@ -1,0 +1,6 @@
+# requirements.txt
+# --------------------
+Flask==2.1.0
+waitress==1.4.4
+pandas==1.4.4
+shapely==1.8.0

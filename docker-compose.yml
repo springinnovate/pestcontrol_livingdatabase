@@ -1,0 +1,18 @@
+version: '3.6'
+
+services:
+  frontend:
+    container_name: frontend
+    build: docker_contexts/frontend
+    ports:
+      - 8080:3000
+    tty: true
+  backend:
+    container_name: backend
+    hostname: backend_api
+    build: docker_contexts/backend
+    ports:
+      - 5000:5000
+    tty: true
+    entrypoint: [
+      "waitress-serve", "--expose-tracebacks", "--listen=0.0.0.0:5000", "--call", "api:create_app"]
