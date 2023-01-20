@@ -37,13 +37,16 @@ def create_app(config=None):
             print(f'request: {request.files}')
             raw_data = request.files['file'].read().decode('utf-8')
             df = pd.read_csv(StringIO(raw_data))
-            point_list = list(set([(row[1][0], row[1][1]) for row in df[['lat', 'long']].iterrows()]))
+            point_list = [
+                (index, row[1][0], row[1][1]) for index, row in enumerate(df[['lat', 'long']].iterrows())]
             points = MultiPoint(point_list)
+            fields = list(df.columns)
+            LOGGER.debug(f'fields: {fields}')
             f = {
               'center': [points.centroid.x, points.centroid.y],
               'data': request.files['file'].read().decode('utf-8'),
               'points': point_list,
-              'info': f'{len(point_list)} points'
+              'info': fields,
               }
             print(f)
             return f
