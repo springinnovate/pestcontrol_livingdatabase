@@ -23,23 +23,41 @@ function LocationMarkers({markers}) {
   });
   return (
     <React.Fragment>
-      {markers.map(coord => <Marker position={
-        [coord[0], coord[1]]
-      } icon={covidIcon}></Marker>)}
+      {markers.map(coord => <Marker
+        position={[coord[1], coord[2]]}
+        icon={covidIcon}
+        key={coord[0]}
+        ></Marker>)}
     </React.Fragment>
     );
 }
 
 function MapControl({center}) {
   const map = useMap();
-  map.setView(center, 10);
+  if (center !== null) {
+    map.setView(center, 8);
+  }
   return null;
+}
+
+function InfoPanel({info}) {
+  if (info !== null) {
+    return (
+      <div className="Info-panel">
+      {
+        Object.entries(info)
+        .map( ([key, value]) => <p>{key} -- {value}</p> )
+      }
+      </div>);
+  } else {
+    return (<div className="Info-panel"><p>Load a csv.</p></div>);
+  };
 }
 
 function App() {
   const [currentTime, setCurrentTime] = useState(0);
   const [dataInfo, setDataInfo] = useState(null);
-  const [mapCenter, setMapCenter] = useState([51.0, 19.0]);
+  const [mapCenter, setMapCenter] = useState(null);
   const [markers, setMarkers] = useState([]);
   useEffect(() => {
     fetch('/time').then(res => res.json()).then(data => {
@@ -72,12 +90,12 @@ function App() {
         <p>
           System Time {currentTime}.
         </p>
-        <div>
+      </header>
+        <div className="Upload-controls">
           <p>Upload CSV file</p>
           <input type="file" onChange={onFileChange} />
         </div>
-        <p>Center: ({mapCenter[0]},{mapCenter[1]})</p>
-        <p>{dataInfo}</p>
+        <InfoPanel info={dataInfo}/>
       <MapContainer
         className="markercluster-map"
         center={mapCenter}
@@ -90,7 +108,6 @@ function App() {
         <MapControl center={mapCenter} />
         <LocationMarkers markers={markers} />
     </MapContainer>
-      </header>
     </div>
   );
 }

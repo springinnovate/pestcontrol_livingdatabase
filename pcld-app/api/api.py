@@ -18,15 +18,19 @@ def upload_file():
       print(f'request: {request.files}')
       raw_data = request.files['file'].read().decode('utf-8')
       df = pd.read_csv(StringIO(raw_data))
-      point_list = list(set([(row[1][0], row[1][1]) for row in df[['lat', 'long']].iterrows()]))
+      point_list = [
+          (row[1][0], row[1][1])
+          for row in df[['lat', 'long']].iterrows()]
       points = MultiPoint(point_list)
       f = {
           'center': [points.centroid.x, points.centroid.y],
-          'data': request.files['file'].read().decode('utf-8'),
-          'points': point_list,
-          'info': f'{len(point_list)} points'
+          #'data': request.files['file'].read().decode('utf-8'),
+          'points': [(index, point[0], point[1]) for index, point in enumerate(point_list)],
+          'info': {
+              'n_points': len(point_list),
+              'headers':  ', '.join(df.columns),
+              }
           }
-      print(f)
       return f
       # path = secure_filename(f.filename)
       # print(path)

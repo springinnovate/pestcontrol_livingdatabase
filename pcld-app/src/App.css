@@ -1,5 +1,8 @@
 .App {
-  text-align: center;
+  background-color: #282c34;
+  color: white;
+  font-family: "Helvetica Neue",Helvetica,Arial,sans-serif;
+  font-size: 14px;
 }
 
 .App-logo {
@@ -15,11 +18,9 @@
 
 .App-header {
   background-color: #282c34;
-  min-height: 100vh;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  font-size: calc(10px + 2vmin);
+  font-size: calc(1px + 2vmin);
   color: white;
 }
 
@@ -27,16 +28,17 @@
   color: #61dafb;
 }
 
-@keyframes App-logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+.Upload-controls {
+  float: left;
+  border-right:1px solid #FFFFFF;
 }
 
+.Info-panel {
+  float: left;
+  margin-left: 5px;
+}
 
 .markercluster-map {
-  height: 50vh;
+  height: 65vh;
+  clear: left;
 }
