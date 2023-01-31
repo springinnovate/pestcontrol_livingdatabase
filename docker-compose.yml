@@ -16,3 +16,11 @@ services:
     tty: true
     entrypoint: [
       "waitress-serve", "--expose-tracebacks", "--listen=0.0.0.0:5000", "--call", "api:create_app"]
+    secrets:
+      - gee_key
+    environment:
+      - GEE_KEY_PATH=/run/secrets/gee_key
+
+secrets:
+  gee_key:
+    file: ./secrets/ecoshard-202922-99e843371bf0.json

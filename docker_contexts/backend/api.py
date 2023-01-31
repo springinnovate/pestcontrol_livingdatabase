@@ -1,13 +1,15 @@
 import os
 import sys
 import time
+from io import StringIO
+import logging
+
 from flask import Flask
 from flask import request
-from werkzeug.utils import secure_filename
-import pandas as pd
-from io import StringIO
 from shapely.geometry import MultiPoint
-import logging
+import ee
+import pandas as pd
+
 
 app = Flask(__name__)
 
@@ -25,6 +27,9 @@ LOGGER = logging.getLogger()
 def create_app(config=None):
     """Create the Geoserver STAC Flask app."""
     LOGGER.debug('starting up!')
+    gee_key_path = os.environ['GEE_KEY_PATH']
+    credentials = ee.ServiceAccountCredentials(None, gee_key_path)
+    ee.Initialize(credentials)
 
     app = Flask(__name__)
     @app.route('/time')
@@ -48,7 +53,6 @@ def create_app(config=None):
               'points': [(index, x, y) for index, (x, y) in enumerate(point_list)],
               'info': fields,
               }
-            print(f)
             return f
             # path = secure_filename(f.filename)
             # print(path)

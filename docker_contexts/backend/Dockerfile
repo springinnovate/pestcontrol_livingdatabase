@@ -13,6 +13,8 @@ RUN apt-get update -qq && \
     && \
     rm -rf /var/lib/apt/lists/*
 
+RUN pip install earthengine-api
+
 SHELL ["/bin/bash", "-c"]
 
 RUN mkdir -p /usr/local/pcld_api
