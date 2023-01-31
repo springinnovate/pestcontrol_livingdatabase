@@ -60,6 +60,45 @@ function App() {
   const [dataInfo, setDataInfo] = useState(null);
   const [mapCenter, setMapCenter] = useState(null);
   const [markers, setMarkers] = useState([]);
+
+  function TableSubmitForm() {
+    function handleSubmit(event) {
+      event.preventDefault();
+      // Read the form data
+      const form = event.target;
+      const formData = new FormData(form);
+
+      // Request made to the backend api
+      // Send formData object
+      axios.post("/uploadfile", formData).then(
+        res => {
+          var data = res.data;
+          setDataInfo(data.info);
+          setMapCenter(data.center);
+          setMarkers(data.points);
+        });
+    };
+
+    return (
+      <form method="post" onSubmit={handleSubmit}>
+        <label>Select sample CSV:
+          <input type="file" name="file"/>
+        </label>
+        <label>long_field:
+          <input type="text" name="long_field" defaultValue="long"/>
+        </label>
+        <label>lat_field:
+          <input type="text" name="lat_field" defaultValue="lat"/>
+        </label>
+        <label>year_field:
+          <input type="text" name="year_field" defaultValue="crop_year"/>
+        </label>
+        <button type="reset">Reset form</button>
+        <button type="submit">Submit form</button>
+      </form>
+    );
+  }
+
   useEffect(() => {
     fetch('/time').then(res => res.json()).then(data => {
       setCurrentTime(data.time);
@@ -77,23 +116,6 @@ function App() {
 
   }, []);
 
-  const onFileChange = event => {
-    const formData = new FormData();
-    formData.append(
-      "file",
-      event.target.files[0]
-    );
-    // Request made to the backend api
-    // Send formData object
-    axios.post("/uploadfile", formData).then(
-      res => {
-        var data = res.data;
-        setDataInfo(data.info);
-        setMapCenter(data.center);
-        setMarkers(data.points);
-      });
-  };
-
   return (
     <div className="App">
       <header className="App-header">
@@ -105,11 +127,8 @@ function App() {
           Available datasets {availableDatasets}
         </p>
       </header>
-        <div className="Upload-controls">
-          <p>Upload CSV file</p>
-          <input type="file" onChange={onFileChange} />
-        </div>
-        <InfoPanel info={dataInfo}/>
+      <TableSubmitForm />
+      <InfoPanel info={dataInfo}/>
       <MapContainer
         className="markercluster-map"
         center={mapCenter}

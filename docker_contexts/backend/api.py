@@ -56,12 +56,24 @@ def create_app(config=None):
     def upload_file():
         if request.method == 'POST':
             print(f'request: {request.files}')
+            print(f'request.form: {request.form}')
             raw_data = request.files['file'].read().decode('utf-8')
-            df = pd.read_csv(StringIO(raw_data))
+            long_field = request.form['long_field']
+            lat_field = request.form['lat_field']
+            year_field = request.form['year_field']
+            table = pd.read_csv(
+                StringIO(raw_data),
+                skip_blank_lines=True,
+                converters={
+                    long_field: lambda x: None if x == '' else float(x),
+                    lat_field: lambda x: None if x == '' else float(x),
+                    year_field: lambda x: None if x == '' else int(x),
+                },)
             point_list = [
-                (row[1][0], row[1][1]) for row in df[['lat', 'long']].iterrows()]
+                (row[1][0], row[1][1]) for row in table[
+                    [lat_field, long_field]].iterrows()]
             points = MultiPoint(point_list)
-            fields = list(df.columns)
+            fields = list(table.columns)
             LOGGER.debug(f'fields: {fields}')
             f = {
               'center': [points.centroid.x, points.centroid.y],
@@ -69,6 +81,8 @@ def create_app(config=None):
               'points': [(index, x, y) for index, (x, y) in enumerate(point_list)],
               'info': fields,
               }
+
+            table = table.dropna()
             return f
             # path = secure_filename(f.filename)
             # print(path)
