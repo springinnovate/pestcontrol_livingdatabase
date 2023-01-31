@@ -46,7 +46,7 @@ def create_app(config=None):
 
     @app.route('/time')
     def get_current_time():
-        return {'time': time.time()}
+        return {'time': datetime.datetime.now().ctime()}
 
     @app.route('/available_datasets')
     def get_available_datasets():

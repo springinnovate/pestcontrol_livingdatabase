@@ -81,29 +81,42 @@ function App() {
 
     return (
       <form method="post" onSubmit={handleSubmit}>
+        <hr/>
         <label>Select sample CSV:
           <input type="file" name="file"/>
-        </label>
+        </label><br/>
         <label>long_field:
           <input type="text" name="long_field" defaultValue="long"/>
-        </label>
+        </label><br/>
         <label>lat_field:
           <input type="text" name="lat_field" defaultValue="lat"/>
-        </label>
+        </label><br/>
         <label>year_field:
           <input type="text" name="year_field" defaultValue="crop_year"/>
-        </label>
+        </label><br/>
+        <button type="submit">Submit form</button><br/>
         <button type="reset">Reset form</button>
-        <button type="submit">Submit form</button>
+        <hr/>
       </form>
     );
   }
 
   useEffect(() => {
-    fetch('/time').then(res => res.json()).then(data => {
-      setCurrentTime(data.time);
-    });
-  }, []);
+    const timer = window.setInterval(() => {
+      fetch('/time').then(res => res.json()).then(data => {
+        setCurrentTime(data.time);
+      });
+    }, 1000);
+    return () => {
+      window.clearInterval(timer);
+    }
+  }, [])
+
+  //useEffect(() => {
+  //  fetch('/time').then(res => res.json()).then(data => {
+   //   setCurrentTime(data.time);
+   // });
+  //}, []);
 
   useEffect(() => {
     fetch('/available_datasets').then(res => res.json()).then(data => {
@@ -121,10 +134,10 @@ function App() {
       <header className="App-header">
         <h1>Pest Control Database</h1>
         <p>
-          System Time {currentTime}.
+          {currentTime}
         </p>
         <p>
-          Available datasets {availableDatasets}
+          Available datasets: {availableDatasets}
         </p>
       </header>
       <TableSubmitForm />
