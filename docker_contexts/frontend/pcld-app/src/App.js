@@ -56,12 +56,23 @@ function InfoPanel({info}) {
 
 function App() {
   const [currentTime, setCurrentTime] = useState(0);
+  const [availableDatasets, setAvailableDatasets] = useState(0);
   const [dataInfo, setDataInfo] = useState(null);
   const [mapCenter, setMapCenter] = useState(null);
   const [markers, setMarkers] = useState([]);
   useEffect(() => {
     fetch('/time').then(res => res.json()).then(data => {
       setCurrentTime(data.time);
+    });
+  }, []);
+
+  useEffect(() => {
+    fetch('/available_datasets').then(res => res.json()).then(data => {
+      var dataset_str = '';
+      for (var key in data) {
+        dataset_str += key + ' ';
+      }
+      setAvailableDatasets(dataset_str);
     });
 
   }, []);
@@ -89,6 +100,9 @@ function App() {
         <h1>Pest Control Database</h1>
         <p>
           System Time {currentTime}.
+        </p>
+        <p>
+          Available datasets {availableDatasets}
         </p>
       </header>
         <div className="Upload-controls">

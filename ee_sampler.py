@@ -50,7 +50,7 @@ VALID_MODIS_RANGE = (2001, 2019)
 
 def build_landcover_masks(year, dataset_info):
     """Build landcover type masks and nearest year calculation.
-
+gd
     Args:
         year (int): year to build masks for
         dataset_info (dict): a map of 'gee_dataset', 'band_name',
