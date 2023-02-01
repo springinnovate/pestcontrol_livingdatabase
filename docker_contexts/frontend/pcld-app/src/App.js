@@ -45,10 +45,7 @@ function InfoPanel({info}) {
   if (info !== null) {
     return (
       <div className="Info-panel">
-      {
-        Object.entries(info)
-        .map( ([key, value]) => <p>{key} -- {value}</p> )
-      }
+      {info}
       </div>);
   } else {
     return (<div className="Info-panel"><p>Load a csv.</p></div>);
@@ -67,6 +64,7 @@ function App() {
   function TableSubmitForm() {
     function handleSubmit(event) {
       event.preventDefault();
+      setDataInfo("processing, please wait")
       setFormProcessing(true);
       setSubmitButtonText("processing, please wait");
       // Read the form data
@@ -78,12 +76,12 @@ function App() {
       axios.post("/uploadfile", formData).then(
         res => {
           var data = res.data;
-          setDataInfo(data.info);
           setMapCenter(data.center);
           setMarkers(data.points);
           const csvData = new Blob(
             [data.csv_blob_result], { type: 'text/csv;charset=utf-8;' });
           FileSaver.saveAs(csvData, data.csv_filename);
+          setDataInfo("Success! Result saved to download folder as: '" + data.csv_filename + "'");
           setFormProcessing(false);
           setSubmitButtonText("Submit form");
         });

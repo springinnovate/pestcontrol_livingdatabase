@@ -114,7 +114,7 @@ def create_app(config=None):
                     'invalid' if field not in sample['properties']
                     else str(sample['properties'][field])
                     for field in header_fields]) + '\n')
-            f['csv_blob'] = csv_blob_result
+            f['csv_blob_result'] = csv_blob_result
             f['csv_filename'] = csv_filename
             return f
             # path = secure_filename(f.filename)
