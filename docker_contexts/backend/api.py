@@ -62,6 +62,7 @@ def create_app(config=None):
             lat_field = request.form['lat_field']
             year_field = request.form['year_field']
             buffer_size = float(request.form['buffer_size'])
+            datasets_to_process = request.form['datasets_to_process'].split(',')
             table = pd.read_csv(
                 StringIO(raw_data),
                 skip_blank_lines=True,
@@ -96,7 +97,6 @@ def create_app(config=None):
 
             LOGGER.debug('calculating pheno variables')
             sample_scale = 1000
-            datasets_to_process = ['corine']
             args = {}
             header_fields, sample_list = _sample_pheno(
                 pts_by_year, buffer_size, sample_scale, ARGS_DATASETS, datasets_to_process, args)

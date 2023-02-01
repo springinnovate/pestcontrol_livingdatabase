@@ -58,8 +58,10 @@ function AvailableDatsets({datasets}) {
       {Object.keys(datasets).map(key => {
         return (
           <React.Fragment key={key}>
-          <input type="checkbox" id={key} value={key}/>
-          <label for={key}>{key}</label>
+          <label>
+          <input type="checkbox" id={key} name={key} value={key}/>
+          {key}
+          </label>
           <br/>
         </React.Fragment>
       )})}
@@ -107,6 +109,19 @@ function App() {
       // Read the form data
       const form = event.target;
       const formData = new FormData(form);
+      var datasets_to_process = [];
+      for (var key in availableDatasets) {
+        var value = availableDatasets[key];
+        if (value !== null) {
+          if (form[key].checked) {
+            datasets_to_process.push(key);
+          }
+        }
+      };
+      formData.append('datasets_to_process', datasets_to_process);
+      for (const [name,value] of formData) {
+        console.log(name, ":", value)
+      }
 
       // Request made to the backend api
       // Send formData object
