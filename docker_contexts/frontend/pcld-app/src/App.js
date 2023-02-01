@@ -82,8 +82,8 @@ function App() {
           setMapCenter(data.center);
           setMarkers(data.points);
           const csvData = new Blob(
-            [data], { type: 'text/csv;charset=utf-8;' });
-          FileSaver.saveAs(csvData, 'data.csv');
+            [data.csv_blob_result], { type: 'text/csv;charset=utf-8;' });
+          FileSaver.saveAs(csvData, data.csv_filename);
           setFormProcessing(false);
           setSubmitButtonText("Submit form");
         });
@@ -119,7 +119,8 @@ function App() {
       res => res.json()).then(
       data => {
         setCurrentTime(data.time);
-      })
+      }).catch(
+        setCurrentTime('ERROR: backend server down, refresh this page and try again'))
   }, []);
 
 

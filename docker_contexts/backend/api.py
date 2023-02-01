@@ -100,6 +100,22 @@ def create_app(config=None):
             args = {}
             header_fields, sample_list = _sample_pheno(
                 pts_by_year, buffer_size, sample_scale, ARGS_DATASETS, datasets_to_process, args)
+            landcover_substring = '_'.join(datasets_to_process)
+            file_basename = os.path.basename(request.files['file'].filename)
+            csv_filename = f'sampled_{buffer_size}m_{landcover_substring}_{file_basename}'
+            csv_blob_result = ''
+            csv_blob_result += (
+                ','.join(table.columns) + f',{",".join(header_fields)}\n')
+            for sample in sample_list:
+                csv_blob_result += (','.join([
+                    str(sample['properties'][key])
+                    for key in table.columns]) + ',')
+                csv_blob_result += (','.join([
+                    'invalid' if field not in sample['properties']
+                    else str(sample['properties'][field])
+                    for field in header_fields]) + '\n')
+            f['csv_blob'] = csv_blob_result
+            f['csv_filename'] = csv_filename
             return f
             # path = secure_filename(f.filename)
             # print(path)
