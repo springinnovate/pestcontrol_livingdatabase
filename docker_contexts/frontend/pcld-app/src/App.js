@@ -55,15 +55,16 @@ function InfoPanel({info}) {
 function AvailableDatsets({datasets}) {
   return (
     <React.Fragment>
-      {Object.keys(datasets).map(key => {
-        return (
-          <React.Fragment key={key}>
-          <label>
-          <input type="checkbox" id={key} name={key} value={key}/>
-          {key}
-          </label>
-          <br/>
-        </React.Fragment>
+      {String(datasets) === datasets ? datasets :
+        Object.keys(datasets).map(key => {
+          return (
+            <React.Fragment key={key}>
+            <label>
+            <input type="checkbox" id={key} name={key} value={key}/>
+            {key}
+            </label>
+            <br/>
+          </React.Fragment>
       )})}
     </React.Fragment>
   );
@@ -136,6 +137,11 @@ function App() {
           setDataInfo("Success! Result saved to download folder as: '" + data.csv_filename + "'");
           setFormProcessing(false);
           setSubmitButtonText("Submit form");
+        }).catch(err => {
+          setDataInfo("SERVER ERROR")
+          setFormProcessing(true);
+          setSubmitButtonText("SERVER ERROR");
+          console.log(err.message);
         });
     };
 
