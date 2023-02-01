@@ -6,6 +6,7 @@ WORKDIR /app
 
 # Install dependencies (you are already in /app)
 COPY pcld-app/package.json pcld-app/package-lock.json .
+RUN npm install
 RUN npm ci
 
 # Add rest of the client code

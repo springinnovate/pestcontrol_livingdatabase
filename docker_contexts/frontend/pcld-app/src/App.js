@@ -7,6 +7,7 @@
 } from 'https://cdn.esm.sh/react-leaflet'*/
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import FileSaver from 'file-saver';
 import './App.css';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
@@ -80,6 +81,9 @@ function App() {
           setDataInfo(data.info);
           setMapCenter(data.center);
           setMarkers(data.points);
+          const csvData = new Blob(
+            [data], { type: 'text/csv;charset=utf-8;' });
+          FileSaver.saveAs(csvData, 'data.csv');
           setFormProcessing(false);
           setSubmitButtonText("Submit form");
         });

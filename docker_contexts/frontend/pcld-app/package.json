@@ -8,6 +8,7 @@
     "@testing-library/user-event": "^13.5.0",
     "axios": "^1.2.2",
     "bootstrap": "4.6.0",
+    "file-saver": "2.0.5",
     "leaflet": "^1.9.3",
     "leaflet-react": "^3.0.5",
     "react": "^18.2.0",
