@@ -190,7 +190,7 @@ function App() {
   return (
     <div className="App">
       <header className="App-header">
-        <h1>Pest Control Database</h1>
+        <h1>Pest Control Pheno Variable App</h1>
         <p>
           {serverUp && currentTime}
         </p>
