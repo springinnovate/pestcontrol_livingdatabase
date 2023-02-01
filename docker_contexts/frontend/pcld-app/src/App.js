@@ -52,16 +52,53 @@ function InfoPanel({info}) {
   };
 }
 
+function AvailableDatsets({datasets}) {
+  return (
+    <React.Fragment>
+      {Object.keys(datasets).map(key => {
+        return (
+          <React.Fragment key={key}>
+          <input type="checkbox" id={key} value={key}/>
+          <label for={key}>{key}</label>
+          <br/>
+        </React.Fragment>
+      )})}
+    </React.Fragment>
+  );
+};
+/*  var key = datasets.Dict.First();
+  return (<React.Fragment key={key}>
+    <input type="checkbox" id={key} value={key}/>
+    <label for={key}>{key}</label>
+    <br/>
+  </React.Fragment>
+  );*/
+  //}
+//};
+
 function App() {
   const [currentTime, setCurrentTime] = useState(0);
-  const [availableDatasets, setAvailableDatasets] = useState(0);
+  const [availableDatasets, setAvailableDatasets] = useState({'server error, please reload': null});
   const [dataInfo, setDataInfo] = useState(null);
   const [mapCenter, setMapCenter] = useState(null);
   const [markers, setMarkers] = useState([]);
   const [formProcessing, setFormProcessing] = useState(false);
   const [submitButtonText, setSubmitButtonText] = useState("Submit form");
+  const [serverUp, setServerUp] = useState(false);
 
-  function TableSubmitForm() {
+  /*const datasetSelection => {
+    if (availableDatasets === 0) {
+      return "backend server is down, reload page";
+    } else {
+      return (availableDatasets.map(
+          (dataset_id, data) => "value"));
+          //<input type="checkbox" id=key value=key><label for=key>key</label><br/>));
+    }
+  };
+*/
+
+
+  function TableSubmitForm({availableDatasets}) {
     function handleSubmit(event) {
       event.preventDefault();
       setDataInfo("processing, please wait")
@@ -93,6 +130,11 @@ function App() {
         <label>Select sample CSV:
           <input type="file" name="file"/>
         </label><br/>
+        <hr/>
+        <p>Choose Datasets:</p>
+        <AvailableDatsets datasets={availableDatasets} />
+        <hr/>
+        <p>Edit any other desired fields:</p>
         <label>long_field:
           <input type="text" name="long_field" defaultValue="long"/>
         </label><br/>
@@ -117,6 +159,7 @@ function App() {
       res => res.json()).then(
       data => {
         setCurrentTime(data.time);
+        setServerUp(true);
       }).catch(
         setCurrentTime('ERROR: backend server down, refresh this page and try again'))
   }, []);
@@ -124,11 +167,7 @@ function App() {
 
   useEffect(() => {
     fetch('/available_datasets').then(res => res.json()).then(data => {
-      var dataset_str = '';
-      for (var key in data) {
-        dataset_str += key + ' ';
-      }
-      setAvailableDatasets(dataset_str);
+      setAvailableDatasets(data);
     });
 
   }, []);
@@ -138,13 +177,10 @@ function App() {
       <header className="App-header">
         <h1>Pest Control Database</h1>
         <p>
-          {currentTime}
-        </p>
-        <p>
-          Available datasets: {availableDatasets}
+          {serverUp && currentTime}
         </p>
       </header>
-      <TableSubmitForm />
+      <TableSubmitForm availableDatasets={availableDatasets} />
       <InfoPanel info={dataInfo}/>
       <MapContainer
         className="markercluster-map"
