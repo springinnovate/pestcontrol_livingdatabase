@@ -60,10 +60,14 @@ function App() {
   const [dataInfo, setDataInfo] = useState(null);
   const [mapCenter, setMapCenter] = useState(null);
   const [markers, setMarkers] = useState([]);
+  const [formProcessing, setFormProcessing] = useState(false);
+  const [submitButtonText, setSubmitButtonText] = useState("Submit form");
 
   function TableSubmitForm() {
     function handleSubmit(event) {
       event.preventDefault();
+      setFormProcessing(true);
+      setSubmitButtonText("processing, please wait");
       // Read the form data
       const form = event.target;
       const formData = new FormData(form);
@@ -76,6 +80,8 @@ function App() {
           setDataInfo(data.info);
           setMapCenter(data.center);
           setMarkers(data.points);
+          setFormProcessing(false);
+          setSubmitButtonText("Submit form");
         });
     };
 
@@ -94,29 +100,24 @@ function App() {
         <label>year_field:
           <input type="text" name="year_field" defaultValue="crop_year"/>
         </label><br/>
-        <button type="submit">Submit form</button><br/>
-        <button type="reset">Reset form</button>
+        <label>buffer_size (m):
+          <input type="number" name="buffer_size" defaultValue="30000"/>
+        </label><br/>
+        <button type="submit" disabled={formProcessing}>{submitButtonText}</button><br/>
+        <button type="reset" disabled={formProcessing}>Reset form</button>
         <hr/>
       </form>
     );
   }
 
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      fetch('/time').then(res => res.json()).then(data => {
+    fetch('/time').then(
+      res => res.json()).then(
+      data => {
         setCurrentTime(data.time);
-      });
-    }, 1000);
-    return () => {
-      window.clearInterval(timer);
-    }
-  }, [])
+      })
+  }, []);
 
-  //useEffect(() => {
-  //  fetch('/time').then(res => res.json()).then(data => {
-   //   setCurrentTime(data.time);
-   // });
-  //}, []);
 
   useEffect(() => {
     fetch('/available_datasets').then(res => res.json()).then(data => {

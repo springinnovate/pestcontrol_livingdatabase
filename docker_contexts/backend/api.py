@@ -1,9 +1,8 @@
 import configparser
-import datetime
+from datetime import datetime
 import os
 import glob
 import sys
-import time
 from io import StringIO
 import logging
 
@@ -46,7 +45,7 @@ def create_app(config=None):
 
     @app.route('/time')
     def get_current_time():
-        return {'time': datetime.datetime.now().ctime()}
+        return {'time': datetime.now().ctime()}
 
     @app.route('/available_datasets')
     def get_available_datasets():
@@ -58,9 +57,11 @@ def create_app(config=None):
             print(f'request: {request.files}')
             print(f'request.form: {request.form}')
             raw_data = request.files['file'].read().decode('utf-8')
+            print(raw_data)
             long_field = request.form['long_field']
             lat_field = request.form['lat_field']
             year_field = request.form['year_field']
+            buffer_size = float(request.form['buffer_size'])
             table = pd.read_csv(
                 StringIO(raw_data),
                 skip_blank_lines=True,
@@ -83,6 +84,22 @@ def create_app(config=None):
               }
 
             table = table.dropna()
+
+            pts_by_year = {}
+            for year in table[year_field].unique():
+                pts_by_year[year] = ee.FeatureCollection([
+                    ee.Feature(
+                        ee.Geometry.Point(row[long_field], row[lat_field]).buffer(buffer_size).bounds(),
+                        row.to_dict())
+                    for index, row in table[
+                        table[year_field] == year].dropna().iterrows()])
+
+            LOGGER.debug('calculating pheno variables')
+            sample_scale = 1000
+            datasets_to_process = ['corine']
+            args = {}
+            header_fields, sample_list = _sample_pheno(
+                pts_by_year, buffer_size, sample_scale, ARGS_DATASETS, datasets_to_process, args)
             return f
             # path = secure_filename(f.filename)
             # print(path)
