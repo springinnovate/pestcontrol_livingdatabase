@@ -5,7 +5,7 @@ FROM node:18
 WORKDIR /app
 
 # Install dependencies (you are already in /app)
-COPY pcld-app/package.json pcld-app/package-lock.json .
+COPY pcld-app/package.json pcld-app/package-lock.json /app
 RUN npm install
 RUN npm ci
 
