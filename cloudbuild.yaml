@@ -3,8 +3,8 @@ steps:
   entrypoint: 'bash'
   args: [
     "-c", 
-    "mkdir -p /workspace/secrets && echo $$API_KEY > /workspace/secrets/ecoshard-202922-99e843371bf0.json"]
-    secretEnv: ["API_KEY"]
+    "mkdir -p /workspace/secrets && echo $$GEE_KEY > /workspace/secrets/ecoshard-202922-99e843371bf0.json"]
+  secretEnv: ["GEE_KEY"]
 
 # running docker-compose
 - name: 'docker/compose:1.29.2'
@@ -13,4 +13,4 @@ steps:
 availableSecrets:
   secretManager:
     - versionName: projects/587088520267/secrets/gee_key/versions/1
-      env: GH_TOKEN
+      env: GEE_KEY
