@@ -2,16 +2,10 @@ steps:
 - name: gcr.io/cloud-builders/gcloud
   entrypoint: 'bash'
   args: [ '-c', 'echo $$GH_TOKEN > /workspace/secrets/ecoshard-202922-99e843371bf0.json' ]
-  volumes:
-  - name: 'secrets'
-    path: /workspace/secrets
   secretEnv: ['GH_TOKEN']
 # running docker-compose
 - name: 'docker/compose:1.29.2'
   args: ['up', '-d']
-  volumes:
-  - name: 'secrets'
-    path: /run/secrets
 
 availableSecrets:
   secretManager:
