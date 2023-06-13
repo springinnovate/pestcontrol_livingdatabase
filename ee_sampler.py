@@ -31,6 +31,9 @@ EXPECTED_INI_ELEMENTS = {
     'valid_years',
     'filter_by',
 }
+OPTIONAL_INI_ELEMENTS = {
+    'image_only',
+}
 PRECIP_SECTION = 'precip'
 
 EXPECTED_INI_SECTIONS = {
@@ -50,7 +53,7 @@ VALID_MODIS_RANGE = (2001, 2019)
 
 def build_landcover_masks(year, dataset_info):
     """Build landcover type masks and nearest year calculation.
-gd
+
     Args:
         year (int): year to build masks for
         dataset_info (dict): a map of 'gee_dataset', 'band_name',
@@ -64,12 +67,16 @@ gd
     LOGGER.debug(dataset_info)
     try:
         image_only = 'image_only' in dataset_info and dataset_info['image_only']
+        gee_dataset_path = dataset_info['gee_dataset']
+        if dataset_info['filter_by'] == 'dataset_year_pattern':
+            gee_dataset_path = gee_dataset_path.format(year=year)
+        LOGGER.debug(f'****************** {gee_dataset_path}')
         if image_only:
-            imagecollection = ee.Image(dataset_info['gee_dataset'])
+            imagecollection = ee.Image(gee_dataset_path)
         else:
-            imagecollection = ee.ImageCollection(dataset_info['gee_dataset'])
+            imagecollection = ee.ImageCollection(gee_dataset_path)
 
-        LOGGER.debug(f"query {dataset_info['band_name']}, {year}")
+        LOGGER.debug(f"query {dataset_info['band_name']}, {year} {dataset_info}")
         closest_year = _get_closest_num(dataset_info['valid_years'], year)
         closest_year_image = ee.Image(closest_year)
         if dataset_info['filter_by'] == 'date':
@@ -286,6 +293,7 @@ def parse_ini(ini_path):
     basename = os.path.splitext(os.path.basename(ini_path))[0]
     dataset_config = configparser.ConfigParser(allow_no_value=True)
     dataset_config.read(ini_path)
+    LOGGER.debug(f'********************* {ini_path} {dict(dataset_config[basename])}')
     dataset_result = {}
     if basename not in dataset_config:
         raise ValueError(f'expected a section called {basename} but only found {dataset_config.sections()}')
@@ -293,6 +301,9 @@ def parse_ini(ini_path):
         if element_id not in dataset_config[basename]:
             raise ValueError(f'expected an entry called {element_id} but only found {dataset_config[basename].items()}')
         dataset_result[element_id] = dataset_config[basename][element_id]
+    for element_id in OPTIONAL_INI_ELEMENTS:
+        if element_id in dataset_config[basename]:
+            dataset_result[element_id] = dataset_config[basename][element_id]
     found_expected_section = False
     for section_id in EXPECTED_INI_SECTIONS:
         if section_id in dataset_config:
@@ -305,6 +316,7 @@ def parse_ini(ini_path):
     for element_id in dataset_config[section_id].items():
         LOGGER.debug(element_id)
         dataset_result[section_id][element_id[0]] = eval(element_id[1])
+    LOGGER.debug(f'******** {dataset_result}')
     return dataset_result
 
 

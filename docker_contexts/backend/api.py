@@ -1,17 +1,20 @@
-import configparser
+"""Backend code to query and annotate point data from remote data."""
 from datetime import datetime
-import os
-import glob
-import sys
 from io import StringIO
+import configparser
+import glob
 import logging
+import os
+import secrets
+import sys
 
 from flask import Flask
 from flask import request
+from flask import session
 from shapely.geometry import MultiPoint
 import ee
-import pandas as pd
 import numpy
+import pandas as pd
 
 
 app = Flask(__name__)
@@ -30,7 +33,7 @@ ARGS_DATASETS = {}
 
 def create_app(config=None):
     """Create the Geoserver STAC Flask app."""
-    LOGGER.debug('starting up!')
+    LOGGER.debug('starting up v2!')
 
     for ini_path in glob.glob(os.path.join(INI_DIR, '*.ini')):
         dataset_config = parse_ini(ini_path)
@@ -42,6 +45,16 @@ def create_app(config=None):
     ee.Initialize(credentials)
 
     app = Flask(__name__)
+    app.secret_key = secrets.token_hex()
+
+    @app.route('/set/')
+    def set():
+        session['key'] = 'value'
+        return 'ok'
+
+    @app.route('/get/')
+    def get():
+        return session.get('key', 'not set')
 
     @app.route('/time')
     def get_current_time():
@@ -53,6 +66,7 @@ def create_app(config=None):
 
     @app.route('/uploadfile', methods=['GET', 'POST'])
     def upload_file():
+        # TODO: upload the file then return a url to check the status url_for('get_task', task_id=task['id'], _external=True)
         if request.method == 'POST':
             print(f'request: {request.files}')
             print(f'request.form: {request.form}')
@@ -62,7 +76,8 @@ def create_app(config=None):
             lat_field = request.form['lat_field']
             year_field = request.form['year_field']
             buffer_size = float(request.form['buffer_size'])
-            datasets_to_process = request.form['datasets_to_process'].split(',')
+            datasets_to_process = request.form[
+                'datasets_to_process'].split(',')
             table = pd.read_csv(
                 StringIO(raw_data),
                 skip_blank_lines=True,
@@ -78,11 +93,12 @@ def create_app(config=None):
             fields = list(table.columns)
             LOGGER.debug(f'fields: {fields}')
             f = {
-              'center': [points.centroid.x, points.centroid.y],
-              'data': request.files['file'].read().decode('utf-8'),
-              'points': [(index, x, y) for index, (x, y) in enumerate(point_list)],
-              'info': fields,
-              }
+                'center': [points.centroid.x, points.centroid.y],
+                'data': request.files['file'].read().decode('utf-8'),
+                'points': [
+                    (index, x, y) for index, (x, y) in enumerate(point_list)],
+                'info': fields,
+                }
 
             table = table.dropna()
 
@@ -90,7 +106,8 @@ def create_app(config=None):
             for year in table[year_field].unique():
                 pts_by_year[year] = ee.FeatureCollection([
                     ee.Feature(
-                        ee.Geometry.Point(row[long_field], row[lat_field]).buffer(buffer_size).bounds(),
+                        ee.Geometry.Point(row[long_field], row[lat_field]).
+                        buffer(buffer_size).bounds(),
                         row.to_dict())
                     for index, row in table[
                         table[year_field] == year].dropna().iterrows()])
@@ -99,10 +116,12 @@ def create_app(config=None):
             sample_scale = 1000
             args = {}
             header_fields, sample_list = _sample_pheno(
-                pts_by_year, buffer_size, sample_scale, ARGS_DATASETS, datasets_to_process, args)
+                pts_by_year, buffer_size, sample_scale, ARGS_DATASETS,
+                datasets_to_process, args)
             landcover_substring = '_'.join(datasets_to_process)
             file_basename = os.path.basename(request.files['file'].filename)
-            csv_filename = f'sampled_{buffer_size}m_{landcover_substring}_{file_basename}'
+            csv_filename = f'''sampled_{buffer_size}m_{landcover_substring}_{
+                file_basename}'''
             csv_blob_result = ''
             csv_blob_result += (
                 ','.join(table.columns) + f',{",".join(header_fields)}\n')
@@ -124,11 +143,6 @@ def create_app(config=None):
 
     def index():
         return ARGS_DATASETS
-
-    # wait for API calls
-    #app = Flask(__name__, instance_relative_config=False)
-    # app.wsgi_app = ReverseProxied(app.wsgi_app)
-    # flask_cors.CORS(app)
 
     # ensure the instance folder exists
     os.makedirs(app.instance_path, exist_ok=True)
@@ -175,7 +189,8 @@ gd
 """
     LOGGER.debug(dataset_info)
     try:
-        image_only = 'image_only' in dataset_info and dataset_info['image_only']
+        image_only = (
+            'image_only' in dataset_info and dataset_info['image_only'])
         if image_only:
             imagecollection = ee.Image(dataset_info['gee_dataset'])
         else:
@@ -185,8 +200,8 @@ gd
         closest_year = _get_closest_num(dataset_info['valid_years'], year)
         closest_year_image = ee.Image(closest_year)
         if dataset_info['filter_by'] == 'date':
-            dataset = imagecollection.filter(
-                ee.Filter.date(f'{closest_year}-01-01', f'{closest_year}-12-31')).first()
+            dataset = imagecollection.filter(ee.Filter.date(
+                f'{closest_year}-01-01', f'{closest_year}-12-31')).first()
         elif dataset_info['filter_by'] == 'system':
             dataset = imagecollection.filter(
                 ee.Filter.eq('system:index', str(closest_year))).first()
@@ -204,7 +219,9 @@ gd
                     LOGGER.debug(f'************ {mask_type} {code_value}')
 
                     if isinstance(code_value, tuple):
-                        local_mask = (band.gte(code_value[0])).And(band.lte(code_value[1]))
+                        local_mask = (
+                            band.gte(code_value[0])).And(
+                            band.lte(code_value[1]))
                         LOGGER.debug(local_mask.getInfo())
 
                     else:
@@ -212,11 +229,14 @@ gd
                     if mask_dict[mask_type] is None:
                         mask_dict[mask_type] = local_mask
                     else:
-                        mask_dict[mask_type] = mask_dict[mask_type].Or(local_mask)
+                        mask_dict[mask_type] = (
+                            mask_dict[mask_type].Or(local_mask))
 
         return mask_dict, closest_year_image
     except Exception:
-        LOGGER.exception(f"ERROR ON {dataset_info['gee_dataset']} {dataset_info['band_name']}, {year}")
+        LOGGER.exception(
+            f"ERROR ON {dataset_info['gee_dataset']} "
+            f"{dataset_info['band_name']}, {year}")
         sys.exit()
 
 
@@ -228,7 +248,9 @@ def _get_closest_num(number_list, candidate):
     return int(number_list[index])
 
 
-def _sample_pheno(pts_by_year, buffer, sample_scale, datasets, datasets_to_process, cmd_args):
+def _sample_pheno(
+        pts_by_year, buffer, sample_scale, datasets, datasets_to_process,
+        cmd_args):
     """Sample phenology variables from https://docs.google.com/spreadsheets/d/1nbmCKwIG29PF6Un3vN6mQGgFSWG_vhB6eky7wVqVwPo
 
     Args:
@@ -301,39 +323,49 @@ def _sample_pheno(pts_by_year, buffer, sample_scale, datasets, datasets_to_proce
             raw_band_stack = julian_day_bands.addBands(raw_variable_bands)
 
             all_bands = raw_band_stack
-            all_bands = all_bands.addBands(ee.Image(1).rename('valid_modis_year'))
+            all_bands = all_bands.addBands(ee.Image(1).rename(
+                'valid_modis_year'))
 
         else:
             all_bands = ee.Image().rename(GEE_BUG_WORKAROUND_BANDNAME)
-            all_bands = all_bands.addBands(ee.Image(0).rename('valid_modis_year'))
+            all_bands = all_bands.addBands(ee.Image(0).rename(
+                'valid_modis_year'))
 
         for precip_dataset_id in datasets_to_process:
             if not precip_dataset_id.startswith('precip_'):
                 continue
-            precip_dataset = ee.ImageCollection(datasets[precip_dataset_id]['gee_dataset']).select(datasets[precip_dataset_id]['band_name'])
+            precip_dataset = ee.ImageCollection(
+                datasets[precip_dataset_id]['gee_dataset']).select(
+                datasets[precip_dataset_id]['band_name'])
 
             start_day, end_day = cmd_args.precip_season_start_end
             agg_days = cmd_args.precip_aggregation_days
             current_day = start_day
             start_date = ee.Date(f'{year}-01-01').advance(start_day, 'day')
             end_date = ee.Date(f'{year}-01-01').advance(end_day, 'day')
-            total_precip_bandname = f'{precip_dataset_id}_{start_day}_{end_day}'
+            total_precip_bandname = (
+                f'{precip_dataset_id}_{start_day}_{end_day}')
             raw_band_names.append(total_precip_bandname)
             precip_band = precip_dataset.filterDate(
-                start_date, end_date).reduce('sum').rename(total_precip_bandname)
+                start_date, end_date).reduce('sum').rename(
+                total_precip_bandname)
 
             while True:
                 if current_day >= end_day:
                     break
                 LOGGER.debug(f'{current_day} to {end_day}')
-                # advance agg days - 1 since end is inclusive (1 day is just current day not today and tomorrow)
+                # advance agg days - 1 since end is inclusive #
+                # (1 day is just current day not today and tomorrow)
                 if agg_days + current_day > end_day:
                     agg_days = end_day-current_day
                 end_date = start_date.advance(agg_days, 'day')
-                period_precip_bandname = f'{precip_dataset_id}_{current_day}_{current_day+agg_days}'
+                period_precip_bandname = f'''{precip_dataset_id}_{
+                    current_day}_{current_day+agg_days}'''
                 raw_band_names.append(period_precip_bandname)
-                period_precip_sample = precip_dataset.select(datasets[precip_dataset_id]['band_name']).filterDate(
-                    start_date, end_date).reduce('sum').rename(period_precip_bandname)
+                period_precip_sample = precip_dataset.select(
+                    datasets[precip_dataset_id]['band_name']).filterDate(
+                    start_date, end_date).reduce('sum').rename(
+                    period_precip_bandname)
                 precip_band = precip_band.addBands(period_precip_sample)
                 start_date = end_date
                 current_day += agg_days
@@ -349,20 +381,27 @@ def _sample_pheno(pts_by_year, buffer, sample_scale, datasets, datasets_to_proce
             LOGGER.debug(f'masking {dataset_id}')
             mask_map, nearest_year_image = build_landcover_masks(
                 year, datasets[dataset_id])
-            nearest_year_image = nearest_year_image.rename(f'{dataset_id}-nearest_year')
+            nearest_year_image = nearest_year_image.rename(
+                f'{dataset_id}-nearest_year')
             for mask_id, mask_image in mask_map.items():
                 if raw_band_stack is not None:
                     masked_raw_band_stack = raw_band_stack.updateMask(
                         mask_image).rename([
-                            f'{band_name}-{dataset_id}-{mask_id}' for band_name in raw_band_names])
+                            f'{band_name}-{dataset_id}-{mask_id}'
+                            for band_name in raw_band_names])
                     all_bands = all_bands.addBands(masked_raw_band_stack)
                     # get modis mask
                     if valid_modis_year:
-                        modis_mask = raw_band_stack.select(raw_band_stack.bandNames().getInfo()[0]).mask()
+                        modis_mask = raw_band_stack.select(
+                            raw_band_stack.bandNames().getInfo()[0]).mask()
                         modis_overlap_mask = modis_mask.And(mask_image)
-                        all_bands = all_bands.addBands(modis_overlap_mask.rename(f'{dataset_id}-{mask_id}-valid-modis-overlap-prop'))
+                        all_bands = all_bands.addBands(
+                            modis_overlap_mask.rename(
+                                f'''{dataset_id}-{
+                                    mask_id}-valid-modis-overlap-prop'''))
 
-                all_bands = all_bands.addBands(mask_image.rename(f'{dataset_id}-{mask_id}-pixel-prop'))
+                all_bands = all_bands.addBands(mask_image.rename(
+                    f'{dataset_id}-{mask_id}-pixel-prop'))
 
             all_bands = all_bands.addBands(nearest_year_image)
 
@@ -371,17 +410,6 @@ def _sample_pheno(pts_by_year, buffer, sample_scale, datasets, datasets_to_proce
             'reducer': REDUCER,
             'scale': sample_scale,
         }).getInfo()
-
-        # task = ee.batch.Export.image.toAsset(**{
-        #     'image': all_bands,
-        #     'description': 'allbands',
-        #     'assetId': 'projects/ecoshard-202922/assets/allbands',
-        #     'scale': SAMPLE_SCALE,
-        #     'maxPixels': 1e13,
-        #     'region': year_points.first().getInfo()['geometry']['coordinates'],
-        #     #'region': region,
-        # })
-        # task.start()
 
         sample_list.extend(samples['features'])
         local_header_fields = [
@@ -400,10 +428,14 @@ def parse_ini(ini_path):
     dataset_config.read(ini_path)
     dataset_result = {}
     if basename not in dataset_config:
-        raise ValueError(f'expected a section called {basename} but only found {dataset_config.sections()}')
+        raise ValueError(
+            f'expected a section called {basename} but only found '
+            f'{dataset_config.sections()}')
     for element_id in EXPECTED_INI_ELEMENTS:
         if element_id not in dataset_config[basename]:
-            raise ValueError(f'expected an entry called {element_id} but only found {dataset_config[basename].items()}')
+            raise ValueError(
+                f'expected an entry called {element_id} but only found '
+                f'{dataset_config[basename].items()}')
         dataset_result[element_id] = dataset_config[basename][element_id]
     found_expected_section = False
     for section_id in EXPECTED_INI_SECTIONS:
@@ -412,7 +444,8 @@ def parse_ini(ini_path):
             break
     if not found_expected_section:
         raise ValueError(
-            f'expected any one of sections called {EXPECTED_INI_SECTIONS} but only found {dataset_config.sections()}')
+            f'expected any one of sections called {EXPECTED_INI_SECTIONS} '
+            f'but only found {dataset_config.sections()}')
     dataset_result[section_id] = {}
     for element_id in dataset_config[section_id].items():
         LOGGER.debug(element_id)
