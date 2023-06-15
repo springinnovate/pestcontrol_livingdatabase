@@ -1,9 +1,27 @@
 """Replace a column with user defined table values."""
+import io
+import codecs
 import csv
+import chardet
 import argparse
 import os
 
 import pandas
+
+
+def clean_io(path):
+    with open(path, 'rb') as f:
+        bytes_content = f.read()
+    encoding_result = chardet.detect(bytes_content)
+
+    print(f'{path} -- {encoding_result}')
+    encoding = encoding_result['encoding']
+    if encoding is None:
+        encoding = 'utf-8'
+    # replacing erroneous characters with � (U+FFFD, the official Unicode replacement character)
+    content = bytes_content.decode(encoding, errors='replace')
+    data = io.StringIO(content)
+    return data
 
 
 def main():
@@ -25,17 +43,14 @@ def main():
             'suffix the target table with this value, default is the '
             'replacement fieldname'))
     args = parser.parse_args()
-    base_table = pandas.read_csv(
-        args.base_table_path, encoding='unicode_escape', engine='python')
-
-    with open(args.replacement_table_path) as replacement_table_file:
-        replacement_table = csv.reader(
-            replacement_table_file)
-        for row in replacement_table:
-            if len(row) <= 1:
-                continue
-            base_table.replace(
-               {args.field_name: row[1:]}, row[0], inplace=True)
+    base_table = pandas.read_csv(clean_io(args.base_table_path))
+    replacement_table = csv.reader(
+        clean_io(args.replacement_table_path))
+    for row in replacement_table:
+        if len(row) <= 1:
+            continue
+        base_table.replace(
+           {args.field_name: row[1:]}, row[0], inplace=True)
 
     suffix = args.target_suffix
     if suffix is None:
