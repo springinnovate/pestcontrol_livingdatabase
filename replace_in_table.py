@@ -17,7 +17,7 @@ def clean_io(path):
     print(f'{path} -- {encoding_result}')
     encoding = encoding_result['encoding']
     print(encoding)
-    if encoding is None:
+    if encoding is None or encoding_result['confidence'] < 0.9:
         encoding = 'utf-8'
     # replacing erroneous characters with � (U+FFFD, the official Unicode replacement character)
     content = bytes_content.decode(encoding, errors='replace')
@@ -59,6 +59,7 @@ def main():
     target_table_path = f'%s{suffix}%s' % os.path.splitext(
         args.base_table_path)
     base_table.to_csv(target_table_path, index=False)
+    print(f'result written to {target_table_path}')
 
 
 if __name__ == '__main__':
