@@ -16,6 +16,7 @@ def clean_io(path):
 
     print(f'{path} -- {encoding_result}')
     encoding = encoding_result['encoding']
+    print(encoding)
     if encoding is None:
         encoding = 'utf-8'
     # replacing erroneous characters with � (U+FFFD, the official Unicode replacement character)
