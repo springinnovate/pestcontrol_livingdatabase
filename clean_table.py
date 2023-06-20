@@ -1,5 +1,11 @@
 """Fix duplicate misspelled field names."""
 import concurrent.futures
+import queue
+import ftfy
+import csv
+#from cchardet import detect
+from charset_normalizer import detect
+import concurrent.futures
 import argparse
 import os
 import re
@@ -70,6 +76,22 @@ def _distance_worker(names_to_process, a, single_word_penalty, max_edit_distance
     return result
 
 
+def _process_line(raw_line):
+    # guess the encoding
+    encoding = detect(raw_line)['encoding']
+    line = raw_line.decode(encoding)
+    # remove all the in-word quotes
+    quoteless = [
+        item.replace('"', '')
+        for item in next(iter(csv.reader([line])))]
+    # run any unicode fixes
+    fixed_line = [
+        ftfy.fix_text(element).replace('"', '')
+        for element in quoteless]
+    return (','.join(
+        [f'"{val}"' for val in fixed_line])+'\n').encode('utf-8')
+
+
 def main():
     """Entry point."""
     parser = argparse.ArgumentParser(
@@ -92,17 +114,40 @@ def main():
         '--field_name', default='technician',
         help='field name to scrub, defaults to "technician"')
     args = parser.parse_args()
-    table = pandas.read_csv(
-        args.table_path, encoding='unicode_escape', engine='python')
+    encoding_set = collections.defaultdict(int)
+    scrubbed_file_path = f'scrubbed_{os.path.basename(args.table_path)}'
+    scrubbed_file = open(scrubbed_file_path, 'wb')
 
+    # TODO: matching an edit dist of 7 and 3.0 on cotton technicians gives a lot
+    # of SURAGRO
+
+    # This is where the parallel processing happens.
+
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        with open(args.table_path, 'rb') as table_file:
+            n_lines = len(['x' for line in table_file])
+            table_file.seek(0)
+            processed_lines = executor.map(
+                _process_line, [line for line in table_file])
+        last_percent = 0
+        for line_no, line in enumerate(processed_lines):
+            percent_complete = line_no/n_lines*100
+            if percent_complete-last_percent >= 1:
+                last_percent = percent_complete
+                print(f'{last_percent:5.2f}% complete processing of {args.table_path}')
+            scrubbed_file.write(line)
+    table = pandas.read_csv(
+        scrubbed_file_path, encoding='unicode_escape', engine='python')
+    return
     table[args.field_name] = table[args.field_name].str.upper()
 
-    X = table[['long', 'lat']]
+    X = numpy.ascontiguousarray(table[['long', 'lat']])
 
     print('build clusters')
     brc = Birch(threshold=args.cluster_resolution, n_clusters=None)
-    brc.fit(X.values)
-    clusters = brc.predict(X.values)
+    print(X)
+    brc.fit(X)
+    clusters = brc.predict(X)
     table['clusters'] = clusters
 
     _generate_scatter_plot(
