@@ -5,6 +5,7 @@ import csv
 import chardet
 import argparse
 import os
+from recordlinkage.preprocessing import clean
 
 import pandas
 
@@ -24,6 +25,10 @@ def clean_io(path):
     data = io.StringIO(content)
     return data
 
+
+def _clean(series):
+    print(series.decode('utf-8'))
+    return clean(series).decode('utf-8')
 
 def main():
     """Entry point."""
@@ -45,9 +50,17 @@ def main():
             'replacement fieldname'))
     args = parser.parse_args()
     base_table = pandas.read_csv(clean_io(args.base_table_path))
+
+    # Select only the string columns, then apply the function
+    base_table.loc[:, base_table.dtypes == object] = base_table.select_dtypes(
+        include=[object]).apply(clean)
+
+    print(base_table['technician'])
     replacement_table = csv.reader(
         clean_io(args.replacement_table_path))
     for row in replacement_table:
+        print(row)
+        print(base_table[args.field_name])
         if len(row) <= 1:
             continue
         base_table.replace(
@@ -58,7 +71,7 @@ def main():
         suffix = args.field_name
     target_table_path = f'%s{suffix}%s' % os.path.splitext(
         args.base_table_path)
-    base_table.to_csv(target_table_path, index=False)
+    base_table.to_csv(target_table_path, index=False, encoding='utf-8')
     print(f'result written to {target_table_path}')
 
 
