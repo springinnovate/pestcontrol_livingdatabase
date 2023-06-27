@@ -1,5 +1,4 @@
 """Fix duplicate misspelled field names."""
-import locale
 import argparse
 import string
 import collections
@@ -10,7 +9,6 @@ import os
 import re
 import sys
 
-from charset_normalizer import detect
 from matplotlib import colors
 from recordlinkage.preprocessing import clean
 from sklearn.cluster import Birch
@@ -29,6 +27,36 @@ logging.basicConfig(
         ' [%(funcName)s:%(lineno)d] %(message)s'),
     stream=sys.stdout)
 LOGGER = logging.getLogger(__name__)
+
+RAW_LOOKUP = [
+    ['a_ina', 'acina'],
+    ['jos_', 'jose'],
+    ['a_a', 'ana'],
+    ['a_e', 'ane'],
+    ['a_i', 'ani'],
+    ['a_l', 'ael'],
+    ['a_n', 'aen'],
+    ['a_o', 'ano'],
+    ['e_a', 'ena'],
+    ['e_o', 'eno'],
+    ['g_n', 'gen'],
+    ['i_a', 'ina'],
+    ['i_e', 'ine'],
+    ['i_n', 'ien'],
+    ['i_r', 'ier'],
+    ['i_u', 'inu'],
+    ['m_n', 'men'],
+    ['o_a', 'ona'],
+    ['p_r', 'per'],
+    ['u_a', 'una'],
+    ['u_e', 'nue'],
+    ['u_o', 'uno'],
+    ['d_e', 'done'],
+    ['r_s', 'ros'],
+    ['n_', 'na'],
+    ['m_', 'ma'],
+    ['o_e', 'one'],
+    ]
 
 
 def _generate_scatter_plot(
@@ -88,17 +116,22 @@ def _distance_worker(names_to_process, a, single_word_penalty, max_edit_distance
     return result
 
 
+def _replace_common_substring_errors(base_string):
+    for substring, replacement in RAW_LOOKUP:
+        base_string = base_string.replace(substring, replacement)
+    return base_string
+
 def _process_line(raw_line):
-    # guess the encoding
-    encoding = detect(raw_line)['encoding']
-    line = raw_line.decode(encoding)
+    line = raw_line.decode('utf-8', errors='ignore')
     # remove all the in-word quotes
     quoteless = [
         item.replace('"', '')
         for item in next(iter(csv.reader([line])))]
     # run any unicode fixes
     fixed_line = [
-        ftfy.fix_text(element).replace('"', '')
+        _replace_common_substring_errors(
+            ftfy.fix_text(
+                element, normalization='NFKC').replace('"', '').lower())
         for element in quoteless]
     return (','.join(
         [f'"{val}"' for val in fixed_line])+'\n').encode('utf-8')
@@ -142,6 +175,7 @@ def attempt_to_correct(original_str):
             continue
     return best_str
 
+
 def main():
     # print(attempt_to_correct('jos_ maría coronel bejarano 23', 'utf-8'))
     # return
@@ -154,7 +188,6 @@ def main():
         '--field_name', default='technician',
         help='field name to scrub, defaults to "technician"')
     args = parser.parse_args()
-    encoding_set = collections.defaultdict(int)
     scrubbed_file_path = f'scrubbed_{os.path.basename(args.table_path)}'
 
     # TODO: matching an edit dist of 7 and 3.0 on cotton technicians gives a lot
@@ -170,15 +203,24 @@ def main():
                 processed_lines = executor.map(
                     _process_line, [line for line in table_file])
             last_percent = 0
+            scrubbed_file.write(b'\xEF\xBB\xBF')
+            missing_letter_set = set()
             for line_no, line in enumerate(processed_lines):
+                missing_letter_set.update([
+                    word.replace('"', '')
+                    for element in line.decode('utf-8').split(',') if '_' in element
+                    for word in element.split(' ')
+                    if '_' in word])
                 percent_complete = line_no/n_lines*100
                 if percent_complete-last_percent >= 1:
                     last_percent = percent_complete
                     LOGGER.info(f'{last_percent:5.2f}% complete processing of {args.table_path}')
                 scrubbed_file.write(line)
+        with open('missing.txt', 'w') as file:
+            file.write('\n'.join(sorted(missing_letter_set)))
     table = pandas.read_csv(
         scrubbed_file_path, encoding='utf-8', engine='python')
-
+    return
     LOGGER.info('Create a pandas DataFrame')
     table[args.field_name] = table[args.field_name].apply(attempt_to_correct)
     return

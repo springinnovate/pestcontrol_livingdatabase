@@ -30,6 +30,7 @@ def _clean(series):
     print(series.decode('utf-8'))
     return clean(series).decode('utf-8')
 
+
 def main():
     """Entry point."""
     parser = argparse.ArgumentParser(description=(
