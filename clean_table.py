@@ -1,4 +1,4 @@
-"""Fix duplicate misspelled field names."""
+"""Fix bad encodings and deduplicate field names."""
 import argparse
 import string
 import collections
@@ -121,6 +121,7 @@ def _replace_common_substring_errors(base_string):
         base_string = base_string.replace(substring, replacement)
     return base_string
 
+
 def _process_line(raw_line):
     line = raw_line.decode('utf-8', errors='ignore')
     # remove all the in-word quotes
@@ -143,38 +144,6 @@ def count_valid_characters(name):
         1 for char in name if char in list(string.ascii_letters) +
         other_valid_letters)
 
-def attempt_to_correct(original_str):
-    if not isinstance(original_str, str):
-        return original_str
-    original_str = original_str.lower()
-    print(original_str)
-    if original_str.startswith('mateos salido, josÃ© luis'):
-        print(original_str)
-        sys.exit()
-    encoding_schemes_to_test = ['latin1', 'utf-8']
-    artifacts = ['Ã©', 'Ã±', '玡', 'ך', 'ح', ]
-    replace_list = [
-        (' چ', 'Á'), ('_', 'é'), ('¨', 'Á'), ('oőe', 'oñe'),
-        ('äéez', 'óñez')]
-    cleaned_str = original_str
-    for base, replace in replace_list:
-        cleaned_str = cleaned_str.replace(base, replace)
-
-    best_str = cleaned_str
-    best_count = count_valid_characters(cleaned_str)
-
-    for encoding_scheme in encoding_schemes_to_test:
-        try:
-            corrected = cleaned_str.encode(encoding_scheme).decode('utf-8')
-            valid_count = count_valid_characters(corrected)
-            valid_count -= sum(1 for char in corrected if char in artifacts)
-            if valid_count > best_count:
-                best_count = valid_count
-                best_str = cleaned_str
-        except Exception as e:
-            continue
-    return best_str
-
 
 def main():
     # print(attempt_to_correct('jos_ maría coronel bejarano 23', 'utf-8'))
@@ -185,15 +154,11 @@ def main():
     parser.add_argument('table_path', help=(
         'path to CSV data table with "long", "lat" and defined text fields'))
     parser.add_argument(
-        '--field_name', default='technician',
-        help='field name to scrub, defaults to "technician"')
+        '--field_name', nargs='+', required=True,
+        help='a list of field names in the table to deduplicate.')
     args = parser.parse_args()
     scrubbed_file_path = f'scrubbed_{os.path.basename(args.table_path)}'
 
-    # TODO: matching an edit dist of 7 and 3.0 on cotton technicians gives a lot
-    # of SURAGRO
-
-    # This is where the parallel processing happens.
     if not (os.path.exists(scrubbed_file_path)):
         scrubbed_file = open(scrubbed_file_path, 'wb')
         with concurrent.futures.ProcessPoolExecutor() as executor:
@@ -220,140 +185,77 @@ def main():
             file.write('\n'.join(sorted(missing_letter_set)))
     table = pandas.read_csv(
         scrubbed_file_path, encoding='utf-8', engine='python')
-    return
     LOGGER.info('Create a pandas DataFrame')
-    table[args.field_name] = table[args.field_name].apply(attempt_to_correct)
-    return
-    clean_names = pandas.DataFrame(
-        pandas.Series(clean(table[args.field_name]).unique()),
-        columns=[args.field_name])
 
-    LOGGER.info('Create an indexer object')
-    indexer = recordlinkage.Index()
-    indexer.full()
+    # now iterate through the args.field_name pairs ....
+    for field_name in args.field_name:
+        LOGGER.info(f'processing {field_name}')
+        clean_names = pandas.DataFrame(
+            pandas.Series(clean(table[field_name]).dropna().unique()),
+            columns=[field_name])
+        max_len = clean_names[field_name].apply(len).max()
 
-    LOGGER.info('Generate pairs')
-    pairs = indexer.index(clean_names)
-    LOGGER.info(pairs)
-    LOGGER.info('Create a Compare object')
-    compare_cl = recordlinkage.Compare()
+        indexer = recordlinkage.Index()
+        indexer.full()
 
-    LOGGER.info(f'Find exact matches for the {args.field_name} column')
-    compare_cl.string(args.field_name, args.field_name, method='lcs')
+        pairs = indexer.index(clean_names)
+        compare_cl = recordlinkage.Compare()
 
-    LOGGER.info('Compute the comparison')
-    features = compare_cl.compute(pairs, clean_names)
+        for method in [
+                'qgram', 'cosine', 'smith_waterman', 'lcs']:
+            compare_cl.string(field_name, field_name, method=method)
 
-    LOGGER.info('Find potential matches')
-    print(features)
-    potential_matches = features[features.sum(axis=1) > 0.8]  # Adjust the threshold as needed
+        LOGGER.info('Compute the comparison')
+        features = compare_cl.compute(pairs, clean_names, clean_names)
+        potential_matches = features
+        #potential_matches = features[features.mean(axis=1) > 0.6]
 
-    LOGGER.info('Create a graph to store the matches')
-    G = nx.Graph()
-
-    LOGGER.info('Add an edge for each match')
-    for match in potential_matches.index:
-        G.add_edge(match[0], match[1])
-
-    LOGGER.info('Find connected components, which correspond to sets of matches')
-    match_sets = list(nx.connected_components(G))
-
-    candidate_table = f'candidate_table_{args.field_name}.csv'
-    LOGGER.info(f'Generating {candidate_table}')
-    processed_set = set()
-
-    with open(candidate_table, 'wb') as candidate_table:
-        candidate_table.write(b'\xEF\xBB\xBF')
-        for match_set in match_sets:
-            similar_list = [clean_names.loc[i, args.field_name] for i in match_set]
-            # Sort names by length (descending) and number of non-ASCII characters (ascending)
-            similar_list = list(sorted(
-                similar_list, key=lambda name: -count_valid_characters(name)))
-
-            corrected = attempt_to_correct(similar_list[0])
-            if corrected != similar_list[0]:
-                similar_list.insert(0, corrected)
-            LOGGER.info(similar_list)
-
-            candidate_table.write(
-                (','.join([f'"{name}"' for name in similar_list]) + '\n').encode('utf-8'))
-            local_table = table.copy()
-            local_table.replace(
-                {args.field_name: similar_list[1:]}, similar_list[0],
-                inplace=True)
-            local_table[args.field_name] = clean(local_table[args.field_name])
-            local_table.to_csv(args.field_name + '.csv')
-    return
-
-    table[args.field_name] = table[args.field_name].str.upper()
-    X = numpy.ascontiguousarray(table[['long', 'lat']])
-
-    LOGGER.info('build clusters')
-    brc = Birch(threshold=args.cluster_resolution, n_clusters=None)
-    LOGGER.info(X)
-    brc.fit(X)
-    clusters = brc.predict(X)
-    table['clusters'] = clusters
-
-    _generate_scatter_plot(
-        args.table_path, args.cluster_resolution, clusters, table)
-
-    LOGGER.info('create name to edit distance maps for all names')
-    name_to_edit_distance = collections.defaultdict(set)
-    for cluster in numpy.unique(clusters):
-        unique_names = table[
-            table['clusters'] == cluster][args.field_name].dropna().unique()
-        names_to_process = set(unique_names)
-        future_list = []
-        with concurrent.futures.ProcessPoolExecutor() as executor:
-            LOGGER.info('submit jobs')
-            future_list = []
-            for a in unique_names:
-                future_list.append(
-                    executor.submit(
-                        _distance_worker, names_to_process.copy(), a,
-                        args.single_word_penalty, args.max_edit_distance))
-                names_to_process.remove(a)
-            LOGGER.info('process results')
-            for future in concurrent.futures.as_completed(future_list):
-                for (a, b, edit_distance) in future.result():
-                    name_to_edit_distance[a].add((edit_distance, b))
-                    name_to_edit_distance[b].add((edit_distance, a))
-            LOGGER.info('done processing results')
-
-    for max_edit_distance in range(
-            args.min_edit_distance, args.max_edit_distance+1):
-        edit_distance_table_path = (
-            f'candidate_table_{max_edit_distance}_'
-            f'{args.cluster_resolution}.csv')
-        LOGGER.info(f'generating {edit_distance_table_path}')
-        processed_set = set()
-        with open(edit_distance_table_path, 'w', encoding="ISO-8859-1") as \
-                candidate_table:
-            local_table = table.copy()
-            for base_name, edit_distance_set in name_to_edit_distance.items():
-                if base_name in processed_set:
+        with open('training.csv', 'a', encoding='utf-8') as file:
+            match_list = []
+            for prob_array, index_array in zip(potential_matches.values, potential_matches.index):
+                avg_rate = numpy.average(prob_array)
+                if avg_rate < 0.5:
                     continue
-                replace_name_list = []
-                processed_set.add(base_name)
-                row = f'"{base_name}"'
-                for edit_distance, name in sorted(edit_distance_set):
-                    if name == base_name:
-                        continue
-                    if edit_distance > max_edit_distance:
-                        break
-                    replace_name_list.append(name)
-                    processed_set.add(name)
-                    row += f',"{name}"'
-                if replace_name_list is not []:
-                    local_table.replace(
-                        {args.field_name: replace_name_list}, base_name,
-                        inplace=True)
-                candidate_table.write(f'{row}\n')
-        target_table_path = (
-            f'remapped_{max_edit_distance}_'
-            f'{args.cluster_resolution}_{os.path.basename(args.table_path)}')
-        local_table.to_csv(target_table_path, index=False)
+                val1 = clean_names.loc[index_array[0], field_name]
+                val2 = clean_names.loc[index_array[1], field_name]
+                match_string = (
+                    f',"{val1}","{val2}",'
+                    + ','.join(str(x) for x in prob_array) +
+                    f',{len(val1)/max_len},{len(val2)/max_len}\n')
+                match_list.append((avg_rate, match_string))
+            for _, line in reversed(sorted(match_list)):
+                file.write(line)
+        continue
+
+        LOGGER.info('Create a graph to store the matches')
+        G = nx.Graph()
+
+        LOGGER.info('Add an edge for each match')
+        for match in potential_matches.index:
+            G.add_edge(match[0], match[1])
+
+        LOGGER.info('Find connected components, which correspond to sets of matches')
+        match_sets = list(nx.connected_components(G))
+
+        candidate_table = f'candidate_table_{field_name}.csv'
+        LOGGER.info(f'Generating {candidate_table}')
+        processed_set = set()
+
+        with open(candidate_table, 'wb') as candidate_table:
+            candidate_table.write(b'\xEF\xBB\xBF')
+            for match_set in match_sets:
+                similar_list = [clean_names.loc[i, field_name] for i in match_set]
+                # Sort names by length (descending) and number of non-ASCII characters (ascending)
+                similar_list = list(sorted(
+                    similar_list, key=lambda name: -count_valid_characters(name)))
+                candidate_table.write(
+                    (','.join([f'"{name}"' for name in similar_list]) + '\n').encode('utf-8'))
+                local_table = table.copy()
+                local_table.replace(
+                    {field_name: similar_list[1:]}, similar_list[0],
+                    inplace=True)
+                local_table[field_name] = clean(local_table[field_name])
+                local_table.to_csv(field_name + '.csv')
 
 
 if __name__ == '__main__':
