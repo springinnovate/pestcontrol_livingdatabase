@@ -107,12 +107,13 @@ def main():
         while True:
             line = random.choices(valid_lines, weights)[0]
             elements = line.split(',')
-            print(f'\n{elements[1]}\n{elements[2]}\nRank out of 3 best, 2 ok, 1 bad, 0 nonsense')
+            print(f'\n{elements[1]}\n{elements[2]}\nRank out of: (1) bad, (2) unsure, (3) match')
             var = getch()
             if var == 'q':
                 break
             train_file.write(f'{var},{line[1:]}',)
             train_file.flush()
+
 
 if __name__ == '__main__':
     main()
