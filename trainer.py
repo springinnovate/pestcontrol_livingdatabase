@@ -88,8 +88,9 @@ def getch():
 
 
 def main():
-    #name = input('Enter your name/id: ')
-    train_file = open(f'modified_training.csv', 'a')
+    name = input('Hello, what is your name: ')
+    train_file = open(f'{name}_modified_training.csv', 'a')
+    print(f'ok {name} here we go!')
     with open('training.csv', 'r') as file:
         lines = file.readlines()
         weights = []
