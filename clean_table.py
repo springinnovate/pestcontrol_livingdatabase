@@ -1,7 +1,6 @@
 """Fix bad encodings and deduplicate field names."""
 import argparse
 import string
-import collections
 import concurrent.futures
 import csv
 import logging
@@ -11,7 +10,7 @@ import sys
 
 from matplotlib import colors
 from recordlinkage.preprocessing import clean
-from sklearn.cluster import Birch
+from sklearn.linear_model import LinearRegression
 import editdistance
 import ftfy
 import matplotlib.pyplot as plt
@@ -57,7 +56,7 @@ RAW_LOOKUP = [
     ['m_', 'ma'],
     ['o_e', 'one'],
     ]
-
+MAX_LINE_LEN = 27
 
 def _generate_scatter_plot(
         table_path, cluster_resolution, clusters, table):
@@ -145,6 +144,15 @@ def count_valid_characters(name):
         other_valid_letters)
 
 
+def _train_classifier():
+    table = pandas.read_csv('modified_training.csv')
+    X_set = table[['qgram', 'cosine', 'smith_waterman', 'lcs', 'len_a', 'len_b']]
+    y_vector = table['category']
+    reg = LinearRegression().fit(X_set, y_vector)
+    reg.fit(X_set, y_vector)
+    return reg
+
+
 def main():
     # print(attempt_to_correct('jos_ maría coronel bejarano 23', 'utf-8'))
     # return
@@ -159,14 +167,16 @@ def main():
     args = parser.parse_args()
     scrubbed_file_path = f'scrubbed_{os.path.basename(args.table_path)}'
 
-    if not (os.path.exists(scrubbed_file_path)):
+    classifier = _train_classifier()
+
+    if not os.path.exists(scrubbed_file_path):
         scrubbed_file = open(scrubbed_file_path, 'wb')
         with concurrent.futures.ProcessPoolExecutor() as executor:
             with open(args.table_path, 'rb') as table_file:
                 n_lines = len(['x' for line in table_file])
                 table_file.seek(0)
                 processed_lines = executor.map(
-                    _process_line, [line for line in table_file])
+                    _process_line, list(table_file))
             last_percent = 0
             scrubbed_file.write(b'\xEF\xBB\xBF')
             missing_letter_set = set()
@@ -185,7 +195,7 @@ def main():
             file.write('\n'.join(sorted(missing_letter_set)))
     table = pandas.read_csv(
         scrubbed_file_path, encoding='utf-8', engine='python')
-    LOGGER.info('Create a pandas DataFrame')
+    LOGGER.info(f'{table}')
 
     # now iterate through the args.field_name pairs ....
     for field_name in args.field_name:
@@ -193,7 +203,6 @@ def main():
         clean_names = pandas.DataFrame(
             pandas.Series(clean(table[field_name]).dropna().unique()),
             columns=[field_name])
-        max_len = clean_names[field_name].apply(len).max()
 
         indexer = recordlinkage.Index()
         indexer.full()
@@ -207,8 +216,30 @@ def main():
 
         LOGGER.info('Compute the comparison')
         features = compare_cl.compute(pairs, clean_names, clean_names)
-        potential_matches = features
-        #potential_matches = features[features.mean(axis=1) > 0.6]
+
+        match_pair_list = []
+        prob_array_list = []
+
+        for prob_array, index_array in zip(features.values, features.index):
+            val1 = clean_names.loc[index_array[0], field_name]
+            val2 = clean_names.loc[index_array[1], field_name]
+            match_pair_list.append((val1, val2))
+            prob_array_list.append(
+                numpy.append(prob_array, [len(val1)/MAX_LINE_LEN, len(val2)/MAX_LINE_LEN]))
+        #     match_string = (
+        #         f',"{val1}","{val2}",'
+        #         + ','.join(str(x) for x in prob_array) +
+        #         f',{len(val1)/MAX_LINE_LEN},{len(val2)/MAX_LINE_LEN}\n')
+        # for _, line in reversed(sorted(match_list)):
+        #     file.write(line)
+
+        classification_list = classifier.predict(prob_array_list)
+        with open('debug.csv', 'w') as file:
+            for x, y, z in sorted(zip(classification_list, match_pair_list, prob_array_list), reverse=True):
+                file.write(f'{x},{",".join(y)},{",".join(str(v) for v in z)}\n')
+
+        sys.exit()
+
 
         with open('training.csv', 'a', encoding='utf-8') as file:
             match_list = []
