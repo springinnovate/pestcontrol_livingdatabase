@@ -66,18 +66,18 @@ def build_landcover_masks(year, dataset_info):
 """
     LOGGER.debug(dataset_info)
     try:
+        closest_year = _get_closest_num(dataset_info['valid_years'], year)
         image_only = 'image_only' in dataset_info and dataset_info['image_only']
         gee_dataset_path = dataset_info['gee_dataset']
         if dataset_info['filter_by'] == 'dataset_year_pattern':
-            gee_dataset_path = gee_dataset_path.format(year=year)
+            gee_dataset_path = gee_dataset_path.format(year=closest_year)
         LOGGER.debug(f'****************** {gee_dataset_path}')
         if image_only:
             imagecollection = ee.Image(gee_dataset_path)
         else:
             imagecollection = ee.ImageCollection(gee_dataset_path)
 
-        LOGGER.debug(f"query {dataset_info['band_name']}, {year} {dataset_info}")
-        closest_year = _get_closest_num(dataset_info['valid_years'], year)
+        LOGGER.debug(f"query {dataset_info['band_name']}, {closest_year}({year}){dataset_info}")
         closest_year_image = ee.Image(closest_year)
         if dataset_info['filter_by'] == 'date':
             dataset = imagecollection.filter(
