@@ -198,6 +198,8 @@ def main():
     LOGGER.info(f'{table}')
 
     # now iterate through the args.field_name pairs ....
+    prob_array_list = []
+    match_pair_list = []
     for field_name in args.field_name:
         LOGGER.info(f'processing {field_name}')
         clean_names = pandas.DataFrame(
@@ -217,8 +219,6 @@ def main():
         LOGGER.info('Compute the comparison')
         features = compare_cl.compute(pairs, clean_names, clean_names)
 
-        match_pair_list = []
-        prob_array_list = []
 
         for prob_array, index_array in zip(features.values, features.index):
             val1 = clean_names.loc[index_array[0], field_name]
@@ -226,67 +226,62 @@ def main():
             match_pair_list.append((val1, val2))
             prob_array_list.append(
                 numpy.append(prob_array, [len(val1)/MAX_LINE_LEN, len(val2)/MAX_LINE_LEN]))
-        #     match_string = (
-        #         f',"{val1}","{val2}",'
-        #         + ','.join(str(x) for x in prob_array) +
-        #         f',{len(val1)/MAX_LINE_LEN},{len(val2)/MAX_LINE_LEN}\n')
-        # for _, line in reversed(sorted(match_list)):
-        #     file.write(line)
 
-        classification_list = classifier.predict(prob_array_list)
-        with open('debug.csv', 'w') as file:
-            for x, y, z in sorted(zip(classification_list, match_pair_list, prob_array_list), reverse=True):
-                file.write(f'{x},{",".join(y)},{",".join(str(v) for v in z)}\n')
+    classification_list = classifier.predict(prob_array_list)
+    with open('debug.csv', 'w') as file:
+        for raw_class, match_pair in sorted(zip(classification_list, match_pair_list), reverse=True):
+            if raw_class < 1:
+                continue
+            file.write(f'{int(numpy.round(raw_class+0.25))},{",".join(match_pair)}\n')
 
-        sys.exit()
+    sys.exit()
 
+    with open('training.csv', 'a', encoding='utf-8') as file:
+        match_list = []
+        for prob_array, index_array in zip(potential_matches.values, potential_matches.index):
+            avg_rate = numpy.average(prob_array)
+            if avg_rate < 0.5:
+                continue
+            val1 = clean_names.loc[index_array[0], field_name]
+            val2 = clean_names.loc[index_array[1], field_name]
+            match_string = (
+                f',"{val1}","{val2}",'
+                + ','.join(str(x) for x in prob_array) +
+                f',{len(val1)/max_len},{len(val2)/max_len}\n')
+            match_list.append((avg_rate, match_string))
+        for _, line in reversed(sorted(match_list)):
+            file.write(line)
+    return
 
-        with open('training.csv', 'a', encoding='utf-8') as file:
-            match_list = []
-            for prob_array, index_array in zip(potential_matches.values, potential_matches.index):
-                avg_rate = numpy.average(prob_array)
-                if avg_rate < 0.5:
-                    continue
-                val1 = clean_names.loc[index_array[0], field_name]
-                val2 = clean_names.loc[index_array[1], field_name]
-                match_string = (
-                    f',"{val1}","{val2}",'
-                    + ','.join(str(x) for x in prob_array) +
-                    f',{len(val1)/max_len},{len(val2)/max_len}\n')
-                match_list.append((avg_rate, match_string))
-            for _, line in reversed(sorted(match_list)):
-                file.write(line)
-        continue
+    LOGGER.info('Create a graph to store the matches')
+    G = nx.Graph()
 
-        LOGGER.info('Create a graph to store the matches')
-        G = nx.Graph()
+    LOGGER.info('Add an edge for each match')
+    for match in potential_matches.index:
+        G.add_edge(match[0], match[1])
 
-        LOGGER.info('Add an edge for each match')
-        for match in potential_matches.index:
-            G.add_edge(match[0], match[1])
+    LOGGER.info('Find connected components, which correspond to sets of matches')
+    match_sets = list(nx.connected_components(G))
 
-        LOGGER.info('Find connected components, which correspond to sets of matches')
-        match_sets = list(nx.connected_components(G))
+    candidate_table = f'candidate_table_{field_name}.csv'
+    LOGGER.info(f'Generating {candidate_table}')
+    processed_set = set()
 
-        candidate_table = f'candidate_table_{field_name}.csv'
-        LOGGER.info(f'Generating {candidate_table}')
-        processed_set = set()
-
-        with open(candidate_table, 'wb') as candidate_table:
-            candidate_table.write(b'\xEF\xBB\xBF')
-            for match_set in match_sets:
-                similar_list = [clean_names.loc[i, field_name] for i in match_set]
-                # Sort names by length (descending) and number of non-ASCII characters (ascending)
-                similar_list = list(sorted(
-                    similar_list, key=lambda name: -count_valid_characters(name)))
-                candidate_table.write(
-                    (','.join([f'"{name}"' for name in similar_list]) + '\n').encode('utf-8'))
-                local_table = table.copy()
-                local_table.replace(
-                    {field_name: similar_list[1:]}, similar_list[0],
-                    inplace=True)
-                local_table[field_name] = clean(local_table[field_name])
-                local_table.to_csv(field_name + '.csv')
+    with open(candidate_table, 'wb') as candidate_table:
+        candidate_table.write(b'\xEF\xBB\xBF')
+        for match_set in match_sets:
+            similar_list = [clean_names.loc[i, field_name] for i in match_set]
+            # Sort names by length (descending) and number of non-ASCII characters (ascending)
+            similar_list = list(sorted(
+                similar_list, key=lambda name: -count_valid_characters(name)))
+            candidate_table.write(
+                (','.join([f'"{name}"' for name in similar_list]) + '\n').encode('utf-8'))
+            local_table = table.copy()
+            local_table.replace(
+                {field_name: similar_list[1:]}, similar_list[0],
+                inplace=True)
+            local_table[field_name] = clean(local_table[field_name])
+            local_table.to_csv(field_name + '.csv')
 
 
 if __name__ == '__main__':
