@@ -210,7 +210,7 @@ def main():
         indexer.full()
 
         pairs = indexer.index(clean_names)
-        compare_cl = recordlinkage.Compare()
+        compare_cl = recordlinkage.Compare(n_jobs=-1)
 
         for method in [
                 'qgram', 'cosine', 'smith_waterman', 'lcs']:
@@ -223,12 +223,13 @@ def main():
         for prob_array, index_array in zip(features.values, features.index):
             val1 = clean_names.loc[index_array[0], field_name]
             val2 = clean_names.loc[index_array[1], field_name]
-            match_pair_list.append((val1, val2))
+            match_pair_list.append((val1, val2, field_name))
             prob_array_list.append(
                 numpy.append(prob_array, [len(val1)/MAX_LINE_LEN, len(val2)/MAX_LINE_LEN]))
 
     classification_list = classifier.predict(prob_array_list)
-    with open('debug.csv', 'w') as file:
+    with open(f'replacement_{scrubbed_file_path}', 'w') as file:
+        file.write(f'{scrubbed_file_path}\n')
         for raw_class, match_pair in sorted(zip(classification_list, match_pair_list), reverse=True):
             if raw_class < 1:
                 continue

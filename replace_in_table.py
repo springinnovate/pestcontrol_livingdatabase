@@ -1,56 +1,58 @@
 """Replace a column with user defined table values."""
-import io
-import codecs
-import csv
-import chardet
 import argparse
+import collections
+import csv
+import logging
 import os
-from recordlinkage.preprocessing import clean
+import sys
 
+from recordlinkage.preprocessing import clean
+import networkx as nx
 import pandas
 
-
-def clean_io(path):
-    with open(path, 'rb') as f:
-        bytes_content = f.read()
-    encoding_result = chardet.detect(bytes_content)
-
-    print(f'{path} -- {encoding_result}')
-    encoding = encoding_result['encoding']
-    print(encoding)
-    if encoding is None or encoding_result['confidence'] < 0.9:
-        encoding = 'utf-8'
-    # replacing erroneous characters with � (U+FFFD, the official Unicode replacement character)
-    content = bytes_content.decode(encoding, errors='replace')
-    data = io.StringIO(content)
-    return data
-
-
-def _clean(series):
-    print(series.decode('utf-8'))
-    return clean(series).decode('utf-8')
+logging.basicConfig(
+    level=logging.DEBUG,
+    format=(
+        '%(asctime)s (%(relativeCreated)d) %(levelname)s %(name)s'
+        ' [%(funcName)s:%(lineno)d] %(message)s'),
+    stream=sys.stdout)
+LOGGER = logging.getLogger(__name__)
 
 
 def main():
     """Entry point."""
     parser = argparse.ArgumentParser(description=(
         'replace column in CSV with replacement values in a second table.'))
-    parser.add_argument('base_table_path', help=(
-        'path to arbitrary CSV data table'))
     parser.add_argument('replacement_table_path', help=(
-        'path to CSV data table containing rows of values to replace, '
-        'each row defines strings in the 2 column and beyond to be replaced '
-        'with the value in the first column'))
-    parser.add_argument(
-        '--field_name', required=True, help=(
-            'field name to replace in the base_table_path with the values in '
-            'the replaement table.'))
-    parser.add_argument(
-        '--target_suffix', help=(
-            'suffix the target table with this value, default is the '
-            'replacement fieldname'))
+        'path to a replacement table made by `clean_table.py`'))
     args = parser.parse_args()
-    base_table = pandas.read_csv(clean_io(args.base_table_path))
+    graph_by_fieldname = collections.defaultdict(lambda: nx.Graph())
+    with open(args.replacement_table_path, encoding='utf-8') as table_file:
+        base_table_path = table_file.readline().rstrip()
+        LOGGER.debug(base_table_path)
+        LOGGER.info('Create a graph to store the matches')
+
+        LOGGER.info('Add an edge for each match')
+        for line in table_file:
+            classification, str_a, str_b, fieldname = line.rstrip().split(',')
+            if classification != '3':
+                continue
+            graph_by_fieldname[fieldname].add_edge(str_a, str_b)
+
+    base_table = pandas.read_csv(base_table_path)
+    for fieldname, graph in graph_by_fieldname.items():
+        LOGGER.info(f'fixing {fieldname}')
+        connected_components = nx.connected_components(graph)
+        for edge_set in connected_components:
+            match_list = list(sorted(edge_set, key=lambda x: len(x)))
+            for element in match_list[1:]:
+                base_table[fieldname] = base_table[fieldname].replace(element, match_list[0])
+    base_table.to_csv(f'fixed_{base_table_path}')
+
+    return
+    # replacement_table_path = base_table.iloc[0]
+    # LOGGER.debug(replacement_table_path)
+    # return
 
     # Select only the string columns, then apply the function
     base_table.loc[:, base_table.dtypes == object] = base_table.select_dtypes(
