@@ -28,7 +28,7 @@ def main():
     args = parser.parse_args()
     graph_by_fieldname = collections.defaultdict(lambda: nx.Graph())
     with open(args.replacement_table_path, encoding='utf-8') as table_file:
-        base_table_path = table_file.readline().rstrip()
+        base_table_path = table_file.readline().rstrip(',\n ')
         LOGGER.debug(base_table_path)
         LOGGER.info('Create a graph to store the matches')
 
