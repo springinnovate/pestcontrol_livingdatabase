@@ -7,6 +7,7 @@ import sys
 
 
 from docker_contexts.backend.api import get_datasets
+from docker_contexts.backend.api import _sample_pheno
 import ee
 import numpy
 import pandas
@@ -23,17 +24,6 @@ LIBS_TO_SILENCE = ['urllib3.connectionpool', 'googleapiclient.discovery', 'googl
 for lib_name in LIBS_TO_SILENCE:
     logging.getLogger(lib_name).setLevel(logging.WARN)
 
-INI_DIR = './dataset_defns'
-
-EXPECTED_INI_ELEMENTS = {
-    'gee_dataset',
-    'band_name',
-    'valid_years',
-    'filter_by',
-}
-OPTIONAL_INI_ELEMENTS = {
-    'image_only',
-}
 PRECIP_SECTION = 'precip'
 
 EXPECTED_INI_SECTIONS = {
@@ -123,201 +113,177 @@ def _get_closest_num(number_list, candidate):
     return int(number_list[index])
 
 
-def _sample_pheno(pts_by_year, buffer, sample_scale, datasets, datasets_to_process, cmd_args):
-    """Sample phenology variables from https://docs.google.com/spreadsheets/d/1nbmCKwIG29PF6Un3vN6mQGgFSWG_vhB6eky7wVqVwPo
+# def _sample_pheno(
+#         pts_by_year, buffer, sample_scale, datasets, datasets_to_process,
+#         cmd_args):
+#     """Sample phenology variables from https://docs.google.com/spreadsheets/d/1nbmCKwIG29PF6Un3vN6mQGgFSWG_vhB6eky7wVqVwPo
 
-    Args:
-        pts_by_year (dict): dictionary of FeatureCollection of points indexed
-            by year, these are the points that are used to sample underlying
-            datasets.
-        buffer (float): buffer size of sample points in m
-        sample_scale (float): sample size in m to treat underlying pixels
-        datasets (dict): mapping of dataset id -> dataset info
-        datasets_to_process (list): list of ids in ``datasets`` to process
-        cmd_args (parseargs): command line arguments used to start process
+#     Args:
+#         pts_by_year (dict): dictionary of FeatureCollection of points indexed
+#             by year, these are the points that are used to sample underlying
+#             datasets.
+#         buffer (float): buffer size of sample points in m
+#         sample_scale (float): sample size in m to treat underlying pixels
+#         datasets (dict): mapping of dataset id -> dataset info
+#         datasets_to_process (list): list of ids in ``datasets`` to process
+#         cmd_args (parseargs): command line arguments used to start process
 
-    Returns:
-        header_fields (list): list of fields to put in a CSV table
-            corresponding to sampled bands
-        sample_list (list): samples indexed by header fields corresponding
-            to the individual points in ``pts_by_year``.
-    """
-    # these variables are measured in days since 1-1-1970
-    LOGGER.debug('starting phenological sampling')
-    julian_day_variables = [
-        'Greenup_1',
-        'MidGreenup_1',
-        'Peak_1',
-        'Maturity_1',
-        'MidGreendown_1',
-        'Senescence_1',
-        'Dormancy_1',
-    ]
+#     Returns:
+#         header_fields (list): list of fields to put in a CSV table
+#             corresponding to sampled bands
+#         sample_list (list): samples indexed by header fields corresponding
+#             to the individual points in ``pts_by_year``.
+#     """
+#     # these variables are measured in days since 1-1-1970
+#     LOGGER.debug('starting phenological sampling')
+#     julian_day_variables = [
+#         'Greenup_1',
+#         'MidGreenup_1',
+#         'Peak_1',
+#         'Maturity_1',
+#         'MidGreendown_1',
+#         'Senescence_1',
+#         'Dormancy_1',
+#     ]
 
-    # these variables are direct quantities
-    raw_variables = [
-        'EVI_Minimum_1',
-        'EVI_Amplitude_1',
-        'EVI_Area_1',
-        'QA_Overall_1',
-    ]
+#     # these variables are direct quantities
+#     raw_variables = [
+#         'EVI_Minimum_1',
+#         'EVI_Amplitude_1',
+#         'EVI_Area_1',
+#         'QA_Overall_1',
+#     ]
 
-    epoch_date = datetime.strptime('1970-01-01', "%Y-%m-%d")
-    modis_phen = ee.ImageCollection(MODIS_DATASET_NAME)
+#     epoch_date = datetime.strptime('1970-01-01', "%Y-%m-%d")
+#     modis_phen = ee.ImageCollection(MODIS_DATASET_NAME)
 
-    sample_list = []
-    header_fields = julian_day_variables + raw_variables
-    for year in pts_by_year.keys():
-        LOGGER.debug(f'processing year {year}')
-        year_points = pts_by_year[year]
+#     sample_list = []
+#     header_fields = julian_day_variables + raw_variables
+#     for year in pts_by_year.keys():
+#         LOGGER.debug(f'processing year {year}')
+#         year_points = pts_by_year[year]
 
-        LOGGER.info(f'parse out MODIS variables for year {year}')
-        raw_band_stack = None
-        raw_band_names = []
-        valid_modis_year = False
-        if VALID_MODIS_RANGE[0] <= year <= VALID_MODIS_RANGE[1]:
-            valid_modis_year = True
-            LOGGER.debug(f'modis year: {year}')
-            current_year = datetime.strptime(
-                f'{year}-01-01', "%Y-%m-%d")
-            days_since_epoch = (current_year - epoch_date).days
-            raw_band_names.extend(julian_day_variables + raw_variables)
-            bands_since_1970 = modis_phen.select(
-                julian_day_variables).filterDate(
-                f'{year}-01-01', f'{year}-12-31')
-            julian_day_bands = (
-                bands_since_1970.toBands()).subtract(days_since_epoch)
-            julian_day_bands = julian_day_bands.rename(julian_day_variables)
-            raw_variable_bands = modis_phen.select(
-                raw_variables).filterDate(
-                f'{year}-01-01', f'{year}-12-31').toBands()
+#         LOGGER.info(f'parse out MODIS variables for year {year}')
+#         raw_band_stack = None
+#         raw_band_names = []
+#         valid_modis_year = False
+#         if VALID_MODIS_RANGE[0] <= year <= VALID_MODIS_RANGE[1]:
+#             valid_modis_year = True
+#             LOGGER.debug(f'modis year: {year}')
+#             current_year = datetime.strptime(
+#                 f'{year}-01-01', "%Y-%m-%d")
+#             days_since_epoch = (current_year - epoch_date).days
+#             raw_band_names.extend(julian_day_variables + raw_variables)
+#             bands_since_1970 = modis_phen.select(
+#                 julian_day_variables).filterDate(
+#                 f'{year}-01-01', f'{year}-12-31')
+#             julian_day_bands = (
+#                 bands_since_1970.toBands()).subtract(days_since_epoch)
+#             julian_day_bands = julian_day_bands.rename(julian_day_variables)
+#             raw_variable_bands = modis_phen.select(
+#                 raw_variables).filterDate(
+#                 f'{year}-01-01', f'{year}-12-31').toBands()
 
-            raw_variable_bands = raw_variable_bands.rename(raw_variables)
-            raw_band_stack = julian_day_bands.addBands(raw_variable_bands)
+#             raw_variable_bands = raw_variable_bands.rename(raw_variables)
+#             raw_band_stack = julian_day_bands.addBands(raw_variable_bands)
 
-            all_bands = raw_band_stack
-            all_bands = all_bands.addBands(ee.Image(1).rename('valid_modis_year'))
+#             all_bands = raw_band_stack
+#             all_bands = all_bands.addBands(ee.Image(1).rename(
+#                 'valid_modis_year'))
 
-        else:
-            all_bands = ee.Image().rename(GEE_BUG_WORKAROUND_BANDNAME)
-            all_bands = all_bands.addBands(ee.Image(0).rename('valid_modis_year'))
+#         else:
+#             all_bands = ee.Image().rename(GEE_BUG_WORKAROUND_BANDNAME)
+#             all_bands = all_bands.addBands(ee.Image(0).rename(
+#                 'valid_modis_year'))
 
-        for precip_dataset_id in datasets_to_process:
-            if not precip_dataset_id.startswith('precip_'):
-                continue
-            precip_dataset = ee.ImageCollection(datasets[precip_dataset_id]['gee_dataset']).select(datasets[precip_dataset_id]['band_name'])
+#         for precip_dataset_id in datasets_to_process:
+#             if not precip_dataset_id.startswith('precip_'):
+#                 continue
+#             precip_dataset = ee.ImageCollection(
+#                 datasets[precip_dataset_id]['gee_dataset']).select(
+#                 datasets[precip_dataset_id]['band_name'])
 
-            start_day, end_day = cmd_args.precip_season_start_end
-            agg_days = cmd_args.precip_aggregation_days
-            current_day = start_day
-            start_date = ee.Date(f'{year}-01-01').advance(start_day, 'day')
-            end_date = ee.Date(f'{year}-01-01').advance(end_day, 'day')
-            total_precip_bandname = f'{precip_dataset_id}_{start_day}_{end_day}'
-            raw_band_names.append(total_precip_bandname)
-            precip_band = precip_dataset.filterDate(
-                start_date, end_date).reduce('sum').rename(total_precip_bandname)
+#             start_day, end_day = cmd_args.precip_season_start_end
+#             agg_days = cmd_args.precip_aggregation_days
+#             current_day = start_day
+#             start_date = ee.Date(f'{year}-01-01').advance(start_day, 'day')
+#             end_date = ee.Date(f'{year}-01-01').advance(end_day, 'day')
+#             total_precip_bandname = (
+#                 f'{precip_dataset_id}_{start_day}_{end_day}')
+#             raw_band_names.append(total_precip_bandname)
+#             precip_band = precip_dataset.filterDate(
+#                 start_date, end_date).reduce('sum').rename(
+#                 total_precip_bandname)
 
-            while True:
-                if current_day >= end_day:
-                    break
-                LOGGER.debug(f'{current_day} to {end_day}')
-                # advance agg days - 1 since end is inclusive (1 day is just current day not today and tomorrow)
-                if agg_days + current_day > end_day:
-                    agg_days = end_day-current_day
-                end_date = start_date.advance(agg_days, 'day')
-                period_precip_bandname = f'{precip_dataset_id}_{current_day}_{current_day+agg_days}'
-                raw_band_names.append(period_precip_bandname)
-                period_precip_sample = precip_dataset.select(datasets[precip_dataset_id]['band_name']).filterDate(
-                    start_date, end_date).reduce('sum').rename(period_precip_bandname)
-                precip_band = precip_band.addBands(period_precip_sample)
-                start_date = end_date
-                current_day += agg_days
+#             while True:
+#                 if current_day >= end_day:
+#                     break
+#                 LOGGER.debug(f'{current_day} to {end_day}')
+#                 # advance agg days - 1 since end is inclusive
+#                 # (1 day is just current day not today and tomorrow)
+#                 if agg_days + current_day > end_day:
+#                     agg_days = end_day-current_day
+#                 end_date = start_date.advance(agg_days, 'day')
+#                 period_precip_bandname = f'''{precip_dataset_id}_{
+#                     current_day}_{current_day+agg_days}'''
+#                 raw_band_names.append(period_precip_bandname)
+#                 period_precip_sample = precip_dataset.select(
+#                     datasets[precip_dataset_id]['band_name']).filterDate(
+#                     start_date, end_date).reduce('sum').rename(
+#                     period_precip_bandname)
+#                 precip_band = precip_band.addBands(period_precip_sample)
+#                 start_date = end_date
+#                 current_day += agg_days
 
-            LOGGER.debug('adding all precip bands to modis')
-            all_bands = all_bands.addBands(precip_band)
-            if raw_band_stack is not None:
-                raw_band_stack = raw_band_stack.addBands(precip_band)
-            else:
-                raw_band_stack = precip_band
+#             LOGGER.debug('adding all precip bands to modis')
+#             all_bands = all_bands.addBands(precip_band)
+#             if raw_band_stack is not None:
+#                 raw_band_stack = raw_band_stack.addBands(precip_band)
+#             else:
+#                 raw_band_stack = precip_band
 
-        for dataset_id in datasets_to_process:
-            LOGGER.debug(f'masking {dataset_id}')
-            mask_map, nearest_year_image = build_landcover_masks(
-                year, datasets[dataset_id])
-            nearest_year_image = nearest_year_image.rename(f'{dataset_id}-nearest_year')
-            for mask_id, mask_image in mask_map.items():
-                if raw_band_stack is not None:
-                    masked_raw_band_stack = raw_band_stack.updateMask(
-                        mask_image).rename([
-                            f'{band_name}-{dataset_id}-{mask_id}' for band_name in raw_band_names])
-                    all_bands = all_bands.addBands(masked_raw_band_stack)
-                    # get modis mask
-                    if valid_modis_year:
-                        modis_mask = raw_band_stack.select(raw_band_stack.bandNames().getInfo()[0]).mask()
-                        modis_overlap_mask = modis_mask.And(mask_image)
-                        all_bands = all_bands.addBands(modis_overlap_mask.rename(f'{dataset_id}-{mask_id}-valid-modis-overlap-prop'))
+#         for dataset_id in datasets_to_process:
+#             LOGGER.debug(f'masking {dataset_id}')
+#             mask_map, nearest_year_image = build_landcover_masks(
+#                 year, datasets[dataset_id])
+#             nearest_year_image = nearest_year_image.rename(
+#                 f'{dataset_id}-nearest_year')
+#             for mask_id, mask_image in mask_map.items():
+#                 if raw_band_stack is not None:
+#                     masked_raw_band_stack = raw_band_stack.updateMask(
+#                         mask_image).rename([
+#                             f'{band_name}-{dataset_id}-{mask_id}'
+#                             for band_name in raw_band_names])
+#                     all_bands = all_bands.addBands(masked_raw_band_stack)
+#                     # get modis mask
+#                     if valid_modis_year:
+#                         modis_mask = raw_band_stack.select(
+#                             raw_band_stack.bandNames().getInfo()[0]).mask()
+#                         modis_overlap_mask = modis_mask.And(mask_image)
+#                         all_bands = all_bands.addBands(
+#                             modis_overlap_mask.rename(
+#                                 f'''{dataset_id}-{
+#                                     mask_id}-valid-modis-overlap-prop'''))
 
-                all_bands = all_bands.addBands(mask_image.rename(f'{dataset_id}-{mask_id}-pixel-prop'))
+#                 all_bands = all_bands.addBands(mask_image.rename(
+#                     f'{dataset_id}-{mask_id}-pixel-prop'))
 
-            all_bands = all_bands.addBands(nearest_year_image)
+#             all_bands = all_bands.addBands(nearest_year_image)
 
-        samples = all_bands.reduceRegions(**{
-            'collection': year_points,
-            'reducer': REDUCER,
-            'scale': sample_scale,
-        }).getInfo()
+#         samples = all_bands.reduceRegions(**{
+#             'collection': year_points,
+#             'reducer': REDUCER,
+#             'scale': sample_scale,
+#         }).getInfo()
 
-        # task = ee.batch.Export.image.toAsset(**{
-        #     'image': all_bands,
-        #     'description': 'allbands',
-        #     'assetId': 'projects/ecoshard-202922/assets/allbands',
-        #     'scale': SAMPLE_SCALE,
-        #     'maxPixels': 1e13,
-        #     'region': year_points.first().getInfo()['geometry']['coordinates'],
-        #     #'region': region,
-        # })
-        # task.start()
+#         sample_list.extend(samples['features'])
+#         local_header_fields = [
+#             x['id'] for x in all_bands.getInfo()['bands']
+#             if x['id'] not in header_fields and
+#             x['id'] != GEE_BUG_WORKAROUND_BANDNAME]
+#         header_fields += local_header_fields
 
-        sample_list.extend(samples['features'])
-        local_header_fields = [
-            x['id'] for x in all_bands.getInfo()['bands']
-            if x['id'] not in header_fields and
-            x['id'] != GEE_BUG_WORKAROUND_BANDNAME]
-        header_fields += local_header_fields
-
-    return header_fields, sample_list
-
-
-# def parse_ini(ini_path):
-#     """Parse ini and return a validated config."""
-#     basename = os.path.splitext(os.path.basename(ini_path))[0]
-#     dataset_config = configparser.ConfigParser(allow_no_value=True)
-#     dataset_config.read(ini_path)
-#     LOGGER.debug(f'********************* {ini_path} {dict(dataset_config[basename])}')
-#     dataset_result = {}
-#     if basename not in dataset_config:
-#         raise ValueError(f'expected a section called {basename} but only found {dataset_config.sections()}')
-#     for element_id in EXPECTED_INI_ELEMENTS:
-#         if element_id not in dataset_config[basename]:
-#             raise ValueError(f'expected an entry called {element_id} but only found {dataset_config[basename].items()}')
-#         dataset_result[element_id] = dataset_config[basename][element_id]
-#     for element_id in OPTIONAL_INI_ELEMENTS:
-#         if element_id in dataset_config[basename]:
-#             dataset_result[element_id] = dataset_config[basename][element_id]
-#     found_expected_section = False
-#     for section_id in EXPECTED_INI_SECTIONS:
-#         if section_id in dataset_config:
-#             found_expected_section = True
-#             break
-#     if not found_expected_section:
-#         raise ValueError(
-#             f'expected any one of sections called {EXPECTED_INI_SECTIONS} but only found {dataset_config.sections()}')
-#     dataset_result[section_id] = {}
-#     for element_id in dataset_config[section_id].items():
-#         LOGGER.debug(element_id)
-#         dataset_result[section_id][element_id[0]] = eval(element_id[1])
-#     LOGGER.debug(f'******** {dataset_result}')
-#     return dataset_result
+#     return header_fields, sample_list
 
 
 def main():
@@ -356,14 +322,17 @@ def main():
         for x in vars(args)
         if x.startswith('dataset') and vars(args)[x]]
 
-    precip_required = any(
-        PRECIP_SECTION in config for config in datasets.values())
+    precip_required = list(
+        dataset_id for dataset_id in datasets_to_process
+        if PRECIP_SECTION in datasets[dataset_id])
 
     if precip_required:
         if args.precip_season_start_end is None:
-            raise ValueError('Expected --precip_season_start_end because one of the datasets is a precip dataset')
+            raise ValueError(
+                f'Expected --precip_season_start_end because {precip_required} is/are precip')
         if args.precip_aggregation_days is None:
-            raise ValueError('Expected --precip_aggregation_days because one of the datasets is a precip dataset')
+            raise ValueError(
+                f'Expected --precip_aggregation_days because {precip_required} is/are precip')
     landcover_substring = '_'.join(datasets_to_process)
     LOGGER.debug(landcover_substring)
     if args.authenticate:

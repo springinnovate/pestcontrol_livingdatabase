@@ -354,7 +354,7 @@ def _sample_pheno(
                 if current_day >= end_day:
                     break
                 LOGGER.debug(f'{current_day} to {end_day}')
-                # advance agg days - 1 since end is inclusive #
+                # advance agg days - 1 since end is inclusive
                 # (1 day is just current day not today and tomorrow)
                 if agg_days + current_day > end_day:
                     agg_days = end_day-current_day
