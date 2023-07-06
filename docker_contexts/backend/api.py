@@ -31,6 +31,30 @@ LOGGER = logging.getLogger()
 ARGS_DATASETS = {}
 
 
+def _process_table(
+        table, datasets_to_process, year_field, long_field, lat_field,
+        buffer_size):
+    table = table.dropna()
+    pts_by_year = {}
+    for year in table[year_field].unique():
+        pts_by_year[year] = ee.FeatureCollection([
+            ee.Feature(
+                ee.Geometry.Point(row[long_field], row[lat_field]).
+                buffer(buffer_size).bounds(),
+                row.to_dict())
+            for index, row in table[
+                table[year_field] == year].dropna().iterrows()])
+
+    LOGGER.debug('calculating pheno variables')
+    sample_scale = 1000
+    args = {}
+    datasets = get_datasets()
+    header_fields, sample_list = _sample_pheno(
+        pts_by_year, buffer_size, sample_scale, datasets,
+        datasets_to_process, args)
+    return header_fields, sample_list
+
+
 def create_app(config=None):
     """Create the Geoserver STAC Flask app."""
     LOGGER.debug('starting up v2!')
@@ -62,7 +86,7 @@ def create_app(config=None):
 
     @app.route('/available_datasets')
     def get_available_datasets():
-        return ARGS_DATASETS
+        return get_datasets()
 
     @app.route('/uploadfile', methods=['GET', 'POST'])
     def upload_file():
@@ -100,24 +124,10 @@ def create_app(config=None):
                 'info': fields,
                 }
 
-            table = table.dropna()
+            header_fields, sample_list = _process_table(
+                table, datasets_to_process,
+                year_field, long_field, lat_field, buffer_size)
 
-            pts_by_year = {}
-            for year in table[year_field].unique():
-                pts_by_year[year] = ee.FeatureCollection([
-                    ee.Feature(
-                        ee.Geometry.Point(row[long_field], row[lat_field]).
-                        buffer(buffer_size).bounds(),
-                        row.to_dict())
-                    for index, row in table[
-                        table[year_field] == year].dropna().iterrows()])
-
-            LOGGER.debug('calculating pheno variables')
-            sample_scale = 1000
-            args = {}
-            header_fields, sample_list = _sample_pheno(
-                pts_by_year, buffer_size, sample_scale, ARGS_DATASETS,
-                datasets_to_process, args)
             landcover_substring = '_'.join(datasets_to_process)
             file_basename = os.path.basename(request.files['file'].filename)
             csv_filename = f'''sampled_{buffer_size}m_{landcover_substring}_{
@@ -142,7 +152,7 @@ def create_app(config=None):
             # return 'file uploaded successfully'
 
     def index():
-        return ARGS_DATASETS
+        return get_datasets()
 
     # ensure the instance folder exists
     os.makedirs(app.instance_path, exist_ok=True)

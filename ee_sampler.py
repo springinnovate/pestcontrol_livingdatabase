@@ -7,7 +7,7 @@ import sys
 
 
 from docker_contexts.backend.api import get_datasets
-from docker_contexts.backend.api import _sample_pheno
+from docker_contexts.backend.api import _process_table
 import ee
 import numpy
 import pandas
@@ -350,20 +350,25 @@ def main():
         },
         nrows=args.n_rows)
     LOGGER.info(f'loaded {args.csv_path}')
-    table = table.dropna()
 
-    pts_by_year = {}
-    for year in table[args.year_field].unique():
-        pts_by_year[year] = ee.FeatureCollection([
-            ee.Feature(
-                ee.Geometry.Point(row[args.long_field], row[args.lat_field]).buffer(args.buffer).bounds(),
-                row.to_dict())
-            for index, row in table[
-                table[args.year_field] == year].dropna().iterrows()])
+    header_fields, sample_list = _process_table(
+        table, datasets_to_process, args.year_field, args.long_field,
+        args.lat_field, args.buffer)
 
-    LOGGER.debug('calculating pheno variables')
-    header_fields, sample_list = _sample_pheno(
-        pts_by_year, args.buffer, args.sample_scale, datasets, datasets_to_process, args)
+    #table = table.dropna()
+
+    # pts_by_year = {}
+    # for year in table[args.year_field].unique():
+    #     pts_by_year[year] = ee.FeatureCollection([
+    #         ee.Feature(
+    #             ee.Geometry.Point(row[args.long_field], row[args.lat_field]).buffer(args.buffer).bounds(),
+    #             row.to_dict())
+    #         for index, row in table[
+    #             table[args.year_field] == year].dropna().iterrows()])
+
+    # LOGGER.debug('calculating pheno variables')
+    # header_fields, sample_list = _sample_pheno(
+    #     pts_by_year, args.buffer, args.sample_scale, datasets, datasets_to_process, args)
 
     with open(f'sampled_{args.buffer}m_{landcover_substring}_{os.path.basename(args.csv_path)}', 'w') as table_file:
         table_file.write(
