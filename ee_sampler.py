@@ -41,68 +41,68 @@ MODIS_DATASET_NAME = 'MODIS/006/MCD12Q2'  # 500m resolution
 VALID_MODIS_RANGE = (2001, 2019)
 
 
-def build_landcover_masks(year, dataset_info):
-    """Build landcover type masks and nearest year calculation.
+# def build_landcover_masks(year, dataset_info):
+#     """Build landcover type masks and nearest year calculation.
 
-    Args:
-        year (int): year to build masks for
-        dataset_info (dict): a map of 'gee_dataset', 'band_name',
-            'valid_years', 'filter_by', and 'mask_types'->(
-                dict of unique mask names mapped to list of tuple/ints)
+#     Args:
+#         year (int): year to build masks for
+#         dataset_info (dict): a map of 'gee_dataset', 'band_name',
+#             'valid_years', 'filter_by', and 'mask_types'->(
+#                 dict of unique mask names mapped to list of tuple/ints)
 
-    return dataset_map, nearest_year_image
-        (dataset map maps 'mask_types' ids to binary ee.Images used
-         in updatemask)
-"""
-    LOGGER.debug(dataset_info)
-    try:
-        closest_year = _get_closest_num(dataset_info['valid_years'], year)
-        image_only = 'image_only' in dataset_info and dataset_info['image_only']
-        gee_dataset_path = dataset_info['gee_dataset']
-        if dataset_info['filter_by'] == 'dataset_year_pattern':
-            gee_dataset_path = gee_dataset_path.format(year=closest_year)
-        LOGGER.debug(f'****************** {gee_dataset_path}')
-        if image_only:
-            imagecollection = ee.Image(gee_dataset_path)
-        else:
-            imagecollection = ee.ImageCollection(gee_dataset_path)
+#     return dataset_map, nearest_year_image
+#         (dataset map maps 'mask_types' ids to binary ee.Images used
+#          in updatemask)
+# """
+#     LOGGER.debug(dataset_info)
+#     try:
+#         closest_year = _get_closest_num(dataset_info['valid_years'], year)
+#         image_only = 'image_only' in dataset_info and dataset_info['image_only']
+#         gee_dataset_path = dataset_info['gee_dataset']
+#         if dataset_info['filter_by'] == 'dataset_year_pattern':
+#             gee_dataset_path = gee_dataset_path.format(year=closest_year)
+#         LOGGER.debug(f'****************** {gee_dataset_path}')
+#         if image_only:
+#             imagecollection = ee.Image(gee_dataset_path)
+#         else:
+#             imagecollection = ee.ImageCollection(gee_dataset_path)
 
-        LOGGER.debug(f"query {dataset_info['band_name']}, {closest_year}({year}){dataset_info}")
-        closest_year_image = ee.Image(closest_year)
-        if dataset_info['filter_by'] == 'date':
-            dataset = imagecollection.filter(
-                ee.Filter.date(f'{closest_year}-01-01', f'{closest_year}-12-31')).first()
-        elif dataset_info['filter_by'] == 'system':
-            dataset = imagecollection.filter(
-                ee.Filter.eq('system:index', str(closest_year))).first()
-        elif not image_only:
-            dataset = imagecollection.first()
-        else:
-            dataset = imagecollection
-        band = dataset.select(dataset_info['band_name'])
-        band.getInfo()
-        mask_dict = {}
-        if 'mask_types' in dataset_info:
-            for mask_type in dataset_info['mask_types']:
-                mask_dict[mask_type] = None
-                for code_value in dataset_info['mask_types'][mask_type]:
-                    LOGGER.debug(f'************ {mask_type} {code_value}')
+#         LOGGER.debug(f"query {dataset_info['band_name']}, {closest_year}({year}){dataset_info}")
+#         closest_year_image = ee.Image(closest_year)
+#         if dataset_info['filter_by'] == 'date':
+#             dataset = imagecollection.filter(
+#                 ee.Filter.date(f'{closest_year}-01-01', f'{closest_year}-12-31')).first()
+#         elif dataset_info['filter_by'] == 'system':
+#             dataset = imagecollection.filter(
+#                 ee.Filter.eq('system:index', str(closest_year))).first()
+#         elif not image_only:
+#             dataset = imagecollection.first()
+#         else:
+#             dataset = imagecollection
+#         band = dataset.select(dataset_info['band_name'])
+#         band.getInfo()
+#         mask_dict = {}
+#         if 'mask_types' in dataset_info:
+#             for mask_type in dataset_info['mask_types']:
+#                 mask_dict[mask_type] = None
+#                 for code_value in dataset_info['mask_types'][mask_type]:
+#                     LOGGER.debug(f'************ {mask_type} {code_value}')
 
-                    if isinstance(code_value, tuple):
-                        local_mask = (band.gte(code_value[0])).And(band.lte(code_value[1]))
-                        LOGGER.debug(local_mask.getInfo())
+#                     if isinstance(code_value, tuple):
+#                         local_mask = (band.gte(code_value[0])).And(band.lte(code_value[1]))
+#                         LOGGER.debug(local_mask.getInfo())
 
-                    else:
-                        local_mask = band.eq(code_value)
-                    if mask_dict[mask_type] is None:
-                        mask_dict[mask_type] = local_mask
-                    else:
-                        mask_dict[mask_type] = mask_dict[mask_type].Or(local_mask)
+#                     else:
+#                         local_mask = band.eq(code_value)
+#                     if mask_dict[mask_type] is None:
+#                         mask_dict[mask_type] = local_mask
+#                     else:
+#                         mask_dict[mask_type] = mask_dict[mask_type].Or(local_mask)
 
-        return mask_dict, closest_year_image
-    except Exception:
-        LOGGER.exception(f"ERROR ON {dataset_info['gee_dataset']} {dataset_info['band_name']}, {year}")
-        sys.exit()
+#         return mask_dict, closest_year_image
+#     except Exception:
+#         LOGGER.exception(f"ERROR ON {dataset_info['gee_dataset']} {dataset_info['band_name']}, {year}")
+#         sys.exit()
 
 
 def _get_closest_num(number_list, candidate):

@@ -157,6 +157,9 @@ EXPECTED_INI_ELEMENTS = {
     'valid_years',
     'filter_by',
 }
+OPTIONAL_INI_ELEMENTS = {
+    'image_only'
+}
 PRECIP_SECTION = 'precip'
 
 EXPECTED_INI_SECTIONS = {
@@ -176,7 +179,7 @@ VALID_MODIS_RANGE = (2001, 2019)
 
 def build_landcover_masks(year, dataset_info):
     """Build landcover type masks and nearest year calculation.
-gd
+
     Args:
         year (int): year to build masks for
         dataset_info (dict): a map of 'gee_dataset', 'band_name',
@@ -189,19 +192,26 @@ gd
 """
     LOGGER.debug(dataset_info)
     try:
-        image_only = (
-            'image_only' in dataset_info and dataset_info['image_only'])
-        if image_only:
-            imagecollection = ee.Image(dataset_info['gee_dataset'])
-        else:
-            imagecollection = ee.ImageCollection(dataset_info['gee_dataset'])
-
-        LOGGER.debug(f"query {dataset_info['band_name']}, {year}")
         closest_year = _get_closest_num(dataset_info['valid_years'], year)
+        image_only = (
+            'image_only' in dataset_info and
+            dataset_info['image_only'].lower() == 'true')
+        gee_dataset_path = dataset_info['gee_dataset']
+        if dataset_info['filter_by'] == 'dataset_year_pattern':
+            gee_dataset_path = gee_dataset_path.format(year=closest_year)
+        LOGGER.debug(f'****************** {gee_dataset_path}')
+        if image_only:
+            imagecollection = ee.Image(gee_dataset_path)
+        else:
+            imagecollection = ee.ImageCollection(gee_dataset_path)
+
+        LOGGER.debug(
+            f"query {dataset_info['band_name']}, "
+            f"{closest_year}({year}){dataset_info}")
         closest_year_image = ee.Image(closest_year)
         if dataset_info['filter_by'] == 'date':
-            dataset = imagecollection.filter(ee.Filter.date(
-                f'{closest_year}-01-01', f'{closest_year}-12-31')).first()
+            dataset = imagecollection.filter(
+                ee.Filter.date(f'{closest_year}-01-01', f'{closest_year}-12-31')).first()
         elif dataset_info['filter_by'] == 'system':
             dataset = imagecollection.filter(
                 ee.Filter.eq('system:index', str(closest_year))).first()
@@ -219,9 +229,7 @@ gd
                     LOGGER.debug(f'************ {mask_type} {code_value}')
 
                     if isinstance(code_value, tuple):
-                        local_mask = (
-                            band.gte(code_value[0])).And(
-                            band.lte(code_value[1]))
+                        local_mask = (band.gte(code_value[0])).And(band.lte(code_value[1]))
                         LOGGER.debug(local_mask.getInfo())
 
                     else:
@@ -229,14 +237,11 @@ gd
                     if mask_dict[mask_type] is None:
                         mask_dict[mask_type] = local_mask
                     else:
-                        mask_dict[mask_type] = (
-                            mask_dict[mask_type].Or(local_mask))
+                        mask_dict[mask_type] = mask_dict[mask_type].Or(local_mask)
 
         return mask_dict, closest_year_image
     except Exception:
-        LOGGER.exception(
-            f"ERROR ON {dataset_info['gee_dataset']} "
-            f"{dataset_info['band_name']}, {year}")
+        LOGGER.exception(f"ERROR ON {dataset_info['gee_dataset']} {dataset_info['band_name']}, {year}")
         sys.exit()
 
 
@@ -446,6 +451,9 @@ def parse_ini(ini_path):
                 f'expected an entry called {element_id} but only found '
                 f'{dataset_config[basename].items()}')
         dataset_result[element_id] = dataset_config[basename][element_id]
+    for element_id in OPTIONAL_INI_ELEMENTS:
+        if element_id in dataset_config[basename]:
+            dataset_result[element_id] = dataset_config[basename][element_id]
     found_expected_section = False
     for section_id in EXPECTED_INI_SECTIONS:
         if section_id in dataset_config:
