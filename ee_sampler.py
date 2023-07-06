@@ -1,12 +1,12 @@
 """Sample GEE datasets given pest control CSV."""
 from datetime import datetime
 import argparse
-import configparser
-import glob
 import logging
 import os
 import sys
 
+
+from docker_contexts.backend.api import get_datasets
 import ee
 import numpy
 import pandas
@@ -288,47 +288,43 @@ def _sample_pheno(pts_by_year, buffer, sample_scale, datasets, datasets_to_proce
     return header_fields, sample_list
 
 
-def parse_ini(ini_path):
-    """Parse ini and return a validated config."""
-    basename = os.path.splitext(os.path.basename(ini_path))[0]
-    dataset_config = configparser.ConfigParser(allow_no_value=True)
-    dataset_config.read(ini_path)
-    LOGGER.debug(f'********************* {ini_path} {dict(dataset_config[basename])}')
-    dataset_result = {}
-    if basename not in dataset_config:
-        raise ValueError(f'expected a section called {basename} but only found {dataset_config.sections()}')
-    for element_id in EXPECTED_INI_ELEMENTS:
-        if element_id not in dataset_config[basename]:
-            raise ValueError(f'expected an entry called {element_id} but only found {dataset_config[basename].items()}')
-        dataset_result[element_id] = dataset_config[basename][element_id]
-    for element_id in OPTIONAL_INI_ELEMENTS:
-        if element_id in dataset_config[basename]:
-            dataset_result[element_id] = dataset_config[basename][element_id]
-    found_expected_section = False
-    for section_id in EXPECTED_INI_SECTIONS:
-        if section_id in dataset_config:
-            found_expected_section = True
-            break
-    if not found_expected_section:
-        raise ValueError(
-            f'expected any one of sections called {EXPECTED_INI_SECTIONS} but only found {dataset_config.sections()}')
-    dataset_result[section_id] = {}
-    for element_id in dataset_config[section_id].items():
-        LOGGER.debug(element_id)
-        dataset_result[section_id][element_id[0]] = eval(element_id[1])
-    LOGGER.debug(f'******** {dataset_result}')
-    return dataset_result
+# def parse_ini(ini_path):
+#     """Parse ini and return a validated config."""
+#     basename = os.path.splitext(os.path.basename(ini_path))[0]
+#     dataset_config = configparser.ConfigParser(allow_no_value=True)
+#     dataset_config.read(ini_path)
+#     LOGGER.debug(f'********************* {ini_path} {dict(dataset_config[basename])}')
+#     dataset_result = {}
+#     if basename not in dataset_config:
+#         raise ValueError(f'expected a section called {basename} but only found {dataset_config.sections()}')
+#     for element_id in EXPECTED_INI_ELEMENTS:
+#         if element_id not in dataset_config[basename]:
+#             raise ValueError(f'expected an entry called {element_id} but only found {dataset_config[basename].items()}')
+#         dataset_result[element_id] = dataset_config[basename][element_id]
+#     for element_id in OPTIONAL_INI_ELEMENTS:
+#         if element_id in dataset_config[basename]:
+#             dataset_result[element_id] = dataset_config[basename][element_id]
+#     found_expected_section = False
+#     for section_id in EXPECTED_INI_SECTIONS:
+#         if section_id in dataset_config:
+#             found_expected_section = True
+#             break
+#     if not found_expected_section:
+#         raise ValueError(
+#             f'expected any one of sections called {EXPECTED_INI_SECTIONS} but only found {dataset_config.sections()}')
+#     dataset_result[section_id] = {}
+#     for element_id in dataset_config[section_id].items():
+#         LOGGER.debug(element_id)
+#         dataset_result[section_id][element_id[0]] = eval(element_id[1])
+#     LOGGER.debug(f'******** {dataset_result}')
+#     return dataset_result
 
 
 def main():
     """Entry point."""
-    args_datasets = {}
-    for ini_path in glob.glob(os.path.join(INI_DIR, '*.ini')):
-        dataset_config = parse_ini(ini_path)
-        basename = os.path.basename(os.path.splitext(ini_path)[0])
-        args_datasets[basename] = dataset_config
+    datasets = get_datasets()
 
-    LOGGER.debug(args_datasets)
+    LOGGER.debug(datasets)
     parser = argparse.ArgumentParser(
         description='sample points on GEE data')
     parser.add_argument('csv_path', help='path to CSV data table')
@@ -339,10 +335,10 @@ def main():
     parser.add_argument('--sample_scale', type=float, default=500, help='underlying pixel size to sample at, defaults to 500m (modis resolution)')
     parser.add_argument('--n_rows', type=int, help='limit csv read to this many rows')
     parser.add_argument('--authenticate', action='store_true', help='Pass this flag if you need to reauthenticate with GEE')
-    for dataset_id in args_datasets:
+    for dataset_id in datasets:
         parser.add_argument(
             f'--dataset_{dataset_id}', default=False, action='store_true',
-            help=f'use the {dataset_id} {args_datasets[dataset_id]["band_name"]} {args_datasets[dataset_id]["gee_dataset"]} dataset for masking')
+            help=f'use the {dataset_id} {datasets[dataset_id]["band_name"]} {datasets[dataset_id]["gee_dataset"]} dataset for masking')
     parser.add_argument(
         '--precip_season_start_end', type=int, nargs=2, help=(
             'Two arguments defining the START day offset of the season from number of days away from Jan 1 of the '
@@ -359,17 +355,9 @@ def main():
         x.split('dataset_')[1]
         for x in vars(args)
         if x.startswith('dataset') and vars(args)[x]]
-    datasets = {}
 
-    precip_required = False
-    for ini_path in [
-            os.path.join(INI_DIR, f'{dataset_id}.ini')
-            for dataset_id in datasets_to_process]:
-        dataset_config = parse_ini(ini_path)
-        basename = os.path.basename(os.path.splitext(ini_path)[0])
-        datasets[basename] = dataset_config
-        if PRECIP_SECTION in datasets[basename]:
-            precip_required = True
+    precip_required = any(
+        PRECIP_SECTION in config for config in datasets.values())
 
     if precip_required:
         if args.precip_season_start_end is None:

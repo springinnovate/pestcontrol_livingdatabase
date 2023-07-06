@@ -149,7 +149,7 @@ def create_app(config=None):
     return app
 
 
-INI_DIR = './dataset_defns'
+INI_DIR = os.path.join(os.path.dirname(__file__), 'dataset_defns')
 
 EXPECTED_INI_ELEMENTS = {
     'gee_dataset',
@@ -419,6 +419,15 @@ def _sample_pheno(
         header_fields += local_header_fields
 
     return header_fields, sample_list
+
+
+def get_datasets():
+    args_datasets = {}
+    for ini_path in glob.glob(os.path.join(INI_DIR, '*.ini')):
+        dataset_config = parse_ini(ini_path)
+        basename = os.path.basename(os.path.splitext(ini_path)[0])
+        args_datasets[basename] = dataset_config
+    return args_datasets
 
 
 def parse_ini(ini_path):
