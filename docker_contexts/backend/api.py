@@ -123,10 +123,11 @@ def create_app(config=None):
                 'info': fields,
                 }
 
+            precip_args = {}
             header_fields, sample_list = _process_table(
                 table, datasets_to_process,
                 year_field, long_field, lat_field, buffer_size,
-                cmd_args)
+                precip_args)
 
             landcover_substring = '_'.join(datasets_to_process)
             file_basename = os.path.basename(request.files['file'].filename)
@@ -432,6 +433,22 @@ def _sample_pheno(
             if x['id'] not in header_fields and
             x['id'] != GEE_BUG_WORKAROUND_BANDNAME]
         header_fields += local_header_fields
+
+        bbox = pts_by_year.geometry().bounds()
+
+        # Iterate through the list of bands.
+        band_names = all_bands.bandNames().getInfo()
+        for band in band_names:
+            # Select the band from the all_bands.
+            single_band_image = all_bands.select(band)
+
+            # Generate the download URL.
+            url = single_band_image.getDownloadURL({
+                'scale': 30,
+                'region': bbox.toGeoJSONString()
+            })
+
+            print(f'Download URL for band {band}: {url}')
 
     return header_fields, sample_list
 

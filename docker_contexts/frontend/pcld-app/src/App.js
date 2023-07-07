@@ -12,7 +12,32 @@ import './App.css';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { MapContainer, TileLayer, useMap, Marker } from 'react-leaflet';
+import { load } from 'geotiff';
+import GeoRasterLayer from 'georaster-layer-for-leaflet';
 //import "bootstrap/dist/css/bootstrap.min.css";
+
+// The Google Earth Engine layer component
+function GEELayer() {
+  const map = useMap();
+
+  useEffect(() => {
+    initialize(null, null, () => {
+      // The following code will run once the Earth Engine has been initialized
+      var image = new Image('LANDSAT/LC08/C01/T1_TOA/LC08_044034_20140318');
+
+      var vizParams = {bands: ['B5', 'B4', 'B3'], min: 0, max: 0.5, gamma: [0.95, 1.1, 1]};
+
+      // Use getMap() to generate the URL and token object.
+      image.getMap(vizParams, ({mapid, token}) => {
+        // Create a tile layer using these properties and add it to the map.
+        var tileUrl = 'https://earthengine.googleapis.com/map/' + mapid + '/{z}/{x}/{y}?token=' + token;
+        var geeLayer = L.tileLayer(tileUrl).addTo(map);
+      });
+    });
+  }, [map]);
+
+  return null;
+}
 
 function LocationMarkers({markers}) {
   const covidIcon = L.icon({
@@ -220,99 +245,3 @@ function App() {
 }
 
 export default App;
-
-/*import axios from 'axios';
-
-import React,{Component} from 'react';
-
-class App extends Component {
-
-  state = {
-
-  // Initially, no file is selected
-  selectedFile: null
-  };
-
-  // On file select (from the pop up)
-  onFileChange = event => {
-
-  // Update the state
-  this.setState({ selectedFile: event.target.files[0] });
-
-  };
-
-  // On file upload (click the upload button)
-  onFileUpload = () => {
-
-  // Create an object of formData
-  const formData = new FormData();
-
-  // Update the formData object
-  formData.append(
-    "myFile",
-    this.state.selectedFile,
-    this.state.selectedFile.name
-  );
-
-  // Details of the uploaded file
-  console.log(this.state.selectedFile);
-
-  // Request made to the backend api
-  // Send formData object
-  axios.post("api/uploadfile", formData);
-  };
-
-  // File content to be displayed after
-  // file upload is complete
-  fileData = () => {
-
-  if (this.state.selectedFile) {
-
-    return (
-    <div>
-      <h2>File Details:</h2>
-      <p>File Name: {this.state.selectedFile.name}</p>
-
-      <p>File Type: {this.state.selectedFile.type}</p>
-
-      <p>
-      Last Modified:{" "}
-      {this.state.selectedFile.lastModifiedDate.toDateString()}
-      </p>
-
-    </div>
-    );
-  } else {
-    return (
-    <div>
-      <br />
-      <h4>Choose before Pressing the Upload button</h4>
-    </div>
-    );
-  }
-  };
-
-  render() {
-
-  return (
-    <div>
-      <h1>
-      GeeksforGeeks
-      </h1>
-      <h3>
-      File Upload using React!
-      </h3>
-      <div>
-        <input type="file" onChange={this.onFileChange} />
-        <button onClick={this.onFileUpload}>
-        Upload!
-        </button>
-      </div>
-    {this.fileData()}
-    </div>
-  );
-  }
-}
-
-export default App;
-*/
