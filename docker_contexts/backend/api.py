@@ -33,7 +33,7 @@ ARGS_DATASETS = {}
 
 def _process_table(
         table, datasets_to_process, year_field, long_field, lat_field,
-        buffer_size):
+        buffer_size, cmd_args):
     table = table.dropna()
     pts_by_year = {}
     for year in table[year_field].unique():
@@ -47,11 +47,10 @@ def _process_table(
 
     LOGGER.debug('calculating pheno variables')
     sample_scale = 1000
-    args = {}
     datasets = get_datasets()
     header_fields, sample_list = _sample_pheno(
         pts_by_year, buffer_size, sample_scale, datasets,
-        datasets_to_process, args)
+        datasets_to_process, cmd_args)
     return header_fields, sample_list
 
 
@@ -126,7 +125,8 @@ def create_app(config=None):
 
             header_fields, sample_list = _process_table(
                 table, datasets_to_process,
-                year_field, long_field, lat_field, buffer_size)
+                year_field, long_field, lat_field, buffer_size,
+                cmd_args)
 
             landcover_substring = '_'.join(datasets_to_process)
             file_basename = os.path.basename(request.files['file'].filename)

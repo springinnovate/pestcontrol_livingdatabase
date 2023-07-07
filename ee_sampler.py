@@ -353,7 +353,7 @@ def main():
 
     header_fields, sample_list = _process_table(
         table, datasets_to_process, args.year_field, args.long_field,
-        args.lat_field, args.buffer)
+        args.lat_field, args.buffer, args)
 
     #table = table.dropna()
 
