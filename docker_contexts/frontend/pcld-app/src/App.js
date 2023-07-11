@@ -19,6 +19,76 @@ import chroma from 'chroma-js';
 import JSZip from 'jszip';
 //import "bootstrap/dist/css/bootstrap.min.css";
 
+function MapComponent({ mapCenter, markers, rasterUrls }) {
+  const [availableRasterIdList, setAvailableRasterIdList] = useState([]);
+  const [rastersToRender, setRastersToRender] = useState([]);
+  const [opacity, setOpacity] = useState(1);
+  const [color, setColor] = useState(['#ffffff', '#ff0000']); // white to red gradient
+  const [selectedRaster, setSelectedRaster] = useState(null);
+
+  useEffect(() => {
+    const loadRasters = async () => {
+      const id_raster_list = [];
+      for (const [url_id, url] of rasterUrls) {
+        const response = await axios.get(url, { responseType: 'arraybuffer' });
+        const jszip = new JSZip();
+        const zip = await jszip.loadAsync(response.data);
+        const file = Object.values(zip.files)[0];
+        const arrayBuffer = await file.async('arraybuffer');
+        const georaster = await parse_georaster(arrayBuffer);
+        id_raster_list.push([url_id, georaster, url]);
+      }
+      setAvailableRasterIdList(id_raster_list);
+    };
+    loadRasters();
+  }, [rasterUrls]);
+
+  return (
+    <div>
+      <div>
+        {availableRasterIdList.map(([raster_id, raster, url]) =>
+          <div>
+            <label key={raster_id}>
+              <input
+                type="radio"
+                value={raster_id}
+                checked={selectedRaster === raster_id}
+                onChange={() => {
+                  setSelectedRaster(raster_id);
+                  setRastersToRender([[raster_id, raster]]);
+                }}
+              />
+              <a href={url}>{raster_id}</a>
+            </label>
+          </div>
+        )}
+      </div>
+      <Slider
+        axis="x"
+        x={opacity * 100}
+        onChange={({ x }) => setOpacity(x / 100)}
+      />
+      <button onClick={() => setColor(['#ffffff', '#ff0000'])}>Red</button>
+      <button onClick={() => setColor(['#ffffff', '#0000ff'])}>Blue</button>
+      <MapContainer
+        className="markercluster-map"
+        center={mapCenter}
+        zoom={4}
+        maxZoom={18}>
+        <TileLayer
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors'
+        />
+        <MapControl center={mapCenter} />
+        <LocationMarkers markers={markers} />
+        {rastersToRender.map(([raster_id, raster]) =>
+          <RasterLayers raster_id={raster_id} raster={raster} opacity={opacity} color={color} />)}
+      </MapContainer>
+    </div>
+  );
+}
+
+
 function LocationMarkers({markers}) {
   const covidIcon = L.icon({
       iconUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e5/Redpoint.svg/768px-Redpoint.svg.png',
@@ -75,25 +145,24 @@ function AvailableDatsets({datasets}) {
   );
 };
 
-var mappedLayers = new Set();
-function RasterLayers({ rasterLayers, opacity, color }) {
+
+function RasterLayers({ raster_id, raster, opacity, color }) {
+  const currentRasterLayer = React.useRef(null);
   const map = useMap();
   // Use an effect to create and add the layers when the rasterLayers, opacity or color changes
   useEffect(() => {
-    rasterLayers.forEach(async (element) => {
-      const url = element[1];
-      if (!mappedLayers.has(url)) {
-        const raster = element[0];
-        const layer = new GeoRasterLayer({
-          georaster: raster,
-          opacity: opacity,
-          pixelValuesToColorFn: pixelValues => chroma.scale(color)(pixelValues[0] / 255).hex(),
-        });
-        layer.addTo(map);
-        mappedLayers.add(url);
+     if (currentRasterLayer.current) {
+        map.removeLayer(currentRasterLayer.current);
       }
+
+    const layer = new GeoRasterLayer({
+      georaster: raster,
+      opacity: opacity,
+      pixelValuesToColorFn: pixelValues => chroma.scale(color)(pixelValues[0] / 255).hex(),
     });
-  }, [rasterLayers, map, opacity, color]);
+    layer.addTo(map);
+    currentRasterLayer.current = layer;
+  }, [raster, map, opacity, color]);
 };
 
 function App() {
@@ -102,12 +171,10 @@ function App() {
   const [dataInfo, setDataInfo] = useState(null);
   const [mapCenter, setMapCenter] = useState(null);
   const [markers, setMarkers] = useState([]);
-  const [rasterLayers, setRasterLayers] = useState([]);
   const [formProcessing, setFormProcessing] = useState(false);
   const [submitButtonText, setSubmitButtonText] = useState("Submit form");
   const [serverUp, setServerUp] = useState(false);
-  const [opacity, setOpacity] = useState(1);
-  const [color, setColor] = useState(['#ffffff', '#ff0000']); // white to red gradient
+  const [rasterUrls, setRasterUrls] = useState([]); // New state for raster URLs
 
   function TableSubmitForm({availableDatasets}) {
     function handleSubmit(event) {
@@ -137,19 +204,13 @@ function App() {
       axios.post("/uploadfile", formData).then(
         async res => {
           var data = res.data;
+          const urls = [];
           for (const raster_id in data.url_by_header_id) {
             if (data.url_by_header_id.hasOwnProperty(raster_id)) {
-              const raster_url = data.url_by_header_id[raster_id];
-              const response = await axios.get(raster_url, { responseType: 'arraybuffer' });
-              const jszip = new JSZip();
-              const zip = await jszip.loadAsync(response.data);
-              const file = Object.values(zip.files)[0]; // assuming the zip contains only one file
-              const arrayBuffer = await file.async('arraybuffer');
-              const georaster = await parse_georaster(arrayBuffer);
-              setRasterLayers([[georaster, raster_url]]);
-              console.log(georaster);
+              urls.push([raster_id, data.url_by_header_id[raster_id]]);
             }
           }
+          setRasterUrls(urls);
           setMapCenter(data.center);
           setMarkers(data.points);
           const csvData = new Blob(
@@ -224,26 +285,7 @@ function App() {
       </header>
       <TableSubmitForm availableDatasets={availableDatasets} />
       <InfoPanel info={dataInfo}/>
-      <MapContainer
-        className="markercluster-map"
-        center={mapCenter}
-        zoom={4}
-        maxZoom={18}>
-        <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          attribution='&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors'
-        />
-        <MapControl center={mapCenter} />
-        <LocationMarkers markers={markers} />
-        <Slider
-          axis="x"
-          x={opacity * 100}
-          onChange={({ x }) => setOpacity(x / 100)}
-        />
-        <button onClick={() => setColor(['#ffffff', '#ff0000'])}>Red</button>
-        <button onClick={() => setColor(['#ffffff', '#0000ff'])}>Blue</button>
-        <RasterLayers rasterLayers={rasterLayers} />
-    </MapContainer>
+      <MapComponent mapCenter={mapCenter} markers={markers} rasterUrls={rasterUrls} />
     </div>
   );
 }

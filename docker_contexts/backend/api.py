@@ -12,6 +12,7 @@ import sys
 from flask import Flask
 from flask import request
 from flask import session
+from flask_caching import Cache
 from shapely.geometry import MultiPoint
 import ee
 import numpy
@@ -19,9 +20,11 @@ import pandas as pd
 
 
 app = Flask(__name__)
+app.config['CACHE_TYPE'] = 'simple'  # Choose the cache type
+cache = Cache(app, config={'CACHE_TYPE': 'simple'})
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.WARNING,
     format=(
         '%(asctime)s (%(relativeCreated)d) %(levelname)s %(name)s'
         ' [%(funcName)s:%(lineno)d] %(message)s'),
@@ -29,6 +32,7 @@ logging.basicConfig(
 
 
 LOGGER = logging.getLogger()
+LOGGER.setLevel(logging.DEBUG)
 ARGS_DATASETS = {}
 
 
@@ -89,6 +93,7 @@ def create_app(config=None):
         return get_datasets()
 
     @app.route('/uploadfile', methods=['GET', 'POST'])
+    @cache.cached(timeout=5000)
     def upload_file():
         # TODO: upload the file then return a url to check the status url_for('get_task', task_id=task['id'], _external=True)
         if request.method == 'POST':
@@ -447,14 +452,16 @@ def _sample_pheno(
             # Select the band from the all_bands.
             single_band_image = all_bands.select(band)
 
+            LOGGER.debug(f'**************\n\n\n{single_band_image.projection().getInfo()}\n\n\n')
             # Generate the download URL.
             url = single_band_image.getDownloadURL({
-                'scale': 500,
-                'region': json.dumps(bbox)
+                'scale': single_band_image.projection().nominalScale().getInfo(),
+                'region': json.dumps(bbox),
+                'crs': 'EPSG:4326',
             })
             url_by_header_id[f'{header_id}_{year}'] = url
 
-            print(f'Download URL for band {band}: {url}')
+            print(f'Download URL for band {bbox} {band}: {url}')
 
     return header_fields, sample_list, url_by_header_id
 
