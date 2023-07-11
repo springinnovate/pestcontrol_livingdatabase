@@ -89,7 +89,8 @@ def main():
         nrows=args.n_rows)
     LOGGER.info(f'loaded {args.csv_path}')
 
-    header_fields, sample_list = _process_table(
+    # the _ ignores the URL info
+    header_fields, sample_list, _ = _process_table(
         table, datasets_to_process, args.year_field, args.long_field,
         args.lat_field, args.buffer, vars(args))
 

@@ -12,32 +12,10 @@ import './App.css';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { MapContainer, TileLayer, useMap, Marker } from 'react-leaflet';
-import { load } from 'geotiff';
+import { fromArrayBuffer } from 'geotiff';
 import GeoRasterLayer from 'georaster-layer-for-leaflet';
+import JSZip from 'jszip';
 //import "bootstrap/dist/css/bootstrap.min.css";
-
-// The Google Earth Engine layer component
-function GEELayer() {
-  const map = useMap();
-
-  useEffect(() => {
-    initialize(null, null, () => {
-      // The following code will run once the Earth Engine has been initialized
-      var image = new Image('LANDSAT/LC08/C01/T1_TOA/LC08_044034_20140318');
-
-      var vizParams = {bands: ['B5', 'B4', 'B3'], min: 0, max: 0.5, gamma: [0.95, 1.1, 1]};
-
-      // Use getMap() to generate the URL and token object.
-      image.getMap(vizParams, ({mapid, token}) => {
-        // Create a tile layer using these properties and add it to the map.
-        var tileUrl = 'https://earthengine.googleapis.com/map/' + mapid + '/{z}/{x}/{y}?token=' + token;
-        var geeLayer = L.tileLayer(tileUrl).addTo(map);
-      });
-    });
-  }, [map]);
-
-  return null;
-}
 
 function LocationMarkers({markers}) {
   const covidIcon = L.icon({
@@ -94,15 +72,11 @@ function AvailableDatsets({datasets}) {
     </React.Fragment>
   );
 };
-/*  var key = datasets.Dict.First();
-  return (<React.Fragment key={key}>
-    <input type="checkbox" id={key} value={key}/>
-    <label for={key}>{key}</label>
-    <br/>
-  </React.Fragment>
-  );*/
-  //}
-//};
+
+function RasterLayers({rasterLayers}) {
+  const map = useMap();
+  new GeoRasterLayer(rasterLayers).addTo(map);
+}
 
 function App() {
   const [currentTime, setCurrentTime] = useState(0);
@@ -110,21 +84,10 @@ function App() {
   const [dataInfo, setDataInfo] = useState(null);
   const [mapCenter, setMapCenter] = useState(null);
   const [markers, setMarkers] = useState([]);
+  const [rasterLayers, setRasterLayers] = useState([]);
   const [formProcessing, setFormProcessing] = useState(false);
   const [submitButtonText, setSubmitButtonText] = useState("Submit form");
   const [serverUp, setServerUp] = useState(false);
-
-  /*const datasetSelection => {
-    if (availableDatasets === 0) {
-      return "backend server is down, reload page";
-    } else {
-      return (availableDatasets.map(
-          (dataset_id, data) => "value"));
-          //<input type="checkbox" id=key value=key><label for=key>key</label><br/>));
-    }
-  };
-*/
-
 
   function TableSubmitForm({availableDatasets}) {
     function handleSubmit(event) {
@@ -152,8 +115,23 @@ function App() {
       // Request made to the backend api
       // Send formData object
       axios.post("/uploadfile", formData).then(
-        res => {
+        async res => {
           var data = res.data;
+          for (const raster_id in data.url_by_header_id) {
+            if (data.url_by_header_id.hasOwnProperty(raster_id)) {
+              const raster_url = data.url_by_header_id[raster_id];
+              const response = await axios.get(raster_url, { responseType: 'arraybuffer' });
+              const jszip = new JSZip();
+              const zip = await jszip.loadAsync(response.data);
+              const file = Object.values(zip.files)[0]; // assuming the zip contains only one file
+              const arrayBuffer = await file.async('arraybuffer');
+              const geotiff = await fromArrayBuffer(arrayBuffer);
+              const image = await geotiff.getImage();
+              const georaster = await image.readRasters();
+              setRasterLayers(georaster);
+              console.log(georaster);
+            }
+          }
           setMapCenter(data.center);
           setMarkers(data.points);
           const csvData = new Blob(
@@ -239,6 +217,7 @@ function App() {
         />
         <MapControl center={mapCenter} />
         <LocationMarkers markers={markers} />
+        <RasterLayers rasterLayers={rasterLayers} />
     </MapContainer>
     </div>
   );

@@ -5,6 +5,7 @@ import configparser
 import glob
 import logging
 import os
+import json
 import secrets
 import sys
 
@@ -48,10 +49,10 @@ def _process_table(
     LOGGER.debug('calculating pheno variables')
     sample_scale = 1000
     datasets = get_datasets()
-    header_fields, sample_list = _sample_pheno(
+    header_fields, sample_list, url_by_header_id = _sample_pheno(
         pts_by_year, buffer_size, sample_scale, datasets,
         datasets_to_process, cmd_args)
-    return header_fields, sample_list
+    return header_fields, sample_list, url_by_header_id
 
 
 def create_app(config=None):
@@ -124,10 +125,11 @@ def create_app(config=None):
                 }
 
             precip_args = {}
-            header_fields, sample_list = _process_table(
+            header_fields, sample_list, url_by_header_id = _process_table(
                 table, datasets_to_process,
                 year_field, long_field, lat_field, buffer_size,
                 precip_args)
+            f['url_by_header_id'] = url_by_header_id
 
             landcover_substring = '_'.join(datasets_to_process)
             file_basename = os.path.basename(request.files['file'].filename)
@@ -283,7 +285,9 @@ def _sample_pheno(
         header_fields (list): list of fields to put in a CSV table
             corresponding to sampled bands
         sample_list (list): samples indexed by header fields corresponding
-            to the individual points in ``pts_by_year``.
+            to the individual points in ``pts_by_year``.\
+        url_by_header_id (dict): a url to a geotiff bounded by the points
+            indexed by the header field + year of sample.
     """
     # these variables are measured in days since 1-1-1970
     LOGGER.debug('starting phenological sampling')
@@ -310,6 +314,7 @@ def _sample_pheno(
 
     sample_list = []
     header_fields = julian_day_variables + raw_variables
+    url_by_header_id = {}
     for year in pts_by_year.keys():
         LOGGER.debug(f'processing year {year}')
         year_points = pts_by_year[year]
@@ -434,23 +439,24 @@ def _sample_pheno(
             x['id'] != GEE_BUG_WORKAROUND_BANDNAME]
         header_fields += local_header_fields
 
-        bbox = pts_by_year.geometry().bounds()
+        bbox = year_points.geometry().bounds().getInfo()
 
         # Iterate through the list of bands.
         band_names = all_bands.bandNames().getInfo()
-        for band in band_names:
+        for header_id, band in zip(header_fields, band_names):
             # Select the band from the all_bands.
             single_band_image = all_bands.select(band)
 
             # Generate the download URL.
             url = single_band_image.getDownloadURL({
-                'scale': 30,
-                'region': bbox.toGeoJSONString()
+                'scale': 500,
+                'region': json.dumps(bbox)
             })
+            url_by_header_id[f'{header_id}_{year}'] = url
 
             print(f'Download URL for band {band}: {url}')
 
-    return header_fields, sample_list
+    return header_fields, sample_list, url_by_header_id
 
 
 def get_datasets():
