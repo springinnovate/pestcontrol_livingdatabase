@@ -12,8 +12,10 @@ import './App.css';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { MapContainer, TileLayer, useMap, Marker } from 'react-leaflet';
-import { fromArrayBuffer } from 'geotiff';
 import GeoRasterLayer from 'georaster-layer-for-leaflet';
+import parse_georaster from 'georaster';
+import Slider from 'react-input-slider';
+import chroma from 'chroma-js';
 import JSZip from 'jszip';
 //import "bootstrap/dist/css/bootstrap.min.css";
 
@@ -73,10 +75,26 @@ function AvailableDatsets({datasets}) {
   );
 };
 
-function RasterLayers({rasterLayers}) {
+var mappedLayers = new Set();
+function RasterLayers({ rasterLayers, opacity, color }) {
   const map = useMap();
-  new GeoRasterLayer(rasterLayers).addTo(map);
-}
+  // Use an effect to create and add the layers when the rasterLayers, opacity or color changes
+  useEffect(() => {
+    rasterLayers.forEach(async (element) => {
+      const url = element[1];
+      if (!mappedLayers.has(url)) {
+        const raster = element[0];
+        const layer = new GeoRasterLayer({
+          georaster: raster,
+          opacity: opacity,
+          pixelValuesToColorFn: pixelValues => chroma.scale(color)(pixelValues[0] / 255).hex(),
+        });
+        layer.addTo(map);
+        mappedLayers.add(url);
+      }
+    });
+  }, [rasterLayers, map, opacity, color]);
+};
 
 function App() {
   const [currentTime, setCurrentTime] = useState(0);
@@ -88,6 +106,8 @@ function App() {
   const [formProcessing, setFormProcessing] = useState(false);
   const [submitButtonText, setSubmitButtonText] = useState("Submit form");
   const [serverUp, setServerUp] = useState(false);
+  const [opacity, setOpacity] = useState(1);
+  const [color, setColor] = useState(['#ffffff', '#ff0000']); // white to red gradient
 
   function TableSubmitForm({availableDatasets}) {
     function handleSubmit(event) {
@@ -125,10 +145,8 @@ function App() {
               const zip = await jszip.loadAsync(response.data);
               const file = Object.values(zip.files)[0]; // assuming the zip contains only one file
               const arrayBuffer = await file.async('arraybuffer');
-              const geotiff = await fromArrayBuffer(arrayBuffer);
-              const image = await geotiff.getImage();
-              const georaster = await image.readRasters();
-              setRasterLayers(georaster);
+              const georaster = await parse_georaster(arrayBuffer);
+              setRasterLayers([[georaster, raster_url]]);
               console.log(georaster);
             }
           }
@@ -217,6 +235,13 @@ function App() {
         />
         <MapControl center={mapCenter} />
         <LocationMarkers markers={markers} />
+        <Slider
+          axis="x"
+          x={opacity * 100}
+          onChange={({ x }) => setOpacity(x / 100)}
+        />
+        <button onClick={() => setColor(['#ffffff', '#ff0000'])}>Red</button>
+        <button onClick={() => setColor(['#ffffff', '#0000ff'])}>Blue</button>
         <RasterLayers rasterLayers={rasterLayers} />
     </MapContainer>
     </div>

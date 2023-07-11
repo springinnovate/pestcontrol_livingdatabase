@@ -8,6 +8,7 @@
     "@testing-library/user-event": "^13.5.0",
     "axios": "^1.2.2",
     "bootstrap": "4.6.0",
+    "chroma-js": "^2.4.2",
     "file-saver": "2.0.5",
     "georaster-layer-for-leaflet": "^3.10.0",
     "geotiff": "^2.0.7",
@@ -16,6 +17,7 @@
     "leaflet-react": "^3.0.5",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-input-slider": "^6.0.1",
     "react-leaflet": "^4.2.1",
     "react-scripts": "5.0.1",
     "web-vitals": "^2.1.4"
