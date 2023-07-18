@@ -146,35 +146,41 @@ function AvailableDatsets({datasets}) {
   );
 };
 
-function CSVParser() {
+function CSVParser({ setLatField, setLongField, setHeaders}) {
   const [file, setFile] = useState();
-  const [headers, setHeaders] = useState([]);
 
   const handleChange = (event) => {
     setFile(event.target.files[0]);
   };
 
   useEffect(() => {
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: function(results) {
-        setHeaders(results.meta.fields);
+    if (file) {
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: function(results) {
+          setHeaders(results.meta.fields);
+          setLatField(findMatch(results.meta.fields, ['Lat', 'Latitude', 'X', 'lat', 'latitude', 'x']));
+          setLongField(findMatch(results.meta.fields, ['Lon', 'Long', 'Longitude', 'Y', 'lon', 'long', 'longitude', 'y']));
+        }
+      });
+    }
+  }, [file, setHeaders, setLatField, setLongField]);
+
+  const findMatch = (headers, matches) => {
+    for (let header of headers) {
+      if (matches.includes(header)) {
+        return header;
       }
-    });
-  }, [file]);
+    }
+    return headers[0]; // Default to the first header if no match is found
+  };
 
   return (
     <div>
       <input type="file" name="file" onChange={handleChange} accepts=".csv"/>
-      <div>
-        <h3>Headers:</h3>
-        {headers.map((header, i) => (
-          <p key={i}>{header}</p>
-        ))}
-      </div>
     </div>
-    );
+  );
 }
 
 function RasterLayers({ raster_id, raster, opacity, color }) {
@@ -206,10 +212,12 @@ function App() {
   const [submitButtonText, setSubmitButtonText] = useState("Submit form");
   const [serverUp, setServerUp] = useState(false);
   const [rasterUrls, setRasterUrls] = useState([]); // New state for raster URLs
-  const [longField, setLongField] = useState(null);
-  const [latField, setLatField] = useState(null);
   const [yearField, setYearField] = useState(null);
   const [bufferSize, setBufferSize] = useState(null);
+  const [longField, setLongField] = useState(null);
+  const [latField, setLatField] = useState(null);
+  const [validFile, setValidFile] = useState(false);
+  const [headers, setHeaders] = useState([]);
 
   function TableSubmitForm({availableDatasets}) {
     function handleSubmit(event) {
@@ -266,7 +274,30 @@ function App() {
       <form method="post" onSubmit={handleSubmit}>
         <hr/>
         <label>Select sample CSV:
-          <CSVParser />
+        <CSVParser
+          setLatField={setLatField}
+          setLongField={setLongField}
+          setHeaders={setHeaders}
+        />
+        <div>
+        {headers.length > 0 ? (
+          <>
+            <h3>Verify the following are the correct lat/long fields in your CSV:</h3>
+            <select value={latField} onChange={e => setLatField(e.target.value)}>
+              {headers.map((header, i) => (
+                <option key={i} value={header}>{header}</option>
+              ))}
+            </select>
+            <select value={longField} onChange={e => setLongField(e.target.value)}>
+              {headers.map((header, i) => (
+                <option key={i} value={header}>{header}</option>
+              ))}
+            </select>
+          </>) : (
+          <p>load a csv...</p>
+          )
+        }
+      </div>
         </label><br/>
         <hr/>
          {longField && latField && yearField && bufferSize ? (
