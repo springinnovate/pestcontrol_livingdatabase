@@ -1,3 +1,6 @@
+from sklearn.linear_model import LassoLarsCV
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.preprocessing import MinMaxScaler
 from sklearn.linear_model import TweedieRegressor
 from sklearn import linear_model
 import numpy
@@ -14,23 +17,38 @@ from sklearn.model_selection import GridSearchCV
 # Load the CSV data into a pandas DataFrame
 df = pd.read_csv('base_data/MiridCACottonNLCDallLim.csv')
 
+# 0.318
+# 0.314
+('EVI_Amplitude_1.nlcd.natural Greenup_1.nlcd.natural', 2.2416843178477945)
+('EVI_Amplitude_1.nlcd.natural^2', 1.5777542531080966)
+('nlcd.natural.pixel.prop^2', 1.1284810757697668)
+('EVI_Area_1.nlcd.natural nlcd.natural.pixel.prop', 1.0197997390828808)
+('MidGreendown_1.nlcd.natural^2', 0.953876564710748)
+('MidGreendown_1.nlcd.natural', 0.8774614196213635)
+('Greenup_1.nlcd.natural^2', 0.65246086968104)
+('Dormancy_1.nlcd.natural Greenup_1.nlcd.natural', 0.5064009412323296)
 remote_response_variables = [
     'Dormancy_1.nlcd.natural',
-    # 'EVI_Amplitude_1.nlcd.natural',
-    # 'EVI_Area_1.nlcd.natural',
-    # 'Greenup_1.nlcd.natural',
-    # 'Maturity_1.nlcd.natural',
-    # 'MidGreendown_1.nlcd.natural',
-    # 'MidGreenup_1.nlcd.natural',
-    # 'nlcd.natural.pixel.prop',
-    # 'Peak_1.nlcd.natural',
-    # 'Senescence_1.nlcd.natural',
+    'EVI_Amplitude_1.nlcd.natural',
+    'EVI_Area_1.nlcd.natural',
+    'Greenup_1.nlcd.natural',
+    'MidGreendown_1.nlcd.natural',
+    'nlcd.natural.pixel.prop',
+    #'Maturity_1.nlcd.natural',
+    #'MidGreenup_1.nlcd.natural',
+    #'Peak_1.nlcd.natural',
+    #'Senescence_1.nlcd.natural',
 ]
 
 lat_lng_response_variables = [
-    'lat',
+    #'lat',
     'long',
+    #'Dormancy_1.nlcd.natural',
  ]
+
+with_dormancy = remote_response_variables+[
+    'Dormancy_1.nlcd.natural',
+]
 
 sin_transform_variables = [
     'Dormancy_1.nlcd.natural',
@@ -40,44 +58,49 @@ sin_transform_variables = [
     'MidGreenup_1.nlcd.natural',
 ]
 
-full_response_variables = remote_response_variables + lat_lng_response_variables
+with_long = with_dormancy + lat_lng_response_variables
+
+target_field = 'may_june_total_insects'
+df = df[df[target_field] != 0]
 
 # Create a figure and axes for subplots
 fig, axs = plt.subplots(2, 3, figsize=(14, 14//3*2))
 
 for fig_index, (field_names, experiment_id) in enumerate([
         (remote_response_variables, 'remote sensed only'),
-        (full_response_variables, 'remote and lat/lng'),
-        (lat_lng_response_variables, 'lat/long only'),
+        (with_dormancy, 'with dormancy'),
+        (with_long, 'all+long'),
+        #(lat_lng_response_variables, 'long only'),
         ]):
-    target_field = 'may_june_total_insects'
-    X = df[field_names]
+    X = df[field_names].copy()
+
     for sin_field in sin_transform_variables:
         if sin_field in X:
             print(f'transform {sin_field}')
-            X.loc[:, sin_field] = 1+numpy.sin(2*numpy.pi*(X.loc[:, sin_field]-00)/365)
+            X[sin_field] = (numpy.sin(2*numpy.pi*(X[sin_field]+365*.21)/365))**1
 
     y = df[target_field]
-    zero_indexes = y == 0
-    y[zero_indexes] += 0.00001
 
     # # Split the dataset into training set and test set
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42)
 
-    model = RidgeCV(alphas=[0.1, 1, 10], cv=10)
+    #model = RidgeCV(alphas=[0.1, 1, 10], cv=10)
+    #model = LassoLarsCV(positive=True, max_iter=10000, n_jobs=-1)
     #model = linear_model.LinearRegression()
-    #model = TweedieRegressor(power=0, alpha=0.1, link='auto')
-    #model = SVR(kernel='linear', C=1, epsilon=0.5)
+    #model = TweedieRegressor(power=1, alpha=0.1, link='auto')
+    model = SVR(kernel='poly', C=1, epsilon=0.5)
+    #svr_parameters = {'kernel':('linear', 'poly'), 'C':[1, 10], 'epsilon':[0.1,0.2,0.5,0.3]}
+    #model = GridSearchCV(SVR(), svr_parameters, verbose=3, n_jobs=-1)
 
     # Define parameter grid
-    #svr_parameters = {'kernel':('linear', 'poly', 'sigmoid'), 'C':[1, 10], 'epsilon':[0.1,0.2,0.5,0.3]}
     # Define regressor
     # Define grid search
-    #model = GridSearchCV(SVR(), svr_parameters, verbose=3, n_jobs=-1)
     #model = SVR(kernel=)
     pipeline = Pipeline([
-        #('scaler', StandardScaler(with_mean=False)),
+        ('polynomialfeatures', PolynomialFeatures(2)),
+        ('scaler', StandardScaler(with_mean=True)),
+        ('scaler2', MinMaxScaler()),
         ('model', model)
     ])
 
@@ -87,12 +110,16 @@ for fig_index, (field_names, experiment_id) in enumerate([
     print("R^2 score: ", r2)
 
     # For a linear SVM, the weights of the features can be accessed with model.coef_
-    print(
-        "Weights (Coefficients): ",
-        '\n'.join(
-            str(v) for v in sorted(
-                zip(field_names, pipeline.named_steps['model'].coef_),
-                key=lambda q: -abs(q[1]))))
+    if hasattr(pipeline.named_steps['model'], 'coef_'):
+        poly_features = pipeline.named_steps['polynomialfeatures']
+        feature_names = poly_features.get_feature_names(input_features=X.columns)
+
+        print(
+            "Weights (Coefficients):\n",
+            '\n'.join(
+                str((v[0].replace(' ', '*'), v[1])) for v in sorted(
+                    zip(feature_names, pipeline.named_steps['model'].coef_),
+                    key=lambda q: -abs(q[1])) if v[1] != 0))
     #print(pipeline.named_steps['model'].best_params_)
 
     # Plot the test data
@@ -108,11 +135,9 @@ for fig_index, (field_names, experiment_id) in enumerate([
     axs[0, fig_index].set_ylabel('Predicted values')
     axs[0, fig_index].legend()
 
-    print(y_test)
-    print(X[field_names[0]])
-    axs[1, fig_index].scatter(
-        y, X[field_names[0]], s=1, color='black', label='Comparison')
-    axs[1, fig_index].set_xlabel(field_names[0])
+    # axs[1, fig_index].scatter(
+    #     y, X[field_names[0]], s=1, color='black', label='Comparison')
+    # axs[1, fig_index].set_xlabel(field_names[0])
 
 
     # # Plot the original data

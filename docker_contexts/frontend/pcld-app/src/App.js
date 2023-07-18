@@ -175,6 +175,10 @@ function App() {
   const [submitButtonText, setSubmitButtonText] = useState("Submit form");
   const [serverUp, setServerUp] = useState(false);
   const [rasterUrls, setRasterUrls] = useState([]); // New state for raster URLs
+  const [longField, setLongField] = useState(null);
+  const [latField, setLatField] = useState(null);
+  const [yearField, setYearField] = useState(null);
+  const [bufferSize, setBufferSize] = useState(null);
 
   function TableSubmitForm({availableDatasets}) {
     function handleSubmit(event) {
@@ -234,24 +238,30 @@ function App() {
           <input type="file" name="file"/>
         </label><br/>
         <hr/>
-        <p>Choose Datasets:</p>
-        <AvailableDatsets datasets={availableDatasets} />
-        <hr/>
-        <p>Edit any other desired fields:</p>
-        <label>long_field:
-          <input type="text" name="long_field" defaultValue="long"/>
-        </label><br/>
-        <label>lat_field:
-          <input type="text" name="lat_field" defaultValue="lat"/>
-        </label><br/>
-        <label>year_field:
-          <input type="text" name="year_field" defaultValue="crop_year"/>
-        </label><br/>
-        <label>buffer_size (m):
-          <input type="number" name="buffer_size" defaultValue="30000"/>
-        </label><br/>
-        <button type="submit" disabled={formProcessing}>{submitButtonText}</button><br/>
-        <button type="reset" disabled={formProcessing}>Reset form</button>
+         {longField && latField && yearField && bufferSize ? (
+          <>
+            <p>Choose Datasets:</p>
+              <AvailableDatsets datasets={availableDatasets} />
+              <hr/>
+              <p>Edit any other desired fields:</p>
+              <label>long_field:
+                <input type="text" name="long_field" defaultValue="long"/>
+              </label><br/>
+              <label>lat_field:
+                <input type="text" name="lat_field" defaultValue="lat"/>
+              </label><br/>
+              <label>year_field:
+                <input type="text" name="year_field" defaultValue="crop_year"/>
+              </label><br/>
+              <label>buffer_size (m):
+                <input type="number" name="buffer_size" defaultValue="30000"/>
+              </label><br/>
+              <button type="submit" disabled={formProcessing}>{submitButtonText}</button><br/>
+              <button type="reset" disabled={formProcessing}>Reset form</button>
+            </>
+        ) : (
+          <p>Please select your CSV</p>
+        )}
         <hr/>
       </form>
     );
