@@ -17,6 +17,7 @@ import parse_georaster from 'georaster';
 import Slider from 'react-input-slider';
 import chroma from 'chroma-js';
 import JSZip from 'jszip';
+import Papa from 'papaparse';
 //import "bootstrap/dist/css/bootstrap.min.css";
 
 function MapComponent({ mapCenter, markers, rasterUrls }) {
@@ -145,6 +146,36 @@ function AvailableDatsets({datasets}) {
   );
 };
 
+function CSVParser() {
+  const [file, setFile] = useState();
+  const [headers, setHeaders] = useState([]);
+
+  const handleChange = (event) => {
+    setFile(event.target.files[0]);
+  };
+
+  useEffect(() => {
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: function(results) {
+        setHeaders(results.meta.fields);
+      }
+    });
+  }, [file]);
+
+  return (
+    <div>
+      <input type="file" name="file" onChange={handleChange} accepts=".csv"/>
+      <div>
+        <h3>Headers:</h3>
+        {headers.map((header, i) => (
+          <p key={i}>{header}</p>
+        ))}
+      </div>
+    </div>
+    );
+}
 
 function RasterLayers({ raster_id, raster, opacity, color }) {
   const currentRasterLayer = React.useRef(null);
@@ -235,7 +266,7 @@ function App() {
       <form method="post" onSubmit={handleSubmit}>
         <hr/>
         <label>Select sample CSV:
-          <input type="file" name="file"/>
+          <CSVParser />
         </label><br/>
         <hr/>
          {longField && latField && yearField && bufferSize ? (
