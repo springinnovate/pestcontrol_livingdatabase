@@ -178,7 +178,10 @@ function CSVParser({ setLatField, setLongField, setHeaders}) {
 
   return (
     <div>
-      <input type="file" name="file" onChange={handleChange} accepts=".csv"/>
+    <label>Select sample CSV:
+      <input type="file" name="file" onChange={handleChange} accepts=".csv">
+      </input>
+    </label>
     </div>
   );
 }
@@ -202,132 +205,139 @@ function RasterLayers({ raster_id, raster, opacity, color }) {
   }, [raster, map, opacity, color]);
 };
 
-function App() {
-  const [currentTime, setCurrentTime] = useState(0);
-  const [availableDatasets, setAvailableDatasets] = useState({'server error, please reload': null});
-  const [dataInfo, setDataInfo] = useState(null);
-  const [mapCenter, setMapCenter] = useState(null);
-  const [markers, setMarkers] = useState([]);
+
+function TableSubmitForm({
+    availableDatasets,
+    setDataInfo,
+    setMapCenter,
+    setMarkers,
+    setRasterUrls
+  }) {
   const [formProcessing, setFormProcessing] = useState(false);
   const [submitButtonText, setSubmitButtonText] = useState("Submit form");
-  const [serverUp, setServerUp] = useState(false);
-  const [rasterUrls, setRasterUrls] = useState([]); // New state for raster URLs
   const [yearField, setYearField] = useState(null);
   const [bufferSize, setBufferSize] = useState(null);
   const [longField, setLongField] = useState(null);
   const [latField, setLatField] = useState(null);
   const [validFile, setValidFile] = useState(false);
   const [headers, setHeaders] = useState([]);
-
-  function TableSubmitForm({availableDatasets}) {
-    function handleSubmit(event) {
-      event.preventDefault();
-      setDataInfo("processing, please wait")
-      setFormProcessing(true);
-      setSubmitButtonText("processing, please wait");
-      // Read the form data
-      const form = event.target;
-      const formData = new FormData(form);
-      var datasets_to_process = [];
-      for (var key in availableDatasets) {
-        var value = availableDatasets[key];
-        if (value !== null) {
-          if (form[key].checked) {
-            datasets_to_process.push(key);
-          }
+  function handleSubmit(event) {
+    event.preventDefault();
+    setDataInfo("processing, please wait")
+    setFormProcessing(true);
+    setSubmitButtonText("processing, please wait");
+    // Read the form data
+    const form = event.target;
+    const formData = new FormData(form);
+    var datasets_to_process = [];
+    for (var key in availableDatasets) {
+      var value = availableDatasets[key];
+      if (value !== null) {
+        if (form[key].checked) {
+          datasets_to_process.push(key);
         }
-      };
-      formData.append('datasets_to_process', datasets_to_process);
-      for (const [name,value] of formData) {
-        console.log(name, ":", value)
       }
-
-      // Request made to the backend api
-      // Send formData object
-      axios.post("/uploadfile", formData).then(
-        async res => {
-          var data = res.data;
-          const urls = [];
-          for (const raster_id in data.url_by_header_id) {
-            if (data.url_by_header_id.hasOwnProperty(raster_id)) {
-              urls.push([raster_id, data.url_by_header_id[raster_id]]);
-            }
-          }
-          setRasterUrls(urls);
-          setMapCenter(data.center);
-          setMarkers(data.points);
-          const csvData = new Blob(
-            [data.csv_blob_result], { type: 'text/csv;charset=utf-8;' });
-          FileSaver.saveAs(csvData, data.csv_filename);
-          setDataInfo("Success! Result saved to download folder as: '" + data.csv_filename + "'");
-          setFormProcessing(false);
-          setSubmitButtonText("Submit form");
-        }).catch(err => {
-          setDataInfo("SERVER ERROR")
-          setFormProcessing(true);
-          setSubmitButtonText("SERVER ERROR");
-          console.log(err.message);
-        });
     };
+    formData.append('datasets_to_process', datasets_to_process);
+    for (const [name,value] of formData) {
+      console.log(name, ":", value)
+    }
 
-    return (
-      <form method="post" onSubmit={handleSubmit}>
-        <hr/>
-        <label>Select sample CSV:
-        <CSVParser
-          setLatField={setLatField}
-          setLongField={setLongField}
-          setHeaders={setHeaders}
-        />
-        <div>
-        {headers.length > 0 ? (
-          <>
-            <h3>Verify the following are the correct lat/long fields in your CSV:</h3>
-            <select value={latField} onChange={e => setLatField(e.target.value)}>
-              {headers.map((header, i) => (
-                <option key={i} value={header}>{header}</option>
-              ))}
-            </select>
-            <select value={longField} onChange={e => setLongField(e.target.value)}>
-              {headers.map((header, i) => (
-                <option key={i} value={header}>{header}</option>
-              ))}
-            </select>
-          </>) : (
-          <p>load a csv...</p>
-          )
+    // Request made to the backend api
+    // Send formData object
+    axios.post("/uploadfile", formData).then(
+      async res => {
+        var data = res.data;
+        const urls = [];
+        for (const raster_id in data.url_by_header_id) {
+          if (data.url_by_header_id.hasOwnProperty(raster_id)) {
+            urls.push([raster_id, data.url_by_header_id[raster_id]]);
+          }
         }
+        setRasterUrls(urls);
+        setMapCenter(data.center);
+        setMarkers(data.points);
+        const csvData = new Blob(
+          [data.csv_blob_result], { type: 'text/csv;charset=utf-8;' });
+        FileSaver.saveAs(csvData, data.csv_filename);
+        setDataInfo("Success! Result saved to download folder as: '" + data.csv_filename + "'");
+        setFormProcessing(false);
+        setSubmitButtonText("Submit form");
+      }).catch(err => {
+        setDataInfo("SERVER ERROR")
+        setFormProcessing(true);
+        setSubmitButtonText("SERVER ERROR");
+        console.log(err.message);
+      });
+  };
+
+  return (
+    <form method="post" onSubmit={handleSubmit}>
+      <hr/>
+      <CSVParser
+        setLatField={setLatField}
+        setLongField={setLongField}
+        setHeaders={setHeaders}
+      />
+      <div>
+      {headers.length > 0 ? (
+        <>
+          <h3>Verify the following are the correct lat/long fields in your CSV:</h3>
+          <select value={latField} onChange={e => setLatField(e.target.value)}>
+            {headers.map((header, i) => (
+              <option key={i} value={header}>{header}</option>
+            ))}
+          </select>
+          <select value={longField} onChange={e => setLongField(e.target.value)}>
+            {headers.map((header, i) => (
+              <option key={i} value={header}>{header}</option>
+            ))}
+          </select>
+        </>) : (
+        <p>load a csv...</p>
+        )
+      }
       </div>
-        </label><br/>
-        <hr/>
-         {longField && latField && yearField && bufferSize ? (
-          <>
-            <p>Choose Datasets:</p>
-              <AvailableDatsets datasets={availableDatasets} />
-              <hr/>
-              <p>Edit any other desired fields:</p>
-              <label>long_field:
-                <input type="text" name="long_field" defaultValue="long"/>
-              </label><br/>
-              <label>lat_field:
-                <input type="text" name="lat_field" defaultValue="lat"/>
-              </label><br/>
-              <label>year_field:
-                <input type="text" name="year_field" defaultValue="crop_year"/>
-              </label><br/>
-              <label>buffer_size (m):
-                <input type="number" name="buffer_size" defaultValue="30000"/>
-              </label><br/>
-              <button type="submit" disabled={formProcessing}>{submitButtonText}</button><br/>
-              <button type="reset" disabled={formProcessing}>Reset form</button>
-            </>
-        ) : (
-          <p>Please select your CSV</p>
-        )}
-        <hr/>
-      </form>
-    );
-  }
+      <br/>
+      <hr/>
+       {longField && latField && yearField && bufferSize ? (
+        <>
+          <p>Choose Datasets:</p>
+            <AvailableDatsets datasets={availableDatasets} />
+            <hr/>
+            <p>Edit any other desired fields:</p>
+            <label>long_field:
+              <input type="text" name="long_field" defaultValue="long"/>
+            </label><br/>
+            <label>lat_field:
+              <input type="text" name="lat_field" defaultValue="lat"/>
+            </label><br/>
+            <label>year_field:
+              <input type="text" name="year_field" defaultValue="crop_year"/>
+            </label><br/>
+            <label>buffer_size (m):
+              <input type="number" name="buffer_size" defaultValue="30000"/>
+            </label><br/>
+            <button type="submit" disabled={formProcessing}>{submitButtonText}</button><br/>
+            <button type="reset" disabled={formProcessing}>Reset form</button>
+          </>
+      ) : (
+        <p>Please select your CSV</p>
+      )}
+      <hr/>
+    </form>
+  );
+}
+
+function App() {
+  const [currentTime, setCurrentTime] = useState(0);
+  const [availableDatasets, setAvailableDatasets] = useState({'server error, please reload': null});
+  const [serverUp, setServerUp] = useState(false);
+  const [dataInfo, setDataInfo] = useState(null);
+  const [mapCenter, setMapCenter] = useState(null);
+  const [markers, setMarkers] = useState([]);
+  const [rasterUrls, setRasterUrls] = useState([]); // New state for raster URLs
+
 
   useEffect(() => {
     fetch('/time').then(
@@ -355,7 +365,13 @@ function App() {
           {serverUp && currentTime}
         </p>
       </header>
-      <TableSubmitForm availableDatasets={availableDatasets} />
+      <TableSubmitForm
+        availableDatasets={availableDatasets}
+        setDataInfo={setDataInfo}
+        setMapCenter={setMapCenter}
+        setMarkers={setMarkers}
+        setRasterUrls={setRasterUrls}
+        />
       <InfoPanel info={dataInfo}/>
       <MapComponent mapCenter={mapCenter} markers={markers} rasterUrls={rasterUrls} />
     </div>
