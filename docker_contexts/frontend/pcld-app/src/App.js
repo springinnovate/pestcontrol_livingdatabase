@@ -146,7 +146,7 @@ function AvailableDatsets({datasets}) {
   );
 };
 
-function CSVParser({ setLatField, setLongField, setHeaders}) {
+function CSVParser({ setLatField, setLongField, setYearField, setHeaders}) {
   const [file, setFile] = useState();
 
   const handleChange = (event) => {
@@ -160,16 +160,23 @@ function CSVParser({ setLatField, setLongField, setHeaders}) {
         skipEmptyLines: true,
         complete: function(results) {
           setHeaders(results.meta.fields);
-          setLatField(findMatch(results.meta.fields, ['Lat', 'Latitude', 'X', 'lat', 'latitude', 'x']));
-          setLongField(findMatch(results.meta.fields, ['Lon', 'Long', 'Longitude', 'Y', 'lon', 'long', 'longitude', 'y']));
+          setLatField(findMatch(
+            results.meta.fields,
+            ['lat', 'latitude', 'x']));
+          setLongField(findMatch(
+            results.meta.fields,
+            ['lon', 'long', 'longitude', 'y']));
+          setYearField(findMatch(results.meta.fields, ['.*year.*']));
         }
       });
     }
-  }, [file, setHeaders, setLatField, setLongField]);
+  }, [file, setHeaders, setLatField, setLongField, setYearField]);
 
   const findMatch = (headers, matches) => {
+    const regexMatches = matches.map(
+      match => new RegExp(match, 'i')); // 'i' for case-insensitive
     for (let header of headers) {
-      if (matches.includes(header)) {
+      if (regexMatches.some(regex => regex.test(header))) {
         return header;
       }
     }
@@ -277,22 +284,34 @@ function TableSubmitForm({
       <CSVParser
         setLatField={setLatField}
         setLongField={setLongField}
+        setYearField={setYearField}
         setHeaders={setHeaders}
       />
       <div>
       {headers.length > 0 ? (
         <>
           <h3>Verify the following are the correct lat/long fields in your CSV:</h3>
-          <select value={latField} onChange={e => setLatField(e.target.value)}>
-            {headers.map((header, i) => (
-              <option key={i} value={header}>{header}</option>
-            ))}
-          </select>
-          <select value={longField} onChange={e => setLongField(e.target.value)}>
-            {headers.map((header, i) => (
-              <option key={i} value={header}>{header}</option>
-            ))}
-          </select>
+          <label>Longitude field:
+            <select value={latField} name="lat_field" onChange={e => setLatField(e.target.value)}>
+              {headers.map((header, i) => (
+                <option key={i} value={header}>{header}</option>
+              ))}
+            </select>
+          </label>
+          <label>Latitude field:
+            <select value={longField} name="long_field" onChange={e => setLongField(e.target.value)}>
+              {headers.map((header, i) => (
+                <option key={i} value={header}>{header}</option>
+              ))}
+            </select>
+          </label>
+          <label>Year field:
+            <select value={yearField} name="year_field" onChange={e => setYearField(e.target.value)}>
+              {headers.map((header, i) => (
+                <option key={i} value={header}>{header}</option>
+              ))}
+            </select>
+          </label>
         </>) : (
         <p>load a csv...</p>
         )
@@ -300,23 +319,14 @@ function TableSubmitForm({
       </div>
       <br/>
       <hr/>
-       {longField && latField && yearField && bufferSize ? (
+       {headers.length ? (
         <>
           <p>Choose Datasets:</p>
             <AvailableDatsets datasets={availableDatasets} />
             <hr/>
             <p>Edit any other desired fields:</p>
-            <label>long_field:
-              <input type="text" name="long_field" defaultValue="long"/>
-            </label><br/>
-            <label>lat_field:
-              <input type="text" name="lat_field" defaultValue="lat"/>
-            </label><br/>
-            <label>year_field:
-              <input type="text" name="year_field" defaultValue="crop_year"/>
-            </label><br/>
             <label>buffer_size (m):
-              <input type="number" name="buffer_size" defaultValue="30000"/>
+              <input type="number" name="buffer_size" defaultValue="5000"/>
             </label><br/>
             <button type="submit" disabled={formProcessing}>{submitButtonText}</button><br/>
             <button type="reset" disabled={formProcessing}>Reset form</button>
