@@ -142,9 +142,9 @@ def process_file_worker(
                 for field in header_fields]) + '\n')
         f['csv_blob_result'] = csv_blob_result
         f['csv_filename'] = csv_filename
-        TASK_LOOKUP[task_id] = {
+        TASK_LOOKUP[task_id].update({
             'state': 'SUCCESS',
-            'result': f}
+            'result': f})
     except Exception as e:
         LOGGER.exception('something bad happened on process_file')
         error_type = type(e).__name__

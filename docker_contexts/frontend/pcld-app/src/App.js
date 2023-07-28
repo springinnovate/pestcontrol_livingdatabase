@@ -280,8 +280,7 @@ function TableSubmitForm({
             clearInterval(pollTask);
             if (data.state === "SUCCESS") {
               // Handle successful completion here
-              var data = res.result;
-              processCompletedData(data);
+              processCompletedData(data.result);
               console.log("Task completed successfully");
             } else {
               console.error("Error: " + data.status);
@@ -299,7 +298,7 @@ function TableSubmitForm({
           }
           setSubmitButtonText("error, try again");
         });
-      }, 1000);  // Poll every second
+      }, 500);
     });
 
     /*axios.post("/uploadfile", formData).then(
