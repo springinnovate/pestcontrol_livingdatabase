@@ -285,7 +285,7 @@ function TableSubmitForm({
               console.error("Error: " + data.status);
             }
           } else {
-            console.log("Task status: " + data.status);
+            setDataInfo("Task status: " + data.status);
           }
         }).catch(err => {
           if (err.response && err.response.data.data) {

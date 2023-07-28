@@ -9,6 +9,7 @@ import json
 import secrets
 import sys
 import uuid
+import time
 import threading
 
 from werkzeug.utils import secure_filename
@@ -47,7 +48,8 @@ def process_file():
     task_id = str(uuid.uuid4())  # generate a unique task id
     TASK_LOOKUP[task_id] = {
         'state': 'RUNNING',
-        'result': None}
+        'result': None,
+        'start_time': time.time()}
     LOGGER.debug(f'request: {request.files}')
     LOGGER.debug(f'request.form: {request.form}')
     file_data = request.files['file'].read().decode('utf-8')
@@ -180,6 +182,8 @@ def create_app(config=None):
     @app.route('/task/<task_id>')
     def get_task(task_id):
         # TODO: delete if task is complete or error
+        TASK_LOOKUP[task_id]['time_running'] = (
+            time.time()-TASK_LOOKUP[task_id]['start_time'])
         return TASK_LOOKUP[task_id]
 
     @app.route('/get/')
