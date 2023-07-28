@@ -220,18 +220,35 @@ function TableSubmitForm({
     setMarkers,
     setRasterUrls
   }) {
-  const [formProcessing, setFormProcessing] = useState(false);
+  const [formActive, setFormActive] = useState(true);
   const [submitButtonText, setSubmitButtonText] = useState("Submit form");
   const [yearField, setYearField] = useState(null);
-  const [bufferSize, setBufferSize] = useState(null);
   const [longField, setLongField] = useState(null);
   const [latField, setLatField] = useState(null);
-  const [validFile, setValidFile] = useState(false);
   const [headers, setHeaders] = useState([]);
+
+  function processCompletedData(data) {
+    const urls = [];
+    for (const raster_id in data.url_by_header_id) {
+      if (data.url_by_header_id.hasOwnProperty(raster_id)) {
+        urls.push([raster_id, data.url_by_header_id[raster_id]]);
+      }
+    }
+    setRasterUrls(urls);
+    setMapCenter(data.center);
+    setMarkers(data.points);
+    const csvData = new Blob(
+      [data.csv_blob_result], { type: 'text/csv;charset=utf-8;' });
+    FileSaver.saveAs(csvData, data.csv_filename);
+    setDataInfo("Success! Result saved to download folder as: '" + data.csv_filename + "'");
+    setSubmitButtonText("Submit form");
+    setFormActive(true);
+  };
+
   function handleSubmit(event) {
     event.preventDefault();
     setDataInfo("processing, please wait")
-    setFormProcessing(true);
+    setFormActive(false);
     setSubmitButtonText("processing, please wait");
     // Read the form data
     const form = event.target;
@@ -252,30 +269,49 @@ function TableSubmitForm({
 
     // Request made to the backend api
     // Send formData object
-    axios.post("/uploadfile", formData).then(
+    axios.post("/uploadfile", formData).then(res => {
+      var data = res.data;
+      var taskId = data.task_id;
+
+      var pollTask = setInterval(function() {
+        axios.get("/task/" + taskId).then(res => {
+          var data = res.data;
+          if (data.state === "SUCCESS" || data.state === "FAILURE") {
+            clearInterval(pollTask);
+            if (data.state === "SUCCESS") {
+              // Handle successful completion here
+              console.log("Task completed successfully");
+            } else {
+              console.error("Error: " + data.status);
+            }
+          } else {
+            console.log("Task status: " + data.status);
+          }
+        }).catch(err => {
+          if (err.response && err.response.data.data) {
+            setDataInfo(err.response.data.error);
+          } else {
+            setDataInfo(err.message);
+          }
+          setSubmitButtonText("error, try again");
+        });
+      }, 1000);  // Poll every second
+    });
+
+    /*axios.post("/uploadfile", formData).then(
       async res => {
         var data = res.data;
-        const urls = [];
-        for (const raster_id in data.url_by_header_id) {
-          if (data.url_by_header_id.hasOwnProperty(raster_id)) {
-            urls.push([raster_id, data.url_by_header_id[raster_id]]);
-          }
-        }
-        setRasterUrls(urls);
-        setMapCenter(data.center);
-        setMarkers(data.points);
-        const csvData = new Blob(
-          [data.csv_blob_result], { type: 'text/csv;charset=utf-8;' });
-        FileSaver.saveAs(csvData, data.csv_filename);
-        setDataInfo("Success! Result saved to download folder as: '" + data.csv_filename + "'");
-        setFormProcessing(false);
-        setSubmitButtonText("Submit form");
+        processCompletedData(data);
       }).catch(err => {
-        setDataInfo("SERVER ERROR")
-        setFormProcessing(true);
-        setSubmitButtonText("SERVER ERROR");
-        console.log(err.message);
-      });
+        if (err.response && err.response.data.data) {
+          setDataInfo(err.response.data.error);
+        } else {
+          setDataInfo(err.message);
+        }
+        setSubmitButtonText("error, try again");
+      }).then(() => {
+        setFormActive(true);
+      });*/
   };
 
   return (
@@ -328,8 +364,8 @@ function TableSubmitForm({
             <label>buffer_size (m):
               <input type="number" name="buffer_size" defaultValue="5000"/>
             </label><br/>
-            <button type="submit" disabled={formProcessing}>{submitButtonText}</button><br/>
-            <button type="reset" disabled={formProcessing}>Reset form</button>
+            <button type="submit" disabled={!formActive}>{submitButtonText}</button><br/>
+            <button type="reset" disabled={!formActive}>Reset form</button>
           </>
       ) : (
         <p>Please select your CSV</p>

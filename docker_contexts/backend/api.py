@@ -8,10 +8,15 @@ import os
 import json
 import secrets
 import sys
+import uuid
+import threading
 
+from werkzeug.utils import secure_filename
 from flask import Flask
 from flask import request
 from flask import session
+from flask import jsonify
+from flask import make_response
 from shapely.geometry import MultiPoint
 import ee
 import numpy
@@ -31,6 +36,35 @@ logging.basicConfig(
 LOGGER = logging.getLogger()
 LOGGER.setLevel(logging.DEBUG)
 ARGS_DATASETS = {}
+
+UPLOAD_DIR = 'uploads'
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+TASK_LOOKUP = {}
+
+
+def process_file():
+    task_id = str(uuid.uuid4())  # generate a unique task id
+    TASK_LOOKUP[task_id] = {
+        'state': 'RUNNING',
+        'result': None}
+    LOGGER.debug(f'request: {request.files}')
+    LOGGER.debug(f'request.form: {request.form}')
+    file_data = request.files['file'].read().decode('utf-8')
+    file_basename = os.path.basename(request.files['file'].filename)
+    long_field = request.form['long_field']
+    lat_field = request.form['lat_field']
+    year_field = request.form['year_field']
+    buffer_size = float(request.form['buffer_size'])
+    datasets_to_process = request.form[
+        'datasets_to_process'].split(',')
+    threading.Thread(
+        target=process_file_worker, args=(
+            file_basename, file_data, long_field, lat_field, year_field,
+            buffer_size, datasets_to_process, task_id)).start()
+    return {
+        'task_id': task_id
+        }
 
 
 def _process_table(
@@ -56,6 +90,67 @@ def _process_table(
     return header_fields, sample_list, url_by_header_id
 
 
+def process_file_worker(
+        file_basename, file_data, long_field, lat_field, year_field,
+        buffer_size, datasets_to_process, task_id):
+    LOGGER.debug(f'processing file {file_data}')
+    try:
+        table = pd.read_csv(
+            StringIO(file_data),
+            skip_blank_lines=True,
+            converters={
+                long_field: lambda x: None if x == '' else float(x),
+                lat_field: lambda x: None if x == '' else float(x),
+                year_field: lambda x: None if x == '' else int(x),
+            },)
+        point_list = [
+            (row[1][0], row[1][1]) for row in table[
+                [lat_field, long_field]].iterrows()]
+        points = MultiPoint(point_list)
+        fields = list(table.columns)
+        LOGGER.debug(f'fields: {fields}')
+        f = {
+            'center': [points.centroid.x, points.centroid.y],
+            'data': file_data,
+            'points': [
+                (index, x, y) for index, (x, y) in enumerate(point_list)],
+            'info': fields,
+            }
+
+        precip_args = {}
+        header_fields, sample_list, url_by_header_id = _process_table(
+            table, datasets_to_process,
+            year_field, long_field, lat_field, buffer_size,
+            precip_args)
+        f['url_by_header_id'] = url_by_header_id
+
+        landcover_substring = '_'.join(datasets_to_process)
+        csv_filename = f'''sampled_{buffer_size}m_{landcover_substring}_{
+            file_basename}'''
+        csv_blob_result = ''
+        csv_blob_result += (
+            ','.join(table.columns) + f',{",".join(header_fields)}\n')
+        for sample in sample_list:
+            csv_blob_result += (','.join([
+                str(sample['properties'][key])
+                for key in table.columns]) + ',')
+            csv_blob_result += (','.join([
+                'invalid' if field not in sample['properties']
+                else str(sample['properties'][field])
+                for field in header_fields]) + '\n')
+        f['csv_blob_result'] = csv_blob_result
+        f['csv_filename'] = csv_filename
+        TASK_LOOKUP[task_id] = {
+            'state': 'SUCCESS',
+            'result': f}
+    except Exception as e:
+        LOGGER.exception('something bad happened on process_file')
+        error_type = type(e).__name__
+        error_message = str(e)
+        return make_response(jsonify(
+            error={'error': f'{error_type}: {error_message}'}), 500)
+
+
 def create_app(config=None):
     """Create the Geoserver STAC Flask app."""
     LOGGER.debug('starting up v2!')
@@ -77,6 +172,16 @@ def create_app(config=None):
         session['key'] = 'value'
         return 'ok'
 
+    @app.route('/uploadfile', methods=['POST'])
+    def upload_file():
+        LOGGER.debug('uploading file')
+        return process_file()
+
+    @app.route('/task/<task_id>')
+    def get_task(task_id):
+        # TODO: delete if task is complete or error
+        return TASK_LOOKUP[task_id]
+
     @app.route('/get/')
     def get():
         return session.get('key', 'not set')
@@ -88,75 +193,6 @@ def create_app(config=None):
     @app.route('/available_datasets')
     def get_available_datasets():
         return get_datasets()
-
-    @app.route('/uploadfile', methods=['GET', 'POST'])
-    def upload_file():
-        # TODO: upload the file then return a url to check the status url_for('get_task', task_id=task['id'], _external=True)
-        try:
-            if request.method == 'POST':
-                LOGGER.debug(f'request: {request.files}')
-                LOGGER.debug(f'request.form: {request.form}')
-                raw_data = request.files['file'].read().decode('utf-8')
-                LOGGER.debug(raw_data)
-                long_field = request.form['long_field']
-                lat_field = request.form['lat_field']
-                year_field = request.form['year_field']
-                buffer_size = float(request.form['buffer_size'])
-                datasets_to_process = request.form[
-                    'datasets_to_process'].split(',')
-                table = pd.read_csv(
-                    StringIO(raw_data),
-                    skip_blank_lines=True,
-                    converters={
-                        long_field: lambda x: None if x == '' else float(x),
-                        lat_field: lambda x: None if x == '' else float(x),
-                        year_field: lambda x: None if x == '' else int(x),
-                    },)
-                point_list = [
-                    (row[1][0], row[1][1]) for row in table[
-                        [lat_field, long_field]].iterrows()]
-                points = MultiPoint(point_list)
-                fields = list(table.columns)
-                LOGGER.debug(f'fields: {fields}')
-                f = {
-                    'center': [points.centroid.x, points.centroid.y],
-                    'data': request.files['file'].read().decode('utf-8'),
-                    'points': [
-                        (index, x, y) for index, (x, y) in enumerate(point_list)],
-                    'info': fields,
-                    }
-
-                precip_args = {}
-                header_fields, sample_list, url_by_header_id = _process_table(
-                    table, datasets_to_process,
-                    year_field, long_field, lat_field, buffer_size,
-                    precip_args)
-                f['url_by_header_id'] = url_by_header_id
-
-                landcover_substring = '_'.join(datasets_to_process)
-                file_basename = os.path.basename(request.files['file'].filename)
-                csv_filename = f'''sampled_{buffer_size}m_{landcover_substring}_{
-                    file_basename}'''
-                csv_blob_result = ''
-                csv_blob_result += (
-                    ','.join(table.columns) + f',{",".join(header_fields)}\n')
-                for sample in sample_list:
-                    csv_blob_result += (','.join([
-                        str(sample['properties'][key])
-                        for key in table.columns]) + ',')
-                    csv_blob_result += (','.join([
-                        'invalid' if field not in sample['properties']
-                        else str(sample['properties'][field])
-                        for field in header_fields]) + '\n')
-                f['csv_blob_result'] = csv_blob_result
-                f['csv_filename'] = csv_filename
-                return f
-                # path = secure_filename(f.filename)
-                # print(path)
-                # f.save(path)
-                # return 'file uploaded successfully'
-        except Exception:
-            LOGGER.exception('something bad happened on uploadfile')
 
     def index():
         return get_datasets()
