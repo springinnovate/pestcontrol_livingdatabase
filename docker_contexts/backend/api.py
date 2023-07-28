@@ -183,7 +183,7 @@ def create_app(config=None):
     def get_task(task_id):
         # TODO: delete if task is complete or error
         if task_id not in TASK_LOOKUP:
-            return f'{task_id} not found'
+            return f'{task_id} not found', 500
         TASK_LOOKUP[task_id]['time_running'] = (
             time.time()-TASK_LOOKUP[task_id]['start_time'])
         return TASK_LOOKUP[task_id]
