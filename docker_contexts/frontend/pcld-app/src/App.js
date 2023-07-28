@@ -280,6 +280,8 @@ function TableSubmitForm({
             clearInterval(pollTask);
             if (data.state === "SUCCESS") {
               // Handle successful completion here
+              var data = res.result;
+              processCompletedData(data);
               console.log("Task completed successfully");
             } else {
               console.error("Error: " + data.status);
