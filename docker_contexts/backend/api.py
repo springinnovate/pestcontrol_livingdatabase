@@ -182,6 +182,8 @@ def create_app(config=None):
     @app.route('/task/<task_id>')
     def get_task(task_id):
         # TODO: delete if task is complete or error
+        if task_id not in TASK_LOOKUP:
+            return f'{task_id} not found'
         TASK_LOOKUP[task_id]['time_running'] = (
             time.time()-TASK_LOOKUP[task_id]['start_time'])
         return TASK_LOOKUP[task_id]
