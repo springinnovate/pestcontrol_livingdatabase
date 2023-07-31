@@ -9,10 +9,10 @@ import json
 import secrets
 import sys
 import uuid
+import functools
 import time
 import threading
 
-from werkzeug.utils import secure_filename
 from flask import Flask
 from flask import request
 from flask import session
@@ -33,7 +33,7 @@ logging.basicConfig(
         ' [%(funcName)s:%(lineno)d] %(message)s'),
     stream=sys.stdout)
 
-
+logging.getLogger('googleapiclient.discovery').setLevel(logging.WARNING)
 LOGGER = logging.getLogger()
 LOGGER.setLevel(logging.DEBUG)
 ARGS_DATASETS = {}
@@ -155,13 +155,9 @@ def process_file_worker(
 
 def create_app(config=None):
     """Create the Geoserver STAC Flask app."""
-    LOGGER.debug('starting up v2!')
-
-    for ini_path in glob.glob(os.path.join(INI_DIR, '*.ini')):
-        dataset_config = parse_ini(ini_path)
-        basename = os.path.basename(os.path.splitext(ini_path)[0])
-        ARGS_DATASETS[basename] = dataset_config
-
+    global ARGS_DATASETS
+    LOGGER.info('starting up!')
+    ARGS_DATASETS = get_datasets()
     gee_key_path = os.environ['GEE_KEY_PATH']
     credentials = ee.ServiceAccountCredentials(None, gee_key_path)
     ee.Initialize(credentials)
@@ -216,9 +212,12 @@ EXPECTED_INI_ELEMENTS = {
     'valid_years',
     'filter_by',
 }
+
 OPTIONAL_INI_ELEMENTS = {
-    'image_only'
+    'image_only',
+    'disabled'
 }
+
 PRECIP_SECTION = 'precip'
 
 EXPECTED_INI_SECTIONS = {
@@ -507,15 +506,19 @@ def _sample_pheno(
     return header_fields, sample_list, url_by_header_id
 
 
+@functools.cache
 def get_datasets():
     args_datasets = {}
     for ini_path in glob.glob(os.path.join(INI_DIR, '*.ini')):
         dataset_config = parse_ini(ini_path)
+        if dataset_config is None:
+            continue
         basename = os.path.basename(os.path.splitext(ini_path)[0])
         args_datasets[basename] = dataset_config
     return args_datasets
 
 
+@functools.cache
 def parse_ini(ini_path):
     """Parse ini and return a validated config."""
     basename = os.path.splitext(os.path.basename(ini_path))[0]
@@ -526,6 +529,11 @@ def parse_ini(ini_path):
         raise ValueError(
             f'expected a section called {basename} but only found '
             f'{dataset_config.sections()}')
+    if 'disabled' in dataset_config[basename]:
+        LOGGER.debug(f'disabled is in {ini_path}')
+        if dataset_config[basename]['disabled'].lower() == 'true':
+            LOGGER.debug(f'skipping {ini_path} because disabled')
+            return None
     for element_id in EXPECTED_INI_ELEMENTS:
         if element_id not in dataset_config[basename]:
             raise ValueError(

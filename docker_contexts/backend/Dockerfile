@@ -1,5 +1,5 @@
 # Container for STAC API manager
-FROM therealspring/python-gdal:3.0.4
+FROM ubuntu:jammy
 
 RUN apt-get update -qq && \
     apt-get install -y \
@@ -10,6 +10,8 @@ RUN apt-get update -qq && \
     openssl \
     curl \
     git \
+    gdal-bin \
+    python3-gdal \
     && \
     rm -rf /var/lib/apt/lists/*
 
