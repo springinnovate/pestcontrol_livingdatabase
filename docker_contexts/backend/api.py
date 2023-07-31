@@ -1,4 +1,5 @@
 """Backend code to query and annotate point data from remote data."""
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from io import StringIO
 import configparser
@@ -278,7 +279,6 @@ def build_landcover_masks(year, dataset_info):
         else:
             dataset = imagecollection
         band = dataset.select(dataset_info['band_name'])
-        band.getInfo()
         mask_dict = {}
         if 'mask_types' in dataset_info:
             for mask_type in dataset_info['mask_types']:
@@ -288,8 +288,6 @@ def build_landcover_masks(year, dataset_info):
 
                     if isinstance(code_value, tuple):
                         local_mask = (band.gte(code_value[0])).And(band.lte(code_value[1]))
-                        LOGGER.debug(local_mask.getInfo())
-
                     else:
                         local_mask = band.eq(code_value)
                     if mask_dict[mask_type] is None:
@@ -396,6 +394,7 @@ def _sample_pheno(
             all_bands = ee.Image().rename(GEE_BUG_WORKAROUND_BANDNAME)
             all_bands = all_bands.addBands(ee.Image(0).rename(
                 'valid_modis_year'))
+        header_fields.append('valid_modis_year')
 
         for precip_dataset_id in datasets_to_process:
             if not precip_dataset_id.startswith('precip_'):
@@ -412,6 +411,7 @@ def _sample_pheno(
             total_precip_bandname = (
                 f'{precip_dataset_id}_{start_day}_{end_day}')
             raw_band_names.append(total_precip_bandname)
+            header_fields.append(raw_band_names[-1])
             precip_band = precip_dataset.filterDate(
                 start_date, end_date).reduce('sum').rename(
                 total_precip_bandname)
@@ -428,6 +428,7 @@ def _sample_pheno(
                 period_precip_bandname = f'''{precip_dataset_id}_{
                     current_day}_{current_day+agg_days}'''
                 raw_band_names.append(period_precip_bandname)
+                header_fields.append(raw_band_names[-1])
                 period_precip_sample = precip_dataset.select(
                     datasets[precip_dataset_id]['band_name']).filterDate(
                     start_date, end_date).reduce('sum').rename(
@@ -447,28 +448,32 @@ def _sample_pheno(
             LOGGER.debug(f'masking {dataset_id}')
             mask_map, nearest_year_image = build_landcover_masks(
                 year, datasets[dataset_id])
-            nearest_year_image = nearest_year_image.rename(
-                f'{dataset_id}-nearest_year')
             for mask_id, mask_image in mask_map.items():
                 if raw_band_stack is not None:
+                    mask_band_names = [
+                        f'{band_name}-{dataset_id}-{mask_id}'
+                        for band_name in raw_band_names]
                     masked_raw_band_stack = raw_band_stack.updateMask(
-                        mask_image).rename([
-                            f'{band_name}-{dataset_id}-{mask_id}'
-                            for band_name in raw_band_names])
+                        mask_image).rename(mask_band_names)
+                    header_fields.extend(mask_band_names)
                     all_bands = all_bands.addBands(masked_raw_band_stack)
                     # get modis mask
                     if valid_modis_year:
-                        modis_mask = raw_band_stack.select(
-                            raw_band_stack.bandNames().getInfo()[0]).mask()
+                        # just get the first image because it will have the
+                        # base mask
+                        modis_mask = raw_band_stack.select(0).mask()
                         modis_overlap_mask = modis_mask.And(mask_image)
+                        header_fields.append(f'''{dataset_id}-{
+                            mask_id}-valid-modis-overlap-prop''')
                         all_bands = all_bands.addBands(
-                            modis_overlap_mask.rename(
-                                f'''{dataset_id}-{
-                                    mask_id}-valid-modis-overlap-prop'''))
+                            modis_overlap_mask.rename(header_fields[-1]))
 
-                all_bands = all_bands.addBands(mask_image.rename(
-                    f'{dataset_id}-{mask_id}-pixel-prop'))
+                header_fields.append(f'{dataset_id}-{mask_id}-pixel-prop')
+                all_bands = all_bands.addBands(
+                    mask_image.rename(header_fields[-1]))
 
+            header_fields.append(f'{dataset_id}-nearest_year')
+            nearest_year_image = nearest_year_image.rename(header_fields[-1])
             all_bands = all_bands.addBands(nearest_year_image)
 
         samples = all_bands.reduceRegions(**{
@@ -478,32 +483,43 @@ def _sample_pheno(
         }).getInfo()
 
         sample_list.extend(samples['features'])
-        local_header_fields = [
-            x['id'] for x in all_bands.getInfo()['bands']
-            if x['id'] not in header_fields and
-            x['id'] != GEE_BUG_WORKAROUND_BANDNAME]
-        header_fields += local_header_fields
+        # get the names of the new bands but ignore the names that are
+        # already in there
+        # raw_band_names  #######
+        # local_header_fields
+
+        # local_header_fields = [
+        #     x['id'] for x in local_band_names
+        #     if x['id'] not in header_fields and
+        #     x['id'] != GEE_BUG_WORKAROUND_BANDNAME]
+        #header_fields += local_header_fields
 
         bbox = year_points.geometry().bounds().getInfo()
 
         # Iterate through the list of bands.
         band_names = all_bands.bandNames().getInfo()
+        url_future_list = []
         for header_id, band in zip(header_fields, band_names):
             # Select the band from the all_bands.
             single_band_image = all_bands.select(band)
 
-            LOGGER.debug(f'**************\n\n\n{single_band_image.projection().getInfo()}\n\n\n')
-            # Generate the download URL.
-            url = single_band_image.getDownloadURL({
-                'scale': single_band_image.projection().nominalScale().getInfo(),
-                'region': json.dumps(bbox),
-                'crs': 'EPSG:4326',
-            })
-            url_by_header_id[f'{header_id}_{year}'] = url
+            with ThreadPoolExecutor(max_workers=10) as executor:
+                future = executor.submit(
+                    get_download_url, single_band_image, bbox)
+                url_future_list.append((header_id, future))
 
-            print(f'Download URL for band {bbox} {band}: {url}')
+        for header_id, future in url_future_list:
+            url_by_header_id[f'{header_id}_{year}'] = future.result()
 
     return header_fields, sample_list, url_by_header_id
+
+def get_download_url(single_band_image, bbox):
+    url = single_band_image.getDownloadURL({
+        'scale': single_band_image.projection().nominalScale().getInfo(),
+        'region': json.dumps(bbox),
+        'crs': 'EPSG:4326',
+    })
+    return url
 
 
 @functools.cache
