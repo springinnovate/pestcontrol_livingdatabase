@@ -499,14 +499,14 @@ def _sample_pheno(
         # Iterate through the list of bands.
         band_names = all_bands.bandNames().getInfo()
         url_future_list = []
-        for header_id, band in zip(header_fields, band_names):
+        for band_id in header_fields:
             # Select the band from the all_bands.
-            single_band_image = all_bands.select(band)
+            single_band_image = all_bands.select(band_id)
 
             with ThreadPoolExecutor(max_workers=10) as executor:
                 future = executor.submit(
                     get_download_url, single_band_image, bbox)
-                url_future_list.append((header_id, future))
+                url_future_list.append((band_id, future))
 
         for header_id, future in url_future_list:
             url_by_header_id[f'{header_id}_{year}'] = future.result()
