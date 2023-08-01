@@ -14,16 +14,17 @@ import functools
 import time
 import threading
 
-from flask import Flask
+
+from pyproj import Proj, transform
 from flask import request
 from flask import session
 from flask import jsonify
 from flask import make_response
-from shapely.geometry import MultiPoint
+from shapely.geometry import Point, MultiPoint, MultiPolygon
+from flask import Flask
 import ee
 import numpy
 import pandas as pd
-
 
 app = Flask(__name__)
 
@@ -43,6 +44,26 @@ UPLOAD_DIR = 'uploads'
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 TASK_LOOKUP = {}
+
+
+# Function to get UTM zone
+def get_utm_zone(lon):
+    return int(1+(lon+180.0)/6.0)
+
+
+def convert_wgs84_to_utm(lon, lat):
+    utm_proj = Proj(
+        proj='utm', zone=get_utm_zone(lon), ellps='WGS84', datum='WGS84',
+        south=(lat < 0))
+    return utm_proj(lon, lat)
+
+
+def convert_utm_to_wgs84(easting, northing, lon, lat):
+    utm_proj = Proj(
+        proj='utm', zone=get_utm_zone(lon), ellps='WGS84', datum='WGS84',
+        south=(lat < 0))
+    wgs84_proj = Proj(proj='latlong', ellps='WGS84', datum='WGS84')
+    return transform(utm_proj, wgs84_proj, easting, northing)
 
 
 def process_file():
@@ -75,20 +96,44 @@ def _process_table(
         buffer_size, cmd_args):
     table = table.dropna()
     pts_by_year = {}
+    bounds_json_by_year = {}
     for year in table[year_field].unique():
         pts_by_year[year] = ee.FeatureCollection([
             ee.Feature(
                 ee.Geometry.Point(row[long_field], row[lat_field]).
-                buffer(buffer_size).bounds(),
+                buffer(buffer_size),
                 row.to_dict())
             for index, row in table[
                 table[year_field] == year].dropna().iterrows()])
+        raw_points = [
+            (row[long_field], row[lat_field])
+            for index, row in table[
+                table[year_field] == year].dropna().iterrows()]
+        buffered_points = []
+        mean_coords = numpy.mean(raw_points, axis=0)
+        mean_long, mean_lat = mean_coords[0], mean_coords[1]
+        for point in raw_points:
+            utm_point = convert_wgs84_to_utm(point[0], point[1])
+            utm_point_geometry = Point(utm_point)
+            buffered_point = utm_point_geometry.buffer(buffer_size)
+            buffered_points.append(buffered_point)
+        multi_point = MultiPolygon(buffered_points)
+        bbox = multi_point.bounds
+        # using longitude of first point for conversion
+        minx, miny = convert_utm_to_wgs84(
+            bbox[0], bbox[1], mean_long, mean_lat)
+        maxx, maxy = convert_utm_to_wgs84(
+            bbox[2], bbox[3], mean_long, mean_lat)
+
+        # Convert to JSON
+        LOGGER.debug(f'bbox: {bbox} mean_coords: {mean_coords} long: {minx}-{maxx} lat: {miny}-{maxy} raw_points: {raw_points}')
+        bounds_json_by_year[year] = json.dumps((minx, miny, maxx, maxy))
 
     LOGGER.debug('calculating pheno variables')
     sample_scale = 1000
     datasets = get_datasets()
     header_fields, sample_list, url_by_header_id = _sample_pheno(
-        pts_by_year, buffer_size, sample_scale, datasets,
+        pts_by_year, bounds_json_by_year, buffer_size, sample_scale, datasets,
         datasets_to_process, cmd_args)
     return header_fields, sample_list, url_by_header_id
 
@@ -310,14 +355,15 @@ def _get_closest_num(number_list, candidate):
 
 
 def _sample_pheno(
-        pts_by_year, buffer, sample_scale, datasets, datasets_to_process,
-        cmd_args):
+        pts_by_year, bounds_json_by_year, buffer, sample_scale, datasets,
+        datasets_to_process, cmd_args):
     """Sample phenology variables from https://docs.google.com/spreadsheets/d/1nbmCKwIG29PF6Un3vN6mQGgFSWG_vhB6eky7wVqVwPo
 
     Args:
         pts_by_year (dict): dictionary of FeatureCollection of points indexed
             by year, these are the points that are used to sample underlying
             datasets.
+        bounds_json_by_year (dict): dictionary of bounding boxes of buffered points
         buffer (float): buffer size of sample points in m
         sample_scale (float): sample size in m to treat underlying pixels
         datasets (dict): mapping of dataset id -> dataset info
@@ -333,7 +379,7 @@ def _sample_pheno(
             indexed by the header field + year of sample.
     """
     # these variables are measured in days since 1-1-1970
-    executor = ThreadPoolExecutor(max_workers=24)
+    executor = ThreadPoolExecutor(max_workers=24*3)
     LOGGER.debug('starting phenological sampling')
     julian_day_variables = [
         'Greenup_1',
@@ -506,7 +552,7 @@ def _sample_pheno(
             single_band_image = all_bands.select(band_id)
             future = executor.submit(
                 get_download_url, single_band_image,
-                year_points.geometry().bounds())
+                bounds_json_by_year[year])
             url_future_list.append((band_id, future))
 
         for header_id, future in url_future_list:
@@ -534,10 +580,11 @@ def _process_sample_regions(all_bands, year_points, sample_scale):
     return samples['features']
 
 
-def get_download_url(single_band_image, bounds):
+def get_download_url(single_band_image, bounds_json):
     url = single_band_image.getDownloadURL({
-        'scale': single_band_image.projection().nominalScale().getInfo(),
-        'region': json.dumps(bounds.getInfo()),
+        #'scale': single_band_image.projection().nominalScale().getInfo(),
+        'scale': 300,
+        'region': bounds_json,
         'crs': 'EPSG:4326',
     })
     return url
