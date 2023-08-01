@@ -534,7 +534,7 @@ def _sample_pheno(
             single_band_image = all_bands.select(band_id)
             future = executor.submit(
                 get_download_url, single_band_image,
-                bounds_json_by_year[year])
+                year_points)
             url_future_list.append((band_id, future))
 
         for header_id, future in url_future_list:
@@ -562,12 +562,12 @@ def _process_sample_regions(all_bands, year_points, sample_scale):
     return samples['features']
 
 
-def get_download_url(single_band_image, bounds_json):
+def get_download_url(single_band_image, year_points):
     url = single_band_image.getDownloadURL({
         #'scale': single_band_image.projection().nominalScale().getInfo(),
         #'scale': 300,
         'scale': single_band_image.projection().nominalScale(),
-        'region': bounds_json,
+        'region': year_points.bounds(),
         'crs': 'EPSG:4326',
     })
     return url
