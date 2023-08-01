@@ -523,27 +523,9 @@ def _sample_pheno(
             nearest_year_image = nearest_year_image.rename(header_fields[-1])
             all_bands = all_bands.addBands(nearest_year_image)
 
-        # samples = all_bands.reduceRegions(**{
-        #     'collection': year_points,
-        #     'reducer': REDUCER,
-        #     'scale': sample_scale,
-        # }).getInfo()
-        # sample_list.extend(samples['features'])
-
         future = executor.submit(
             _process_sample_regions, all_bands, year_points, sample_scale)
         sample_future_list.append(future)
-
-        # get the names of the new bands but ignore the names that are
-        # already in there
-        # raw_band_names  #######
-        # local_header_fields
-
-        # local_header_fields = [
-        #     x['id'] for x in local_band_names
-        #     if x['id'] not in header_fields and
-        #     x['id'] != GEE_BUG_WORKAROUND_BANDNAME]
-        # header_fields += local_header_fields
 
         # Iterate through the list of bands.
         url_future_list = []
@@ -583,7 +565,8 @@ def _process_sample_regions(all_bands, year_points, sample_scale):
 def get_download_url(single_band_image, bounds_json):
     url = single_band_image.getDownloadURL({
         #'scale': single_band_image.projection().nominalScale().getInfo(),
-        'scale': 300,
+        #'scale': 300,
+        'scale': single_band_image.projection().nominalScale(),
         'region': bounds_json,
         'crs': 'EPSG:4326',
     })
