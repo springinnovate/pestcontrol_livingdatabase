@@ -333,6 +333,7 @@ def _sample_pheno(
             indexed by the header field + year of sample.
     """
     # these variables are measured in days since 1-1-1970
+    executor = ThreadPoolExecutor(max_workers=24)
     LOGGER.debug('starting phenological sampling')
     julian_day_variables = [
         'Greenup_1',
@@ -355,12 +356,11 @@ def _sample_pheno(
     epoch_date = datetime.strptime('1970-01-01', "%Y-%m-%d")
     modis_phen = ee.ImageCollection(MODIS_DATASET_NAME)
 
-    sample_list = []
+    sample_future_list = []
     header_fields = julian_day_variables + raw_variables
-    url_by_header_id = {}
-    for year in pts_by_year.keys():
+    url_by_header_id_future = {}
+    for year, year_points in pts_by_year.items():
         LOGGER.debug(f'processing year {year}')
-        year_points = pts_by_year[year]
 
         LOGGER.info(f'parse out MODIS variables for year {year}')
         raw_band_stack = None
@@ -394,7 +394,8 @@ def _sample_pheno(
             all_bands = ee.Image().rename(GEE_BUG_WORKAROUND_BANDNAME)
             all_bands = all_bands.addBands(ee.Image(0).rename(
                 'valid_modis_year'))
-        header_fields.append('valid_modis_year')
+        if 'valid_modis_year' not in header_fields:
+            header_fields.append('valid_modis_year')
 
         for precip_dataset_id in datasets_to_process:
             if not precip_dataset_id.startswith('precip_'):
@@ -476,13 +477,17 @@ def _sample_pheno(
             nearest_year_image = nearest_year_image.rename(header_fields[-1])
             all_bands = all_bands.addBands(nearest_year_image)
 
-        samples = all_bands.reduceRegions(**{
-            'collection': year_points,
-            'reducer': REDUCER,
-            'scale': sample_scale,
-        }).getInfo()
+        # samples = all_bands.reduceRegions(**{
+        #     'collection': year_points,
+        #     'reducer': REDUCER,
+        #     'scale': sample_scale,
+        # }).getInfo()
+        # sample_list.extend(samples['features'])
 
-        sample_list.extend(samples['features'])
+        future = executor.submit(
+            _process_sample_regions, all_bands, year_points, sample_scale)
+        sample_future_list.append(future)
+
         # get the names of the new bands but ignore the names that are
         # already in there
         # raw_band_names  #######
@@ -492,31 +497,47 @@ def _sample_pheno(
         #     x['id'] for x in local_band_names
         #     if x['id'] not in header_fields and
         #     x['id'] != GEE_BUG_WORKAROUND_BANDNAME]
-        #header_fields += local_header_fields
-
-        bbox = year_points.geometry().bounds().getInfo()
+        # header_fields += local_header_fields
 
         # Iterate through the list of bands.
-        band_names = all_bands.bandNames().getInfo()
         url_future_list = []
         for band_id in header_fields:
             # Select the band from the all_bands.
             single_band_image = all_bands.select(band_id)
-
-            with ThreadPoolExecutor(max_workers=10) as executor:
-                future = executor.submit(
-                    get_download_url, single_band_image, bbox)
-                url_future_list.append((band_id, future))
+            future = executor.submit(
+                get_download_url, single_band_image,
+                year_points.geometry().bounds())
+            url_future_list.append((band_id, future))
 
         for header_id, future in url_future_list:
-            url_by_header_id[f'{header_id}_{year}'] = future.result()
+            url_by_header_id_future[f'{header_id}_{year}'] = future
 
+    executor.shutdown()
+    sample_list = [
+        feature
+        for future in sample_future_list
+        for feature in future.result()]
+
+    url_by_header_id = {
+        url_header: future.result()
+        for url_header, future in url_by_header_id_future.items()
+    }
     return header_fields, sample_list, url_by_header_id
 
-def get_download_url(single_band_image, bbox):
+
+def _process_sample_regions(all_bands, year_points, sample_scale):
+    samples = all_bands.reduceRegions(**{
+        'collection': year_points,
+        'reducer': REDUCER,
+        'scale': sample_scale,
+    }).getInfo()
+    return samples['features']
+
+
+def get_download_url(single_band_image, bounds):
     url = single_band_image.getDownloadURL({
         'scale': single_band_image.projection().nominalScale().getInfo(),
-        'region': json.dumps(bbox),
+        'region': json.dumps(bounds.getInfo()),
         'crs': 'EPSG:4326',
     })
     return url

@@ -227,7 +227,7 @@ function TableSubmitForm({
   const [latField, setLatField] = useState(null);
   const [headers, setHeaders] = useState([]);
 
-  function processCompletedData(data) {
+  function processCompletedData(data, time_running) {
     const urls = [];
     for (const raster_id in data.url_by_header_id) {
       if (data.url_by_header_id.hasOwnProperty(raster_id)) {
@@ -240,7 +240,7 @@ function TableSubmitForm({
     const csvData = new Blob(
       [data.csv_blob_result], { type: 'text/csv;charset=utf-8;' });
     FileSaver.saveAs(csvData, data.csv_filename);
-    setDataInfo("Success! Result saved to download folder as: '" + data.csv_filename + "'");
+    setDataInfo("Success in " + time_running + "s! Result saved to download folder as: '" + data.csv_filename + "'");
     setSubmitButtonText("Submit form");
     setFormActive(true);
   };
@@ -280,7 +280,9 @@ function TableSubmitForm({
             clearInterval(pollTask);
             if (data.state === "SUCCESS") {
               // Handle successful completion here
-              processCompletedData(data.result);
+              processCompletedData(
+                data.result,
+                parseFloat(data.time_running).toFixed(1));
               console.log("Task completed successfully");
             } else {
               console.error("Error: " + data.status);
