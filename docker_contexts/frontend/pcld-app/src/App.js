@@ -11,7 +11,7 @@ import FileSaver from 'file-saver';
 import './App.css';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { MapContainer, TileLayer, useMap, Marker, GeoJSON  } from 'react-leaflet';
+import { MapContainer, TileLayer, CircleMarker, useMap, Marker, GeoJSON  } from 'react-leaflet';
 import GeoRasterLayer from 'georaster-layer-for-leaflet';
 import parse_georaster from 'georaster';
 import Slider from 'react-input-slider';
@@ -124,6 +124,21 @@ const BufferRegions = ({ geoJsonStrList, opacity }) => {
     </>
   );
 };
+
+function LocationMarkers({markers}) {
+  return (
+    <>
+      {markers.map((point, index) => (
+        <CircleMarker
+          key={index}
+          center={[point[1], point[2]]}
+          color='#00FF00'
+          radius=10
+          key={coord[0]}
+        />
+      ))}
+    </>
+}
 
 function LocationMarkers({markers}) {
   const covidIcon = L.icon({
