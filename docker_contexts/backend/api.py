@@ -59,8 +59,10 @@ def process_file():
     lat_field = request.form['lat_field']
     year_field = request.form['year_field']
     buffer_size = float(request.form['buffer_size'])
-    datasets_to_process = request.form[
-        'datasets_to_process'].split(',')
+    datasets_to_process = []
+    datasets_to_process_str = request.form['datasets_to_process']
+    if datasets_to_process_str:
+        datasets_to_process = datasets_to_process_str.split(',')
     threading.Thread(
         target=process_file_worker, args=(
             file_basename, file_data, long_field, lat_field, year_field,
