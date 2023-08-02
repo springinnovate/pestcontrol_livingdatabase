@@ -37,6 +37,17 @@ function MapComponent({ mapCenter, markers, geoJsonStrList, rasterIds }) {
     setAvailableRasterIdList(rasterIds);
   }, [rasterIds]);
 
+  // Calculate the bounds here
+  let bounds = [];
+  geoJsonStrList.forEach((geoJsonStr) => {
+    const geoJsonLayer = L.geoJson(JSON.parse(geoJsonStr)); // L is the leaflet instance
+    bounds.push(geoJsonLayer.getBounds());
+  });
+
+  if (bounds.length === 0) {
+    bounds = [[-90, -180], [90, 180]];
+  }
+
   /*useEffect(() => {
     const loadRasters = async () => {
       const id_raster_list = [];
@@ -92,18 +103,18 @@ function MapComponent({ mapCenter, markers, geoJsonStrList, rasterIds }) {
       <button onClick={() => setColor(['#ffffff', '#0000ff'])}>Blue</button>
       <MapContainer
         className="markercluster-map"
-        center={mapCenter}
+        /*center={mapCenter}*/
         zoom={4}
         maxZoom={18}>
         <TileLayer
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           attribution='&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors'
         />
-        <MapControl center={mapCenter} />
-        <LocationMarkers markers={markers} />
-        <BufferRegions geoJsonStrList={geoJsonStrList} opacity={opacity} />
+        <MapControl bounds={bounds} />
         {rastersToRender.map(([raster_id, raster]) =>
           <RasterLayers raster_id={raster_id} raster={raster} opacity={opacity} color={color} />)}
+        <BufferRegions geoJsonStrList={geoJsonStrList} opacity={opacity} />
+        <LocationMarkers markers={markers} />
       </MapContainer>
     </div>
   );
@@ -117,7 +128,8 @@ const BufferRegions = ({ geoJsonStrList, opacity }) => {
           key={idx}
           data={JSON.parse(geojson_str)}
           style={(feature) => ({
-            color: feature?.properties?.color || '#000000'
+            color: feature?.properties?.color || '#000000',
+            weight: 1
           })}
         />
       ))}
@@ -132,15 +144,18 @@ function LocationMarkers({markers}) {
         <CircleMarker
           key={index}
           center={[point[1], point[2]]}
-          color='#00FF00'
-          radius=10
-          key={coord[0]}
+          color='red'
+          fillColor='red'
+          radius={3}
+          fillOpacity={1}
+          key={point[0]}
         />
       ))}
     </>
+  );
 }
 
-function LocationMarkers({markers}) {
+/*function LocationMarkers({markers}) {
   const covidIcon = L.icon({
       iconUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e5/Redpoint.svg/768px-Redpoint.svg.png',
 
@@ -157,13 +172,13 @@ function LocationMarkers({markers}) {
         ></Marker>)}
     </React.Fragment>
     );
-}
+}*/
 
-function MapControl({center}) {
+function MapControl({bounds}) {
   const map = useMap();
-  if (center !== null) {
-    map.setView(center, 8);
-  }
+  useEffect(() => {
+    map.fitBounds(bounds);
+  }, [bounds, map]);
   return null;
 }
 
