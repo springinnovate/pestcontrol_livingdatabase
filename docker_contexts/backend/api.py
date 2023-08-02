@@ -166,10 +166,10 @@ def create_app(config=None):
     """Create the Geoserver STAC Flask app."""
     global ARGS_DATASETS
     LOGGER.info('starting up!')
-    ARGS_DATASETS = get_datasets()
     gee_key_path = os.environ['GEE_KEY_PATH']
     credentials = ee.ServiceAccountCredentials(None, gee_key_path)
     ee.Initialize(credentials)
+    ARGS_DATASETS = get_datasets()
 
     app = Flask(__name__)
     app.secret_key = secrets.token_hex()
@@ -551,8 +551,15 @@ def get_download_url(single_band_image, year_points):
 @functools.cache
 def get_datasets():
     args_datasets = {}
-    for ini_path in glob.glob(os.path.join(INI_DIR, '*.ini')):
-        dataset_config = parse_ini(ini_path)
+    ini_path_list = list(glob.glob(os.path.join(INI_DIR, '*.ini')))
+    dataset_config_future_list = []
+    with ThreadPoolExecutor(len(ini_path_list)) as executor:
+        for ini_path in ini_path_list:
+            future = executor.submit(parse_ini, ini_path)
+            dataset_config_future_list.append(future)
+
+    for dataset_future in dataset_config_future_list:
+        dataset_config = dataset_future.result()
         if dataset_config is None:
             continue
         basename = os.path.basename(os.path.splitext(ini_path)[0])
@@ -598,6 +605,20 @@ def parse_ini(ini_path):
     for element_id in dataset_config[section_id].items():
         LOGGER.debug(element_id)
         dataset_result[section_id][element_id[0]] = eval(element_id[1])
+
+    gee_dataset_path = dataset_result['gee_dataset']
+    if dataset_result['filter_by'] == 'dataset_year_pattern':
+        first_year = eval(dataset_result['valid_years'])[0]
+        gee_dataset_path = gee_dataset_path.format(year=first_year)
+
+    if 'image_only' in dataset_result and \
+            dataset_result['image_only'].lower() == 'true':
+        image = ee.Image(gee_dataset_path)
+    else:
+        image_collection = ee.ImageCollection(gee_dataset_path)
+        image = image_collection.mosaic()
+    geometry = image.geometry()
+    dataset_result['bounding_box'] = geometry.bounds().getInfo()['coordinates']
     return dataset_result
 
 
