@@ -11,7 +11,7 @@ import FileSaver from 'file-saver';
 import './App.css';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { MapContainer, TileLayer, useMap, Marker } from 'react-leaflet';
+import { MapContainer, TileLayer, useMap, Marker, GeoJSON  } from 'react-leaflet';
 import GeoRasterLayer from 'georaster-layer-for-leaflet';
 import parse_georaster from 'georaster';
 import Slider from 'react-input-slider';
@@ -20,14 +20,24 @@ import JSZip from 'jszip';
 import Papa from 'papaparse';
 //import "bootstrap/dist/css/bootstrap.min.css";
 
-function MapComponent({ mapCenter, markers, rasterUrls }) {
+function MapComponent({ mapCenter, markers, geoJsonStrList, rasterIds }) {
   const [availableRasterIdList, setAvailableRasterIdList] = useState([]);
   const [rastersToRender, setRastersToRender] = useState([]);
   const [opacity, setOpacity] = useState(1);
   const [color, setColor] = useState(['#ffffff', '#ff0000']); // white to red gradient
   const [selectedRaster, setSelectedRaster] = useState(null);
 
+  const handleSelection = (id) => {
+    setSelectedRaster(id);
+    // Call your function with the selected id
+    // TODO: yourFunction(id);
+  };
+
   useEffect(() => {
+    setAvailableRasterIdList(rasterIds);
+  }, [rasterIds]);
+
+  /*useEffect(() => {
     const loadRasters = async () => {
       const id_raster_list = [];
       for (const [url_id, url] of rasterUrls) {
@@ -42,12 +52,21 @@ function MapComponent({ mapCenter, markers, rasterUrls }) {
       setAvailableRasterIdList(id_raster_list);
     };
     loadRasters();
-  }, [rasterUrls]);
+  }, [rasterUrls]);*/
 
   return (
     <div>
       <div>
-        {availableRasterIdList.map(([raster_id, raster, url]) =>
+        <select value={selectedRaster} onChange={(e) => handleSelection(e.target.value)}>
+          <option value={null}>--Please select an option--</option>
+          {availableRasterIdList.map((raster_id) => (
+            <option key={raster_id} value={raster_id}>
+              {raster_id}
+            </option>
+          ))}
+        </select>
+
+        {/*{availableRasterIdList.map(([raster_id, raster, url]) =>
           <div>
             <label key={raster_id}>
               <input
@@ -62,7 +81,7 @@ function MapComponent({ mapCenter, markers, rasterUrls }) {
               <a href={url}>{raster_id}</a>
             </label>
           </div>
-        )}
+        )}*/}
       </div>
       <Slider
         axis="x"
@@ -82,6 +101,7 @@ function MapComponent({ mapCenter, markers, rasterUrls }) {
         />
         <MapControl center={mapCenter} />
         <LocationMarkers markers={markers} />
+        <BufferRegions geoJsonStrList={geoJsonStrList} opacity={opacity} />
         {rastersToRender.map(([raster_id, raster]) =>
           <RasterLayers raster_id={raster_id} raster={raster} opacity={opacity} color={color} />)}
       </MapContainer>
@@ -89,6 +109,21 @@ function MapComponent({ mapCenter, markers, rasterUrls }) {
   );
 }
 
+const BufferRegions = ({ geoJsonStrList, opacity }) => {
+  return (
+    <>
+      {geoJsonStrList.map((geojson_str, idx) => (
+        <GeoJSON
+          key={idx}
+          data={JSON.parse(geojson_str)}
+          style={(feature) => ({
+            color: feature?.properties?.color || '#000000'
+          })}
+        />
+      ))}
+    </>
+  );
+};
 
 function LocationMarkers({markers}) {
   const covidIcon = L.icon({
@@ -218,7 +253,8 @@ function TableSubmitForm({
     setDataInfo,
     setMapCenter,
     setMarkers,
-    setRasterUrls
+    setGeoJsonStrList,
+    setRasterIds
   }) {
   const [formActive, setFormActive] = useState(true);
   const [submitButtonText, setSubmitButtonText] = useState("Submit form");
@@ -228,15 +264,16 @@ function TableSubmitForm({
   const [headers, setHeaders] = useState([]);
 
   function processCompletedData(data, time_running) {
-    const urls = [];
-    for (const raster_id in data.url_by_header_id) {
-      if (data.url_by_header_id.hasOwnProperty(raster_id)) {
-        urls.push([raster_id, data.url_by_header_id[raster_id]]);
+    /*const urls = [];
+    for (const raster_id in data.band_and_bounds_by_id) {
+      if (data.band_and_bounds_by_id.hasOwnProperty(raster_id)) {
+        urls.push([raster_id, data.band_and_bounds_by_id[raster_id]]);
       }
-    }
-    setRasterUrls(urls);
+    }*/
+    setRasterIds(data.band_ids);
     setMapCenter(data.center);
     setMarkers(data.points);
+    setGeoJsonStrList(data.geojson_str_list);
     const csvData = new Blob(
       [data.csv_blob_result], { type: 'text/csv;charset=utf-8;' });
     FileSaver.saveAs(csvData, data.csv_filename);
@@ -387,7 +424,9 @@ function App() {
   const [dataInfo, setDataInfo] = useState(null);
   const [mapCenter, setMapCenter] = useState(null);
   const [markers, setMarkers] = useState([]);
+  const [geoJsonStrList, setGeoJsonStrList] = useState([]);
   const [rasterUrls, setRasterUrls] = useState([]); // New state for raster URLs
+  const [rasterIds, setRasterIds] = useState([]); // New state for raster URLs
 
 
   useEffect(() => {
@@ -421,10 +460,15 @@ function App() {
         setDataInfo={setDataInfo}
         setMapCenter={setMapCenter}
         setMarkers={setMarkers}
-        setRasterUrls={setRasterUrls}
+        setGeoJsonStrList={setGeoJsonStrList}
+        setRasterIds={setRasterIds}
         />
       <InfoPanel info={dataInfo}/>
-      <MapComponent mapCenter={mapCenter} markers={markers} rasterUrls={rasterUrls} />
+      <MapComponent
+        mapCenter={mapCenter}
+        markers={markers}
+        geoJsonStrList={geoJsonStrList}
+        rasterIds={rasterIds} />
     </div>
   );
 }

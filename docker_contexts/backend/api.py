@@ -15,12 +15,11 @@ import time
 import threading
 
 
-from pyproj import Proj, transform
 from flask import request
 from flask import session
 from flask import jsonify
 from flask import make_response
-from shapely.geometry import Point, MultiPoint, MultiPolygon
+from shapely.geometry import MultiPoint
 from flask import Flask
 import ee
 import numpy
@@ -44,26 +43,6 @@ UPLOAD_DIR = 'uploads'
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 TASK_LOOKUP = {}
-
-
-# Function to get UTM zone
-def get_utm_zone(lon):
-    return int(1+(lon+180.0)/6.0)
-
-
-def convert_wgs84_to_utm(lon, lat):
-    utm_proj = Proj(
-        proj='utm', zone=get_utm_zone(lon), ellps='WGS84', datum='WGS84',
-        south=(lat < 0))
-    return utm_proj(lon, lat)
-
-
-def convert_utm_to_wgs84(easting, northing, lon, lat):
-    utm_proj = Proj(
-        proj='utm', zone=get_utm_zone(lon), ellps='WGS84', datum='WGS84',
-        south=(lat < 0))
-    wgs84_proj = Proj(proj='latlong', ellps='WGS84', datum='WGS84')
-    return transform(utm_proj, wgs84_proj, easting, northing)
 
 
 def process_file():
@@ -96,7 +75,6 @@ def _process_table(
         buffer_size, cmd_args):
     table = table.dropna()
     pts_by_year = {}
-    bounds_json_by_year = {}
     for year in table[year_field].unique():
         pts_by_year[year] = ee.FeatureCollection([
             ee.Feature(
@@ -105,37 +83,14 @@ def _process_table(
                 row.to_dict())
             for index, row in table[
                 table[year_field] == year].dropna().iterrows()])
-        raw_points = [
-            (row[long_field], row[lat_field])
-            for index, row in table[
-                table[year_field] == year].dropna().iterrows()]
-        buffered_points = []
-        mean_coords = numpy.mean(raw_points, axis=0)
-        mean_long, mean_lat = mean_coords[0], mean_coords[1]
-        for point in raw_points:
-            utm_point = convert_wgs84_to_utm(point[0], point[1])
-            utm_point_geometry = Point(utm_point)
-            buffered_point = utm_point_geometry.buffer(buffer_size)
-            buffered_points.append(buffered_point)
-        multi_point = MultiPolygon(buffered_points)
-        bbox = multi_point.bounds
-        # using longitude of first point for conversion
-        minx, miny = convert_utm_to_wgs84(
-            bbox[0], bbox[1], mean_long, mean_lat)
-        maxx, maxy = convert_utm_to_wgs84(
-            bbox[2], bbox[3], mean_long, mean_lat)
-
-        # Convert to JSON
-        LOGGER.debug(f'bbox: {bbox} mean_coords: {mean_coords} long: {minx}-{maxx} lat: {miny}-{maxy} raw_points: {raw_points}')
-        bounds_json_by_year[year] = json.dumps((minx, miny, maxx, maxy))
 
     LOGGER.debug('calculating pheno variables')
     sample_scale = 1000
     datasets = get_datasets()
-    header_fields, sample_list, url_by_header_id = _sample_pheno(
-        pts_by_year, bounds_json_by_year, buffer_size, sample_scale, datasets,
+    header_fields, sample_list, buffer_list, band_and_bounds_by_id = _sample_pheno(
+        pts_by_year, buffer_size, sample_scale, datasets,
         datasets_to_process, cmd_args)
-    return header_fields, sample_list, url_by_header_id
+    return header_fields, sample_list, buffer_list, band_and_bounds_by_id
 
 
 def process_file_worker(
@@ -157,7 +112,7 @@ def process_file_worker(
         points = MultiPoint(point_list)
         fields = list(table.columns)
         LOGGER.debug(f'fields: {fields}')
-        f = {
+        result_payload = {
             'center': [points.centroid.x, points.centroid.y],
             'data': file_data,
             'points': [
@@ -166,11 +121,11 @@ def process_file_worker(
             }
 
         precip_args = {}
-        header_fields, sample_list, url_by_header_id = _process_table(
+        header_fields, sample_list, geojson_str_list, band_and_bounds_by_id = _process_table(
             table, datasets_to_process,
             year_field, long_field, lat_field, buffer_size,
             precip_args)
-        f['url_by_header_id'] = url_by_header_id
+        result_payload['band_ids'] = list(band_and_bounds_by_id)
 
         landcover_substring = '_'.join(datasets_to_process)
         csv_filename = f'''sampled_{buffer_size}m_{landcover_substring}_{
@@ -186,11 +141,15 @@ def process_file_worker(
                 'invalid' if field not in sample['properties']
                 else str(sample['properties'][field])
                 for field in header_fields]) + '\n')
-        f['csv_blob_result'] = csv_blob_result
-        f['csv_filename'] = csv_filename
+        result_payload['csv_blob_result'] = csv_blob_result
+        result_payload['csv_filename'] = csv_filename
+        result_payload['geojson_str_list'] = geojson_str_list
         TASK_LOOKUP[task_id].update({
             'state': 'SUCCESS',
-            'result': f})
+            # 'local_context': {
+            #     'band_and_bounds_by_id': band_and_bounds_by_id
+            # },
+            'result': result_payload})
     except Exception as e:
         LOGGER.exception('something bad happened on process_file')
         error_type = type(e).__name__
@@ -355,7 +314,7 @@ def _get_closest_num(number_list, candidate):
 
 
 def _sample_pheno(
-        pts_by_year, bounds_json_by_year, buffer, sample_scale, datasets,
+        pts_by_year, buffer, sample_scale, datasets,
         datasets_to_process, cmd_args):
     """Sample phenology variables from https://docs.google.com/spreadsheets/d/1nbmCKwIG29PF6Un3vN6mQGgFSWG_vhB6eky7wVqVwPo
 
@@ -363,7 +322,6 @@ def _sample_pheno(
         pts_by_year (dict): dictionary of FeatureCollection of points indexed
             by year, these are the points that are used to sample underlying
             datasets.
-        bounds_json_by_year (dict): dictionary of bounding boxes of buffered points
         buffer (float): buffer size of sample points in m
         sample_scale (float): sample size in m to treat underlying pixels
         datasets (dict): mapping of dataset id -> dataset info
@@ -403,8 +361,11 @@ def _sample_pheno(
     modis_phen = ee.ImageCollection(MODIS_DATASET_NAME)
 
     sample_future_list = []
+    geojson_buffer_future_list = []
     header_fields = julian_day_variables + raw_variables
+    header_fields_set = set(header_fields)
     url_by_header_id_future = {}
+    band_and_bounds_by_id = {}
     for year, year_points in pts_by_year.items():
         LOGGER.debug(f'processing year {year}')
 
@@ -431,7 +392,6 @@ def _sample_pheno(
 
             raw_variable_bands = raw_variable_bands.rename(raw_variables)
             raw_band_stack = julian_day_bands.addBands(raw_variable_bands)
-
             all_bands = raw_band_stack
             all_bands = all_bands.addBands(ee.Image(1).rename(
                 'valid_modis_year'))
@@ -440,8 +400,9 @@ def _sample_pheno(
             all_bands = ee.Image().rename(GEE_BUG_WORKAROUND_BANDNAME)
             all_bands = all_bands.addBands(ee.Image(0).rename(
                 'valid_modis_year'))
-        if 'valid_modis_year' not in header_fields:
+        if 'valid_modis_year' not in header_fields_set:
             header_fields.append('valid_modis_year')
+            header_fields_set.add(header_fields[-1])
 
         for precip_dataset_id in datasets_to_process:
             if not precip_dataset_id.startswith('precip_'):
@@ -458,7 +419,9 @@ def _sample_pheno(
             total_precip_bandname = (
                 f'{precip_dataset_id}_{start_day}_{end_day}')
             raw_band_names.append(total_precip_bandname)
-            header_fields.append(raw_band_names[-1])
+            if raw_band_names[-1] not in header_fields_set:
+                header_fields.append(raw_band_names[-1])
+                header_fields_set.add(header_fields[-1])
             precip_band = precip_dataset.filterDate(
                 start_date, end_date).reduce('sum').rename(
                 total_precip_bandname)
@@ -475,7 +438,9 @@ def _sample_pheno(
                 period_precip_bandname = f'''{precip_dataset_id}_{
                     current_day}_{current_day+agg_days}'''
                 raw_band_names.append(period_precip_bandname)
-                header_fields.append(raw_band_names[-1])
+                if raw_band_names[-1] not in header_fields_set:
+                    header_fields.append(raw_band_names[-1])
+                    header_fields_set.add(header_fields[-1])
                 period_precip_sample = precip_dataset.select(
                     datasets[precip_dataset_id]['band_name']).filterDate(
                     start_date, end_date).reduce('sum').rename(
@@ -502,7 +467,10 @@ def _sample_pheno(
                         for band_name in raw_band_names]
                     masked_raw_band_stack = raw_band_stack.updateMask(
                         mask_image).rename(mask_band_names)
-                    header_fields.extend(mask_band_names)
+                    for mask_band_name in mask_band_names:
+                        if mask_band_name not in header_fields_set:
+                            header_fields.append(mask_band_name)
+                            header_fields_set.add(header_fields[-1])
                     all_bands = all_bands.addBands(masked_raw_band_stack)
                     # get modis mask
                     if valid_modis_year:
@@ -510,47 +478,68 @@ def _sample_pheno(
                         # base mask
                         modis_mask = raw_band_stack.select(0).mask()
                         modis_overlap_mask = modis_mask.And(mask_image)
-                        header_fields.append(f'''{dataset_id}-{
-                            mask_id}-valid-modis-overlap-prop''')
+                        modis_field_name = f'''{dataset_id}-{mask_id}-valid-modis-overlap-prop'''
+                        if modis_field_name not in header_fields_set:
+                            header_fields.append(modis_field_name)
+                            header_fields_set.add(header_fields[-1])
                         all_bands = all_bands.addBands(
-                            modis_overlap_mask.rename(header_fields[-1]))
+                            modis_overlap_mask.rename(modis_field_name))
 
-                header_fields.append(f'{dataset_id}-{mask_id}-pixel-prop')
+                pixel_prop_field_name = f'{dataset_id}-{mask_id}-pixel-prop'
+                if pixel_prop_field_name not in header_fields_set:
+                    header_fields.append(pixel_prop_field_name)
+                    header_fields_set.add(header_fields[-1])
                 all_bands = all_bands.addBands(
-                    mask_image.rename(header_fields[-1]))
+                    mask_image.rename(pixel_prop_field_name))
 
-            header_fields.append(f'{dataset_id}-nearest_year')
-            nearest_year_image = nearest_year_image.rename(header_fields[-1])
+            nearest_year_field_name = f'{dataset_id}-nearest_year'
+            if nearest_year_field_name not in header_fields_set:
+                header_fields.append(nearest_year_field_name)
+                header_fields_set.add(header_fields[-1])
+            nearest_year_image = nearest_year_image.rename(nearest_year_field_name)
             all_bands = all_bands.addBands(nearest_year_image)
 
         future = executor.submit(
             _process_sample_regions, all_bands, year_points, sample_scale)
         sample_future_list.append(future)
+        future = executor.submit(_buffers_to_geojson, year_points)
+        geojson_buffer_future_list.append(future)
 
         # Iterate through the list of bands.
-        url_future_list = []
+        # url_future_list = []
         for band_id in header_fields:
             # Select the band from the all_bands.
             single_band_image = all_bands.select(band_id)
-            future = executor.submit(
-                get_download_url, single_band_image,
-                year_points)
-            url_future_list.append((band_id, future))
+            band_and_bounds_by_id[f'{band_id}_{year}'] = (
+                single_band_image, year_points.geometry().bounds())
 
-        for header_id, future in url_future_list:
-            url_by_header_id_future[f'{header_id}_{year}'] = future
+            # future = executor.submit(
+            #     get_download_url, single_band_image,
+            #     year_points)
+            # url_future_list.append((band_id, future))
+
+        # for header_id, future in url_future_list:
+        #     url_by_header_id_future[f'{header_id}_{year}'] = future
 
     executor.shutdown()
+    LOGGER.debug(f'{sample_future_list[0].result()}')
     sample_list = [
         feature
         for future in sample_future_list
         for feature in future.result()]
+    buffer_list = [
+        future.result() for result in geojson_buffer_future_list
+    ]
 
-    url_by_header_id = {
-        url_header: future.result()
-        for url_header, future in url_by_header_id_future.items()
-    }
-    return header_fields, sample_list, url_by_header_id
+    # url_by_header_id = {
+    #     url_header: future.result()
+    #     for url_header, future in url_by_header_id_future.items()
+    # }
+    return header_fields, sample_list, buffer_list, band_and_bounds_by_id
+
+
+def _buffers_to_geojson(year_points):
+    return json.dumps(year_points.getInfo())
 
 
 def _process_sample_regions(all_bands, year_points, sample_scale):
@@ -559,15 +548,14 @@ def _process_sample_regions(all_bands, year_points, sample_scale):
         'reducer': REDUCER,
         'scale': sample_scale,
     }).getInfo()
+    # TODO: return some other kind of geometry here?
     return samples['features']
 
 
 def get_download_url(single_band_image, year_points):
     url = single_band_image.getDownloadURL({
-        #'scale': single_band_image.projection().nominalScale().getInfo(),
-        #'scale': 300,
         'scale': single_band_image.projection().nominalScale(),
-        'region': year_points.bounds(),
+        'region': year_points.geometry().bounds(),
         'crs': 'EPSG:4326',
     })
     return url
