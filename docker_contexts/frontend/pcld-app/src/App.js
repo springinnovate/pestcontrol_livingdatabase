@@ -1,24 +1,15 @@
-/*import {
-  MapContainer,
-  TileLayer,
-  useMap,
-  Marker,
-  Popup
-} from 'https://cdn.esm.sh/react-leaflet'*/
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import FileSaver from 'file-saver';
 import './App.css';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
-import { MapContainer, TileLayer, CircleMarker, useMap, Marker, GeoJSON  } from 'react-leaflet';
+import { MapContainer, TileLayer, CircleMarker, useMap, GeoJSON  } from 'react-leaflet';
 import GeoRasterLayer from 'georaster-layer-for-leaflet';
 import parse_georaster from 'georaster';
-import Slider from 'react-input-slider';
 import chroma from 'chroma-js';
 import JSZip from 'jszip';
 import Papa from 'papaparse';
-//import "bootstrap/dist/css/bootstrap.min.css";
 
 function MapComponent({ mapCenter, markers, geoJsonStrList, rasterIds }) {
   const [availableRasterIdList, setAvailableRasterIdList] = useState([]);
@@ -29,8 +20,7 @@ function MapComponent({ mapCenter, markers, geoJsonStrList, rasterIds }) {
 
   const handleSelection = (id) => {
     setSelectedRaster(id);
-    // Call your function with the selected id
-    // TODO: yourFunction(id);
+    // render the rasters here
   };
 
   useEffect(() => {
@@ -40,7 +30,7 @@ function MapComponent({ mapCenter, markers, geoJsonStrList, rasterIds }) {
   // Calculate the bounds here
   let bounds = [];
   geoJsonStrList.forEach((geoJsonStr) => {
-    const geoJsonLayer = L.geoJson(JSON.parse(geoJsonStr)); // L is the leaflet instance
+    const geoJsonLayer = L.geoJson(geoJsonStr); // L is the leaflet instance
     bounds.push(geoJsonLayer.getBounds());
   });
 
@@ -94,13 +84,6 @@ function MapComponent({ mapCenter, markers, geoJsonStrList, rasterIds }) {
           </div>
         )}*/}
       </div>
-      <Slider
-        axis="x"
-        x={opacity * 100}
-        onChange={({ x }) => setOpacity(x / 100)}
-      />
-      <button onClick={() => setColor(['#ffffff', '#ff0000'])}>Red</button>
-      <button onClick={() => setColor(['#ffffff', '#0000ff'])}>Blue</button>
       <MapContainer
         className="markercluster-map"
         /*center={mapCenter}*/
@@ -113,7 +96,7 @@ function MapComponent({ mapCenter, markers, geoJsonStrList, rasterIds }) {
         <MapControl bounds={bounds} />
         {rastersToRender.map(([raster_id, raster]) =>
           <RasterLayers raster_id={raster_id} raster={raster} opacity={opacity} color={color} />)}
-        <BufferRegions geoJsonStrList={geoJsonStrList} opacity={opacity} />
+        <BufferRegions key={Date.now()} geoJsonStrList={geoJsonStrList} opacity={opacity} />
         <LocationMarkers markers={markers} />
       </MapContainer>
     </div>
@@ -126,7 +109,7 @@ const BufferRegions = ({ geoJsonStrList, opacity }) => {
       {geoJsonStrList.map((geojson_str, idx) => (
         <GeoJSON
           key={idx}
-          data={JSON.parse(geojson_str)}
+          data={geojson_str}
           style={(feature) => ({
             color: feature?.properties?.color || '#000000',
             weight: 1
@@ -154,25 +137,6 @@ function LocationMarkers({markers}) {
     </>
   );
 }
-
-/*function LocationMarkers({markers}) {
-  const covidIcon = L.icon({
-      iconUrl: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/e5/Redpoint.svg/768px-Redpoint.svg.png',
-
-      iconSize:     [4, 4], // size of the icon
-      iconAnchor:   [0, 0], // point of the icon which will correspond to marker's location
-      popupAnchor:  [0, 0] // point from which the popup should open relative to the iconAnchor
-  });
-  return (
-    <React.Fragment>
-      {markers.map(coord => <Marker
-        position={[coord[1], coord[2]]}
-        icon={covidIcon}
-        key={coord[0]}
-        ></Marker>)}
-    </React.Fragment>
-    );
-}*/
 
 function MapControl({bounds}) {
   const map = useMap();
@@ -303,6 +267,7 @@ function TableSubmitForm({
     setRasterIds(data.band_ids);
     setMapCenter(data.center);
     setMarkers(data.points);
+    //setGeoJsonStrList(data.points);
     setGeoJsonStrList(data.geojson_str_list);
     const csvData = new Blob(
       [data.csv_blob_result], { type: 'text/csv;charset=utf-8;' });
@@ -369,21 +334,6 @@ function TableSubmitForm({
         });
       }, 500);
     });
-
-    /*axios.post("/uploadfile", formData).then(
-      async res => {
-        var data = res.data;
-        processCompletedData(data);
-      }).catch(err => {
-        if (err.response && err.response.data.data) {
-          setDataInfo(err.response.data.error);
-        } else {
-          setDataInfo(err.message);
-        }
-        setSubmitButtonText("error, try again");
-      }).then(() => {
-        setFormActive(true);
-      });*/
   };
 
   return (
@@ -398,7 +348,7 @@ function TableSubmitForm({
       <div>
       {headers.length > 0 ? (
         <>
-          <h3>Verify the following are the correct lat/long fields in your CSV:</h3>
+          <h3>Verify the following are the correct lat/long/year fields in your CSV:</h3>
           <label>Longitude field:
             <select value={latField} name="lat_field" onChange={e => setLatField(e.target.value)}>
               {headers.map((header, i) => (

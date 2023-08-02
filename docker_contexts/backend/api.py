@@ -87,10 +87,10 @@ def _process_table(
     LOGGER.debug('calculating pheno variables')
     sample_scale = 1000
     datasets = get_datasets()
-    header_fields, sample_list, buffer_list, band_and_bounds_by_id = _sample_pheno(
+    header_fields, sample_list, band_and_bounds_by_id = _sample_pheno(
         pts_by_year, buffer_size, sample_scale, datasets,
         datasets_to_process, cmd_args)
-    return header_fields, sample_list, buffer_list, band_and_bounds_by_id
+    return header_fields, sample_list, band_and_bounds_by_id
 
 
 def process_file_worker(
@@ -121,7 +121,7 @@ def process_file_worker(
             }
 
         precip_args = {}
-        header_fields, sample_list, geojson_str_list, band_and_bounds_by_id = _process_table(
+        header_fields, sample_list, band_and_bounds_by_id = _process_table(
             table, datasets_to_process,
             year_field, long_field, lat_field, buffer_size,
             precip_args)
@@ -133,6 +133,7 @@ def process_file_worker(
         csv_blob_result = ''
         csv_blob_result += (
             ','.join(table.columns) + f',{",".join(header_fields)}\n')
+        geojson_str_list = []
         for sample in sample_list:
             csv_blob_result += (','.join([
                 str(sample['properties'][key])
@@ -141,6 +142,7 @@ def process_file_worker(
                 'invalid' if field not in sample['properties']
                 else str(sample['properties'][field])
                 for field in header_fields]) + '\n')
+            geojson_str_list.append(sample['geometry'])
         result_payload['csv_blob_result'] = csv_blob_result
         result_payload['csv_filename'] = csv_filename
         result_payload['geojson_str_list'] = geojson_str_list
@@ -361,10 +363,8 @@ def _sample_pheno(
     modis_phen = ee.ImageCollection(MODIS_DATASET_NAME)
 
     sample_future_list = []
-    geojson_buffer_future_list = []
     header_fields = julian_day_variables + raw_variables
     header_fields_set = set(header_fields)
-    url_by_header_id_future = {}
     band_and_bounds_by_id = {}
     for year, year_points in pts_by_year.items():
         LOGGER.debug(f'processing year {year}')
@@ -502,8 +502,6 @@ def _sample_pheno(
         future = executor.submit(
             _process_sample_regions, all_bands, year_points, sample_scale)
         sample_future_list.append(future)
-        future = executor.submit(_buffers_to_geojson, year_points)
-        geojson_buffer_future_list.append(future)
 
         # Iterate through the list of bands.
         # url_future_list = []
@@ -522,24 +520,11 @@ def _sample_pheno(
         #     url_by_header_id_future[f'{header_id}_{year}'] = future
 
     executor.shutdown()
-    LOGGER.debug(f'{sample_future_list[0].result()}')
     sample_list = [
         feature
         for future in sample_future_list
         for feature in future.result()]
-    buffer_list = [
-        future.result() for result in geojson_buffer_future_list
-    ]
-
-    # url_by_header_id = {
-    #     url_header: future.result()
-    #     for url_header, future in url_by_header_id_future.items()
-    # }
-    return header_fields, sample_list, buffer_list, band_and_bounds_by_id
-
-
-def _buffers_to_geojson(year_points):
-    return json.dumps(year_points.getInfo())
+    return header_fields, sample_list, band_and_bounds_by_id
 
 
 def _process_sample_regions(all_bands, year_points, sample_scale):
