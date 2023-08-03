@@ -42,3 +42,7 @@
   height: 65vh;
   clear: left;
 }
+
+.disabled {
+  color: gray;
+}

@@ -220,6 +220,7 @@ EXPECTED_INI_ELEMENTS = {
     'band_name',
     'valid_years',
     'filter_by',
+    'bounds',
 }
 
 OPTIONAL_INI_ELEMENTS = {
@@ -550,15 +551,16 @@ def get_download_url(single_band_image, year_points):
 
 @functools.cache
 def get_datasets():
+    LOGGER.debug(f'********* GETTING DATASETS')
     args_datasets = {}
     ini_path_list = list(glob.glob(os.path.join(INI_DIR, '*.ini')))
     dataset_config_future_list = []
     with ThreadPoolExecutor(len(ini_path_list)) as executor:
         for ini_path in ini_path_list:
             future = executor.submit(parse_ini, ini_path)
-            dataset_config_future_list.append(future)
+            dataset_config_future_list.append((ini_path, future))
 
-    for dataset_future in dataset_config_future_list:
+    for ini_path, dataset_future in dataset_config_future_list:
         dataset_config = dataset_future.result()
         if dataset_config is None:
             continue
@@ -606,19 +608,7 @@ def parse_ini(ini_path):
         LOGGER.debug(element_id)
         dataset_result[section_id][element_id[0]] = eval(element_id[1])
 
-    gee_dataset_path = dataset_result['gee_dataset']
-    if dataset_result['filter_by'] == 'dataset_year_pattern':
-        first_year = eval(dataset_result['valid_years'])[0]
-        gee_dataset_path = gee_dataset_path.format(year=first_year)
-
-    if 'image_only' in dataset_result and \
-            dataset_result['image_only'].lower() == 'true':
-        image = ee.Image(gee_dataset_path)
-    else:
-        image_collection = ee.ImageCollection(gee_dataset_path)
-        image = image_collection.mosaic()
-    geometry = image.geometry()
-    dataset_result['bounding_box'] = geometry.bounds().getInfo()['coordinates']
+    dataset_result['bounds'] = eval(dataset_result['bounds'])
     return dataset_result
 
 

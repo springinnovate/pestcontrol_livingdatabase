@@ -157,16 +157,33 @@ function InfoPanel({info}) {
   };
 }
 
-function AvailableDatsets({datasets}) {
+function renderBoundingBox(boundingBox) {
+  return (
+    <React.Fragment>
+      Latitudes: {boundingBox.minLat} to {boundingBox.maxLat}, Longitudes: {boundingBox.minLong} to {boundingBox.maxLong}
+    </React.Fragment>);
+};
+
+function AvailableDatsets({datasets, boundingBox}) {
   return (
     <React.Fragment>
       {String(datasets) === datasets ? datasets :
         Object.keys(datasets).map(key => {
+          let bbsOverlap = doBoundingBoxesOverlap(datasets[key].bounds, boundingBox);
           return (
             <React.Fragment key={key}>
-            <label>
-            <input type="checkbox" id={key} name={key} value={key}/>
-            {key}
+            <label
+              htmlFor={key}
+              className={!bbsOverlap ? "disabled" : ""}
+            >
+              <input
+                type="checkbox"
+                id={key}
+                name={key}
+                value={key}
+                disabled={!bbsOverlap}
+              />
+              {key} {renderBoundingBox(datasets[key].bounds)}
             </label>
             <br/>
           </React.Fragment>
@@ -175,7 +192,18 @@ function AvailableDatsets({datasets}) {
   );
 };
 
-function CSVParser({ setLatField, setLongField, setYearField, setHeaders}) {
+function doBoundingBoxesOverlap(bbox1, bbox2) {
+  try {
+    return (
+      bbox1.minLong <= bbox2.maxLong && bbox1.maxLong >= bbox2.minLong &&
+      bbox1.minLat <= bbox2.maxLat && bbox1.maxLat >= bbox2.minLat);
+  } catch (error) {
+    return false;
+  };
+}
+
+function CSVParser({
+    setLatField, setLongField, setYearField, setHeaders, setTableData}) {
   const [file, setFile] = useState();
 
   const handleChange = (event) => {
@@ -196,6 +224,10 @@ function CSVParser({ setLatField, setLongField, setYearField, setHeaders}) {
             results.meta.fields,
             ['lon', 'long', 'longitude', 'y']));
           setYearField(findMatch(results.meta.fields, ['.*year.*']));
+          setTableData(results.data);
+          // TODO: at this point we could parse through the points to find
+          // TODO: the bounding box and make sure it intersects with each
+          // TODO: dataset bounding box?
         }
       });
     }
@@ -256,7 +288,39 @@ function TableSubmitForm({
   const [longField, setLongField] = useState(null);
   const [latField, setLatField] = useState(null);
   const [headers, setHeaders] = useState([]);
+  const [tableData, setTableData] = useState(null);
+  const [boundingBox, setBoundingBox] = useState(null);
 
+  useEffect(() => {
+    if (longField === null || latField === null || tableData === null) {
+      return;
+    }
+    let bbox = {
+      minLat: parseFloat(tableData[0][latField]),
+      maxLat: parseFloat(tableData[0][latField]),
+      minLong: parseFloat(tableData[0][longField]),
+      maxLong: parseFloat(tableData[0][longField]),
+    };
+
+    // Iterate over the tableData updating the bounding box.
+    for (let point of tableData) {
+      let lat = parseFloat(point[latField]);
+      let long = parseFloat(point[longField]);
+
+      if (lat < bbox.minLat) {
+        bbox.minLat = lat;
+      } else if (lat > bbox.maxLat) {
+        bbox.maxLat = lat;
+      }
+
+      if (long < bbox.minLong) {
+        bbox.minLong = long;
+      } else if (long > bbox.maxLong) {
+        bbox.maxLong = long;
+      }
+    }
+    setBoundingBox(bbox);
+  }, [longField, latField, tableData]);
   function processCompletedData(data, time_running) {
     /*const urls = [];
     for (const raster_id in data.band_and_bounds_by_id) {
@@ -344,6 +408,7 @@ function TableSubmitForm({
         setLongField={setLongField}
         setYearField={setYearField}
         setHeaders={setHeaders}
+        setTableData={setTableData}
       />
       <div>
       {headers.length > 0 ? (
@@ -380,7 +445,7 @@ function TableSubmitForm({
        {headers.length ? (
         <>
           <p>Choose Datasets:</p>
-            <AvailableDatsets datasets={availableDatasets} />
+            <AvailableDatsets datasets={availableDatasets} boundingBox={boundingBox}/>
             <hr/>
             <p>Edit any other desired fields:</p>
             <label>buffer_size (m):
@@ -452,5 +517,7 @@ function App() {
     </div>
   );
 }
+
+console.log("{'minLat': "+'-90'+", 'maxLat': "+'90'+", 'minLong': "+'-90'+", 'maxLong': "+'90'+"}");
 
 export default App;
