@@ -5,7 +5,7 @@ services:
     container_name: frontend
     build: docker_contexts/frontend
     ports:
-      - 8080:3000
+      - 80:3000
     tty: true
   backend:
     container_name: backend
