@@ -228,16 +228,22 @@ function RasterLayers({ raster_id, raster, opacity, color }) {
 
 function DownloadManager({csvData, csvFilename, rasterIds, taskId, setRasterToRender}) {
   const [selectedRaster, setSelectedRaster] = useState();
+  const [activeRaster, setActiveRaster] = useState();
   const [downloadButtonText, setDownloadButtonText] = useState();
   const handleSelection = (id) => {
     setSelectedRaster(id);
     setDownloadButtonText("Download Raster " + id);
   };
 
+  function saveRaster(raster, rasterId) {
+    FileSaver.saveAs(raster, raster_id+'.tif');
+  };
+
   function downloadRaster(task_id, raster_id) {
     axios.post("/download_raster/"+task_id+"/"+raster_id).then(res => {
       var data = res.data;
       var local_taskId = data.task_id;
+      setRasterToRender(null);
 
       var pollTask = setInterval(function() {
         axios.get("/task/" + local_taskId).then(res => {
@@ -254,7 +260,9 @@ function DownloadManager({csvData, csvFilename, rasterIds, taskId, setRasterToRe
                 const file = Object.values(zip.files)[0];
                 const arrayBuffer = await file.async('arraybuffer');
                 const raster = await parse_georaster(arrayBuffer);
+                setActiveRaster(raster);
                 setRasterToRender({raster_id: raster_id, raster: raster});
+                setDownloadButtonText('Click to save '+raster_id+ ' to disk');
               })();
             } else {
               console.error("Error: " + data.status);
@@ -295,7 +303,10 @@ function DownloadManager({csvData, csvFilename, rasterIds, taskId, setRasterToRe
       ))}
     </select>
     {selectedRaster &&
-      <button onClick={() => downloadRaster(taskId, selectedRaster)}>{downloadButtonText}</button>
+      <button onClick={
+        activeRaster ? saveRaster(activeRaster, selectedRaster.raster_id) :
+        () => downloadRaster(taskId, selectedRaster)
+      }>{downloadButtonText}</button>
     }
 
     {/*{availableRasterIdList.map(([raster_id, raster, url]) =>
