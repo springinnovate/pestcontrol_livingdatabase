@@ -13,16 +13,8 @@ import Papa from 'papaparse';
 
 
 function MapComponent({ mapCenter, markers, geoJsonStrList, rasterIds, rasterToRender }) {
-  const [availableRasterIdList, setAvailableRasterIdList] = useState([]);
-  const [opacity, setOpacity] = useState(1);
-  const [color, setColor] = useState(['#ffffff', '#ff0000']); // white to red gradient
-  const [selectedRaster, setSelectedRaster] = useState(null);
-
-/*  useEffect(() => {
-    setAvailableRasterIdList(rasterIds);
-  }, [rasterIds]);*/
-
-  // Calculate the bounds here
+  let opacity = 1;
+  let color = ['#ffffff', '#ff0000'];
   let bounds = [];
   geoJsonStrList.forEach((geoJsonStr) => {
     const geoJsonLayer = L.geoJson(geoJsonStr); // L is the leaflet instance
@@ -65,6 +57,7 @@ const BufferRegions = ({ geoJsonStrList, opacity }) => {
           data={geojson_str}
           style={(feature) => ({
             color: feature?.properties?.color || '#000000',
+            opacity: 0.1,
             weight: 1
           })}
         />
@@ -79,12 +72,11 @@ function LocationMarkers({markers}) {
       {markers.map((point, index) => (
         <CircleMarker
           key={index}
-          center={[point[1], point[2]]}
+          center={point}
           color='red'
           fillColor='red'
           radius={3}
           fillOpacity={1}
-          key={point[0]}
         />
       ))}
     </>
@@ -178,13 +170,10 @@ function CSVParser({
             ['lon', 'long', 'longitude', 'y']));
           setYearField(findMatch(results.meta.fields, ['.*year.*']));
           setTableData(results.data);
-          // TODO: at this point we could parse through the points to find
-          // TODO: the bounding box and make sure it intersects with each
-          // TODO: dataset bounding box?
         }
       });
     }
-  }, [file, setHeaders, setLatField, setLongField, setYearField]);
+  }, [file, setHeaders, setLatField, setLongField, setYearField, setTableData]);
 
   const findMatch = (headers, matches) => {
     const regexMatches = matches.map(
@@ -227,16 +216,17 @@ function RasterLayers({ raster_id, raster, opacity, color }) {
 };
 
 function DownloadManager({csvData, csvFilename, rasterIds, taskId, setRasterToRender}) {
-  const [selectedRaster, setSelectedRaster] = useState();
-  const [activeRaster, setActiveRaster] = useState();
+  const [selectedRasterId, setSelectedRasterId] = useState();
   const [downloadButtonText, setDownloadButtonText] = useState();
+  const [rasterBlob, setRasterBlob] = useState();
   const handleSelection = (id) => {
-    setSelectedRaster(id);
+    setSelectedRasterId(id);
+    setRasterBlob(null);
     setDownloadButtonText("Download Raster " + id);
   };
 
-  function saveRaster(raster, rasterId) {
-    FileSaver.saveAs(raster, raster_id+'.tif');
+  function saveRaster(rasterBlob, raster_id) {
+    FileSaver.saveAs(rasterBlob, raster_id+'.tif');
   };
 
   function downloadRaster(task_id, raster_id) {
@@ -259,8 +249,9 @@ function DownloadManager({csvData, csvFilename, rasterIds, taskId, setRasterToRe
                 const zip = await jszip.loadAsync(response.data);
                 const file = Object.values(zip.files)[0];
                 const arrayBuffer = await file.async('arraybuffer');
+                const blob = new Blob([arrayBuffer], {type: 'image/tiff'}); // Replace 'image/tiff' with the actual MIME type of your raster file
+                setRasterBlob(blob);
                 const raster = await parse_georaster(arrayBuffer);
-                setActiveRaster(raster);
                 setRasterToRender({raster_id: raster_id, raster: raster});
                 setDownloadButtonText('Click to save '+raster_id+ ' to disk');
               })();
@@ -294,7 +285,7 @@ function DownloadManager({csvData, csvFilename, rasterIds, taskId, setRasterToRe
       <p>Table complete, click button to download {csvFilename}</p>
       <br/>
       <button onClick={handleCsvDownload}>Download Table</button>
-    <select value={selectedRaster} onChange={(e) => handleSelection(e.target.value)}>
+    <select value={selectedRasterId} onChange={(e) => handleSelection(e.target.value)}>
       <option value={null}>--Select a raster to download--</option>
       {rasterIds.map((raster_id) => (
         <option key={raster_id} value={raster_id}>
@@ -302,31 +293,14 @@ function DownloadManager({csvData, csvFilename, rasterIds, taskId, setRasterToRe
         </option>
       ))}
     </select>
-    {selectedRaster &&
+    {selectedRasterId &&
       <button onClick={
-        activeRaster ? saveRaster(activeRaster, selectedRaster.raster_id) :
-        () => downloadRaster(taskId, selectedRaster)
+        rasterBlob ?
+          () => saveRaster(rasterBlob, selectedRasterId) :
+          () => downloadRaster(taskId, selectedRasterId)
       }>{downloadButtonText}</button>
     }
-
-    {/*{availableRasterIdList.map(([raster_id, raster, url]) =>
-      <div>
-        <label key={raster_id}>
-          <input
-            type="radio"
-            value={raster_id}
-            checked={selectedRaster === raster_id}
-            onChange={() => {
-              setSelectedRaster(raster_id);
-              setRasterToRender([[raster_id, raster]]);
-            }}
-          />
-          <a href={url}>{raster_id}</a>
-        </label>
-      </div>
-    )}*/}
     </React.Fragment>
-
   );
 }
 
@@ -530,7 +504,6 @@ function App() {
   const [mapCenter, setMapCenter] = useState(null);
   const [markers, setMarkers] = useState([]);
   const [geoJsonStrList, setGeoJsonStrList] = useState([]);
-  const [rasterUrls, setRasterUrls] = useState([]); // New state for raster URLs
   const [rasterIds, setRasterIds] = useState([]); // New state for raster URLs
   const [csvData, setCsvData] = useState(null);
   const [csvFilename, setCsvFilename] = useState(null);
@@ -592,7 +565,5 @@ function App() {
     </div>
   );
 }
-
-console.log("{'minLat': "+'-90'+", 'maxLat': "+'90'+", 'minLong': "+'-90'+", 'maxLong': "+'90'+"}");
 
 export default App;

@@ -142,8 +142,7 @@ def process_file_worker(
         result_payload = {
             'center': [points.centroid.x, points.centroid.y],
             'data': file_data,
-            'points': [
-                (index, x, y) for index, (x, y) in enumerate(point_list)],
+            'points': point_list,
             'info': fields,
             }
 
