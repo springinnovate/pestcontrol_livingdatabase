@@ -497,9 +497,8 @@ function TableSubmitForm({
 }
 
 function App() {
-  const [currentTime, setCurrentTime] = useState(0);
+  const [serverStatus, setServerStatus] = useState();
   const [availableDatasets, setAvailableDatasets] = useState({'server error, please reload': null});
-  const [serverUp, setServerUp] = useState(false);
   const [dataInfo, setDataInfo] = useState(null);
   const [mapCenter, setMapCenter] = useState(null);
   const [markers, setMarkers] = useState([]);
@@ -514,10 +513,9 @@ function App() {
     fetch('/api/time').then(
       res => res.json()).then(
       data => {
-        setCurrentTime(data.time);
-        setServerUp(true);
+        setServerStatus('server is online')
       }).catch(
-        setCurrentTime('ERROR: backend server down, refresh this page and try again'))
+        setServerStatus('ERROR: backend server down, refresh this page and try again'))
   }, []);
 
 
@@ -531,9 +529,9 @@ function App() {
   return (
     <div className="App">
       <header className="App-header">
-        <h1>Pest Control Pheno Variable App</h1>
+        <h1>Pestalytics - Phenological Sampling App</h1>
         <p>
-          {serverUp && currentTime}
+          {serverStatus && serverStatus}
         </p>
       </header>
       <TableSubmitForm
