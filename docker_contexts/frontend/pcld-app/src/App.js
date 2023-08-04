@@ -230,13 +230,13 @@ function DownloadManager({csvData, csvFilename, rasterIds, taskId, setRasterToRe
   };
 
   function downloadRaster(task_id, raster_id) {
-    axios.post("/download_raster/"+task_id+"/"+raster_id).then(res => {
+    axios.post("/api/download_raster/"+task_id+"/"+raster_id).then(res => {
       var data = res.data;
       var local_taskId = data.task_id;
       setRasterToRender(null);
 
       var pollTask = setInterval(function() {
-        axios.get("/task/" + local_taskId).then(res => {
+        axios.get("/api/task/" + local_taskId).then(res => {
           var data = res.data;
           if (data.state === "SUCCESS" || data.state === "FAILURE") {
             clearInterval(pollTask);
@@ -399,13 +399,13 @@ function TableSubmitForm({
 
     // Request made to the backend api
     // Send formData object
-    axios.post("/uploadfile", formData).then(res => {
+    axios.post("/api/uploadfile", formData).then(res => {
       var data = res.data;
       var taskId = data.task_id;
       setTaskId(taskId);
 
       var pollTask = setInterval(function() {
-        axios.get("/task/" + taskId).then(res => {
+        axios.get("/api/task/" + taskId).then(res => {
           var data = res.data;
           if (data.state === "SUCCESS" || data.state === "FAILURE") {
             clearInterval(pollTask);
@@ -511,7 +511,7 @@ function App() {
   const [rasterToRender, setRasterToRender] = useState();
 
   useEffect(() => {
-    fetch('/time').then(
+    fetch('/api/time').then(
       res => res.json()).then(
       data => {
         setCurrentTime(data.time);
@@ -522,7 +522,7 @@ function App() {
 
 
   useEffect(() => {
-    fetch('/available_datasets').then(res => res.json()).then(data => {
+    fetch('/api/available_datasets').then(res => res.json()).then(data => {
       setAvailableDatasets(data);
     });
 

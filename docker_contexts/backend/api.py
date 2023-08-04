@@ -198,17 +198,17 @@ def create_app(config=None):
     app = Flask(__name__)
     app.secret_key = secrets.token_hex()
 
-    @app.route('/set/')
+    @app.route('/api/set/')
     def set():
         session['key'] = 'value'
         return 'ok'
 
-    @app.route('/uploadfile', methods=['POST'])
+    @app.route('/api/uploadfile', methods=['POST'])
     def upload_file():
         LOGGER.debug('uploading file')
         return process_file()
 
-    @app.route('/task/<task_id>')
+    @app.route('/api/task/<task_id>')
     def get_task(task_id):
         # TODO: delete if task is complete or error
         if task_id not in TASK_LOOKUP:
@@ -217,22 +217,22 @@ def create_app(config=None):
             time.time()-TASK_LOOKUP[task_id]['start_time'])
         return TASK_LOOKUP[task_id]
 
-    @app.route('/download_raster/<task_id>/<raster_id>', methods=['POST'])
+    @app.route('/api/download_raster/<task_id>/<raster_id>', methods=['POST'])
     def download_raster(task_id, raster_id):
         # TODO: delete if task is complete or error
         if task_id not in LOCAL_CONTEXT:
             return f'{task_id} not found', 500
         return download_raster_worker(task_id, raster_id)
 
-    @app.route('/get/')
+    @app.route('/api/get/')
     def get():
         return session.get('key', 'not set')
 
-    @app.route('/time')
+    @app.route('/api/time')
     def get_current_time():
         return {'time': datetime.now().ctime()}
 
-    @app.route('/available_datasets')
+    @app.route('/api/available_datasets')
     def get_available_datasets():
         return get_datasets()
 
