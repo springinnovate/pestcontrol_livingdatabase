@@ -564,21 +564,17 @@ def _process_sample_regions(all_bands, year_points, sample_scale):
 
 def get_download_url(global_task_id, task_id, raster_id):
     try:
-        LOGGER.debug(f"downloading {LOCAL_CONTEXT[global_task_id]['band_and_bounds_by_id'][raster_id]}")
+        LOGGER.debug(f"downloading {global_task_id} - {raster_id}")
         single_band_image, bounds = (
             LOCAL_CONTEXT[global_task_id]['band_and_bounds_by_id'][raster_id])
-        LOGGER.debug(single_band_image.getInfo())
-        LOGGER.debug(bounds.getInfo())
         url = single_band_image.getDownloadURL({
             'scale': single_band_image.projection().nominalScale(),
             'region': bounds,
             'crs': 'EPSG:4326',
         })
-        LOGGER.debug(f'DONE WITH IT {url}')
         TASK_LOOKUP[task_id].update({
             'state': 'SUCCESS',
             'result': url})
-        LOGGER.debug(f'TASK_LOOKUP[{task_id}] = {TASK_LOOKUP[task_id]}')
     except Exception as e:
         LOGGER.exception('something bad happened on get_download_url')
         error_type = type(e).__name__

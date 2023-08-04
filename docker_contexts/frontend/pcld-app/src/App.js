@@ -12,9 +12,8 @@ import JSZip from 'jszip';
 import Papa from 'papaparse';
 
 
-function MapComponent({ mapCenter, markers, geoJsonStrList, rasterIds }) {
+function MapComponent({ mapCenter, markers, geoJsonStrList, rasterIds, rasterToRender }) {
   const [availableRasterIdList, setAvailableRasterIdList] = useState([]);
-  const [rastersToRender, setRastersToRender] = useState([]);
   const [opacity, setOpacity] = useState(1);
   const [color, setColor] = useState(['#ffffff', '#ff0000']); // white to red gradient
   const [selectedRaster, setSelectedRaster] = useState(null);
@@ -33,31 +32,10 @@ function MapComponent({ mapCenter, markers, geoJsonStrList, rasterIds }) {
   if (bounds.length === 0) {
     bounds = [[-90, -180], [90, 180]];
   }
-
-
-
-  /*useEffect(() => {
-    const loadRasters = async () => {
-      const id_raster_list = [];
-      for (const [url_id, url] of rasterUrls) {
-        const response = await axios.get(url, { responseType: 'arraybuffer' });
-        const jszip = new JSZip();
-        const zip = await jszip.loadAsync(response.data);
-        const file = Object.values(zip.files)[0];
-        const arrayBuffer = await file.async('arraybuffer');
-        const georaster = await parse_georaster(arrayBuffer);
-        id_raster_list.push([url_id, georaster, url]);
-      }
-      setAvailableRasterIdList(id_raster_list);
-    };
-    loadRasters();
-  }, [rasterUrls]);*/
-
   return (
     <div>
       <MapContainer
         className="markercluster-map"
-        /*center={mapCenter}*/
         zoom={4}
         maxZoom={18}>
         <TileLayer
@@ -65,8 +43,12 @@ function MapComponent({ mapCenter, markers, geoJsonStrList, rasterIds }) {
           attribution='&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors'
         />
         <MapControl bounds={bounds} />
-        {rastersToRender.map(([raster_id, raster]) =>
-          <RasterLayers raster_id={raster_id} raster={raster} opacity={opacity} color={color} />)}
+        {rasterToRender &&
+          <RasterLayers
+            raster_id={rasterToRender.raster_id}
+            raster={rasterToRender.raster}
+            opacity={opacity}
+            color={color} />}
         <BufferRegions key={Date.now()} geoJsonStrList={geoJsonStrList} opacity={opacity} />
         <LocationMarkers markers={markers} />
       </MapContainer>
@@ -244,7 +226,7 @@ function RasterLayers({ raster_id, raster, opacity, color }) {
   }, [raster, map, opacity, color]);
 };
 
-function DownloadManager({csvData, csvFilename, rasterIds, taskId}) {
+function DownloadManager({csvData, csvFilename, rasterIds, taskId, setRasterToRender}) {
   const [selectedRaster, setSelectedRaster] = useState();
   const [downloadButtonText, setDownloadButtonText] = useState();
   const handleSelection = (id) => {
@@ -263,8 +245,17 @@ function DownloadManager({csvData, csvFilename, rasterIds, taskId}) {
           if (data.state === "SUCCESS" || data.state === "FAILURE") {
             clearInterval(pollTask);
             if (data.state === "SUCCESS") {
-              // Handle successful completion here
-              console.log(data.result);
+              (async () => {
+                const url = data.result;
+                const response = await axios.get(
+                  url, { responseType: 'arraybuffer' });
+                const jszip = new JSZip();
+                const zip = await jszip.loadAsync(response.data);
+                const file = Object.values(zip.files)[0];
+                const arrayBuffer = await file.async('arraybuffer');
+                const raster = await parse_georaster(arrayBuffer);
+                setRasterToRender({raster_id: raster_id, raster: raster});
+              })();
             } else {
               console.error("Error: " + data.status);
             }
@@ -316,7 +307,7 @@ function DownloadManager({csvData, csvFilename, rasterIds, taskId}) {
             checked={selectedRaster === raster_id}
             onChange={() => {
               setSelectedRaster(raster_id);
-              setRastersToRender([[raster_id, raster]]);
+              setRasterToRender([[raster_id, raster]]);
             }}
           />
           <a href={url}>{raster_id}</a>
@@ -533,6 +524,7 @@ function App() {
   const [csvData, setCsvData] = useState(null);
   const [csvFilename, setCsvFilename] = useState(null);
   const [taskId, setTaskId] = useState(null);
+  const [rasterToRender, setRasterToRender] = useState();
 
   useEffect(() => {
     fetch('/time').then(
@@ -577,12 +569,15 @@ function App() {
         csvFilename={csvFilename}
         rasterIds={rasterIds}
         taskId={taskId}
+        setRasterToRender={setRasterToRender}
         />
       <MapComponent
         mapCenter={mapCenter}
         markers={markers}
         geoJsonStrList={geoJsonStrList}
-        rasterIds={rasterIds} />
+        rasterIds={rasterIds}
+        rasterToRender={rasterToRender}
+        />
     </div>
   );
 }
