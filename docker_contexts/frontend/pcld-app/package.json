@@ -24,7 +24,7 @@
     "web-vitals": "^2.1.4"
   },
   "scripts": {
-    "start": "react-scripts start",
+    "start": "HOST=0.0.0.0 react-scripts start",
     "start-api": "cd api && ./venv/Scripts/flask run --no-debugger",
     "build": "react-scripts build",
     "test": "react-scripts test",
