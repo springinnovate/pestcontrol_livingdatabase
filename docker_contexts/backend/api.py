@@ -43,33 +43,58 @@ UPLOAD_DIR = 'uploads'
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 TASK_LOOKUP = {}
+LOCAL_CONTEXT = {}
 
 
 def process_file():
-    task_id = str(uuid.uuid4())  # generate a unique task id
-    TASK_LOOKUP[task_id] = {
-        'state': 'RUNNING',
-        'result': None,
-        'start_time': time.time()}
-    LOGGER.debug(f'request: {request.files}')
-    LOGGER.debug(f'request.form: {request.form}')
-    file_data = request.files['file'].read().decode('utf-8')
-    file_basename = os.path.basename(request.files['file'].filename)
-    long_field = request.form['long_field']
-    lat_field = request.form['lat_field']
-    year_field = request.form['year_field']
-    buffer_size = float(request.form['buffer_size'])
-    datasets_to_process = []
-    datasets_to_process_str = request.form['datasets_to_process']
-    if datasets_to_process_str:
-        datasets_to_process = datasets_to_process_str.split(',')
-    threading.Thread(
-        target=process_file_worker, args=(
-            file_basename, file_data, long_field, lat_field, year_field,
-            buffer_size, datasets_to_process, task_id)).start()
-    return {
-        'task_id': task_id
+    try:
+        LOGGER.debug(f'PROCESSING FILE')
+        task_id = str(uuid.uuid4())  # generate a unique task id
+        TASK_LOOKUP[task_id] = {
+            'state': 'RUNNING',
+            'result': None,
+            'start_time': time.time()}
+        LOGGER.debug(f'request: {request.files}')
+        LOGGER.debug(f'request.form: {request.form}')
+        file_data = request.files['file'].read().decode('utf-8')
+        file_basename = os.path.basename(request.files['file'].filename)
+        long_field = request.form['long_field']
+        lat_field = request.form['lat_field']
+        year_field = request.form['year_field']
+        buffer_size = float(request.form['buffer_size'])
+        datasets_to_process = []
+        datasets_to_process_str = request.form['datasets_to_process']
+        if datasets_to_process_str:
+            datasets_to_process = datasets_to_process_str.split(',')
+        threading.Thread(
+            target=process_file_worker, args=(
+                file_basename, file_data, long_field, lat_field, year_field,
+                buffer_size, datasets_to_process, task_id)).start()
+        return {
+            'task_id': task_id
+            }
+    except Exception:
+        LOGGER.exception('something bad happened on process_file')
+        raise
+
+
+def download_raster_worker(global_task_id, raster_id):
+    try:
+        LOGGER.debug('STARTING download_raster_worker')
+        local_task_id = str(uuid.uuid4())  # generate a unique task id
+        TASK_LOOKUP[local_task_id] = {
+            'state': 'RUNNING',
+            'result': None,
+            'start_time': time.time()}
+        threading.Thread(
+            target=get_download_url,
+            args=(global_task_id, local_task_id, raster_id)).start()
+        return {
+            'task_id': local_task_id
         }
+    except Exception:
+        LOGGER.exception('something bad happened on download_raster_worker')
+        raise
 
 
 def _process_table(
@@ -148,11 +173,11 @@ def process_file_worker(
         result_payload['csv_blob_result'] = csv_blob_result
         result_payload['csv_filename'] = csv_filename
         result_payload['geojson_str_list'] = geojson_str_list
+        LOCAL_CONTEXT[task_id] = {
+            'band_and_bounds_by_id': band_and_bounds_by_id
+        }
         TASK_LOOKUP[task_id].update({
             'state': 'SUCCESS',
-            # 'local_context': {
-            #     'band_and_bounds_by_id': band_and_bounds_by_id
-            # },
             'result': result_payload})
     except Exception as e:
         LOGGER.exception('something bad happened on process_file')
@@ -192,6 +217,13 @@ def create_app(config=None):
         TASK_LOOKUP[task_id]['time_running'] = (
             time.time()-TASK_LOOKUP[task_id]['start_time'])
         return TASK_LOOKUP[task_id]
+
+    @app.route('/download_raster/<task_id>/<raster_id>', methods=['POST'])
+    def download_raster(task_id, raster_id):
+        # TODO: delete if task is complete or error
+        if task_id not in LOCAL_CONTEXT:
+            return f'{task_id} not found', 500
+        return download_raster_worker(task_id, raster_id)
 
     @app.route('/get/')
     def get():
@@ -506,21 +538,11 @@ def _sample_pheno(
             _process_sample_regions, all_bands, year_points, sample_scale)
         sample_future_list.append(future)
 
-        # Iterate through the list of bands.
-        # url_future_list = []
         for band_id in header_fields:
             # Select the band from the all_bands.
             single_band_image = all_bands.select(band_id)
             band_and_bounds_by_id[f'{band_id}_{year}'] = (
                 single_band_image, year_points.geometry().bounds())
-
-            # future = executor.submit(
-            #     get_download_url, single_band_image,
-            #     year_points)
-            # url_future_list.append((band_id, future))
-
-        # for header_id, future in url_future_list:
-        #     url_by_header_id_future[f'{header_id}_{year}'] = future
 
     executor.shutdown()
     sample_list = [
@@ -540,13 +562,29 @@ def _process_sample_regions(all_bands, year_points, sample_scale):
     return samples['features']
 
 
-def get_download_url(single_band_image, year_points):
-    url = single_band_image.getDownloadURL({
-        'scale': single_band_image.projection().nominalScale(),
-        'region': year_points.geometry().bounds(),
-        'crs': 'EPSG:4326',
-    })
-    return url
+def get_download_url(global_task_id, task_id, raster_id):
+    try:
+        LOGGER.debug(f"downloading {LOCAL_CONTEXT[global_task_id]['band_and_bounds_by_id'][raster_id]}")
+        single_band_image, bounds = (
+            LOCAL_CONTEXT[global_task_id]['band_and_bounds_by_id'][raster_id])
+        LOGGER.debug(single_band_image.getInfo())
+        LOGGER.debug(bounds.getInfo())
+        url = single_band_image.getDownloadURL({
+            'scale': single_band_image.projection().nominalScale(),
+            'region': bounds,
+            'crs': 'EPSG:4326',
+        })
+        LOGGER.debug(f'DONE WITH IT {url}')
+        TASK_LOOKUP[task_id].update({
+            'state': 'SUCCESS',
+            'result': url})
+        LOGGER.debug(f'TASK_LOOKUP[{task_id}] = {TASK_LOOKUP[task_id]}')
+    except Exception as e:
+        LOGGER.exception('something bad happened on get_download_url')
+        error_type = type(e).__name__
+        error_message = str(e)
+        return make_response(jsonify(
+            error={'error': f'{error_type}: {error_message}'}), 500)
 
 
 @functools.cache

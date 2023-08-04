@@ -11,6 +11,7 @@ import chroma from 'chroma-js';
 import JSZip from 'jszip';
 import Papa from 'papaparse';
 
+
 function MapComponent({ mapCenter, markers, geoJsonStrList, rasterIds }) {
   const [availableRasterIdList, setAvailableRasterIdList] = useState([]);
   const [rastersToRender, setRastersToRender] = useState([]);
@@ -18,14 +19,9 @@ function MapComponent({ mapCenter, markers, geoJsonStrList, rasterIds }) {
   const [color, setColor] = useState(['#ffffff', '#ff0000']); // white to red gradient
   const [selectedRaster, setSelectedRaster] = useState(null);
 
-  const handleSelection = (id) => {
-    setSelectedRaster(id);
-    // render the rasters here
-  };
-
-  useEffect(() => {
+/*  useEffect(() => {
     setAvailableRasterIdList(rasterIds);
-  }, [rasterIds]);
+  }, [rasterIds]);*/
 
   // Calculate the bounds here
   let bounds = [];
@@ -37,6 +33,8 @@ function MapComponent({ mapCenter, markers, geoJsonStrList, rasterIds }) {
   if (bounds.length === 0) {
     bounds = [[-90, -180], [90, 180]];
   }
+
+
 
   /*useEffect(() => {
     const loadRasters = async () => {
@@ -57,33 +55,6 @@ function MapComponent({ mapCenter, markers, geoJsonStrList, rasterIds }) {
 
   return (
     <div>
-      <div>
-        <select value={selectedRaster} onChange={(e) => handleSelection(e.target.value)}>
-          <option value={null}>--Please select an option--</option>
-          {availableRasterIdList.map((raster_id) => (
-            <option key={raster_id} value={raster_id}>
-              {raster_id}
-            </option>
-          ))}
-        </select>
-
-        {/*{availableRasterIdList.map(([raster_id, raster, url]) =>
-          <div>
-            <label key={raster_id}>
-              <input
-                type="radio"
-                value={raster_id}
-                checked={selectedRaster === raster_id}
-                onChange={() => {
-                  setSelectedRaster(raster_id);
-                  setRastersToRender([[raster_id, raster]]);
-                }}
-              />
-              <a href={url}>{raster_id}</a>
-            </label>
-          </div>
-        )}*/}
-      </div>
       <MapContainer
         className="markercluster-map"
         /*center={mapCenter}*/
@@ -273,6 +244,89 @@ function RasterLayers({ raster_id, raster, opacity, color }) {
   }, [raster, map, opacity, color]);
 };
 
+function DownloadManager({csvData, csvFilename, rasterIds, taskId}) {
+  const [selectedRaster, setSelectedRaster] = useState();
+  const [downloadButtonText, setDownloadButtonText] = useState();
+  const handleSelection = (id) => {
+    setSelectedRaster(id);
+    setDownloadButtonText("Download Raster " + id);
+  };
+
+  function downloadRaster(task_id, raster_id) {
+    axios.post("/download_raster/"+task_id+"/"+raster_id).then(res => {
+      var data = res.data;
+      var local_taskId = data.task_id;
+
+      var pollTask = setInterval(function() {
+        axios.get("/task/" + local_taskId).then(res => {
+          var data = res.data;
+          if (data.state === "SUCCESS" || data.state === "FAILURE") {
+            clearInterval(pollTask);
+            if (data.state === "SUCCESS") {
+              // Handle successful completion here
+              console.log(data.result);
+            } else {
+              console.error("Error: " + data.status);
+            }
+          } else {
+            setDownloadButtonText(
+              "Downloading... running for " +
+              parseFloat(data.time_running).toFixed(1) + "s");
+          }
+        }).catch(err => {
+          if (err.response && err.response.data.data) {
+            setDownloadButtonText(err.response.data.error);
+          } else {
+            setDownloadButtonText(err.message);
+          }
+        });
+      }, 500);
+    });
+  };
+
+  function handleCsvDownload() {
+      FileSaver.saveAs(csvData, csvFilename);
+  };
+  if (!csvData) {
+    return;
+  }
+  return (
+    <React.Fragment>
+      <p>Table complete, click button to download {csvFilename}</p>
+      <br/>
+      <button onClick={handleCsvDownload}>Download Table</button>
+    <select value={selectedRaster} onChange={(e) => handleSelection(e.target.value)}>
+      <option value={null}>--Select a raster to download--</option>
+      {rasterIds.map((raster_id) => (
+        <option key={raster_id} value={raster_id}>
+          {raster_id}
+        </option>
+      ))}
+    </select>
+    {selectedRaster &&
+      <button onClick={() => downloadRaster(taskId, selectedRaster)}>{downloadButtonText}</button>
+    }
+
+    {/*{availableRasterIdList.map(([raster_id, raster, url]) =>
+      <div>
+        <label key={raster_id}>
+          <input
+            type="radio"
+            value={raster_id}
+            checked={selectedRaster === raster_id}
+            onChange={() => {
+              setSelectedRaster(raster_id);
+              setRastersToRender([[raster_id, raster]]);
+            }}
+          />
+          <a href={url}>{raster_id}</a>
+        </label>
+      </div>
+    )}*/}
+    </React.Fragment>
+
+  );
+}
 
 function TableSubmitForm({
     availableDatasets,
@@ -280,7 +334,10 @@ function TableSubmitForm({
     setMapCenter,
     setMarkers,
     setGeoJsonStrList,
-    setRasterIds
+    setRasterIds,
+    setCsvData,
+    setCsvFilename,
+    setTaskId
   }) {
   const [formActive, setFormActive] = useState(true);
   const [submitButtonText, setSubmitButtonText] = useState("Submit form");
@@ -335,10 +392,11 @@ function TableSubmitForm({
     setGeoJsonStrList(data.geojson_str_list);
     const csvData = new Blob(
       [data.csv_blob_result], { type: 'text/csv;charset=utf-8;' });
-    FileSaver.saveAs(csvData, data.csv_filename);
-    setDataInfo("Success in " + time_running + "s! Result saved to download folder as: '" + data.csv_filename + "'");
+    setCsvData(csvData);
+    setCsvFilename(data.csv_filename);
+    setDataInfo("Complete in " + time_running + "s! Click to download CSV table.");
     setSubmitButtonText("Submit form");
-    setFormActive(true);
+    //setFormActive(true);
   };
 
   function handleSubmit(event) {
@@ -368,6 +426,7 @@ function TableSubmitForm({
     axios.post("/uploadfile", formData).then(res => {
       var data = res.data;
       var taskId = data.task_id;
+      setTaskId(taskId);
 
       var pollTask = setInterval(function() {
         axios.get("/task/" + taskId).then(res => {
@@ -452,7 +511,6 @@ function TableSubmitForm({
               <input type="number" name="buffer_size" defaultValue="5000"/>
             </label><br/>
             <button type="submit" disabled={!formActive}>{submitButtonText}</button><br/>
-            <button type="reset" disabled={!formActive}>Reset form</button>
           </>
       ) : (
         <p>Please select your CSV</p>
@@ -472,7 +530,9 @@ function App() {
   const [geoJsonStrList, setGeoJsonStrList] = useState([]);
   const [rasterUrls, setRasterUrls] = useState([]); // New state for raster URLs
   const [rasterIds, setRasterIds] = useState([]); // New state for raster URLs
-
+  const [csvData, setCsvData] = useState(null);
+  const [csvFilename, setCsvFilename] = useState(null);
+  const [taskId, setTaskId] = useState(null);
 
   useEffect(() => {
     fetch('/time').then(
@@ -507,8 +567,17 @@ function App() {
         setMarkers={setMarkers}
         setGeoJsonStrList={setGeoJsonStrList}
         setRasterIds={setRasterIds}
+        setCsvData={setCsvData}
+        setCsvFilename={setCsvFilename}
+        setTaskId={setTaskId}
         />
       <InfoPanel info={dataInfo}/>
+      <DownloadManager
+        csvData={csvData}
+        csvFilename={csvFilename}
+        rasterIds={rasterIds}
+        taskId={taskId}
+        />
       <MapComponent
         mapCenter={mapCenter}
         markers={markers}
