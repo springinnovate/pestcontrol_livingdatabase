@@ -198,6 +198,10 @@ def process_file_worker(
         LOGGER.exception('something bad happened on process_file')
         error_type = type(e).__name__
         error_message = str(e)
+        TASK_LOOKUP[task_id].update({
+            'state': 'ERROR',
+            'result': error_message
+            })
         return make_response(jsonify(
             error={'error': f'{error_type}: {error_message}'}), 500)
 

@@ -16,10 +16,20 @@ function MapComponent({ mapCenter, markers, geoJsonStrList, rasterIds, rasterToR
   let opacity = 1;
   let color = ['#ffffff', '#ff0000'];
   let bounds = [];
-  geoJsonStrList.forEach((geoJsonStr) => {
-    const geoJsonLayer = L.geoJson(geoJsonStr); // L is the leaflet instance
-    bounds.push(geoJsonLayer.getBounds());
-  });
+  if (geoJsonStrList.length > 0) {
+    geoJsonStrList.forEach((geoJsonStr) => {
+      const geoJsonLayer = L.geoJson(geoJsonStr); // L is the leaflet instance
+      bounds.push(geoJsonLayer.getBounds());
+    });
+  } else if (markers.length > 0) {
+    let boundObj = calculateBoundingBoxAndPoints(markers, 0, 1)[0];
+    bounds.push([
+      [boundObj.minLat-1,
+       boundObj.minLong-1],
+      [boundObj.maxLat+1,
+       boundObj.maxLong+1]
+      ]);
+  }
 
   if (bounds.length === 0) {
     bounds = [[-90, -180], [90, 180]];
@@ -105,7 +115,7 @@ function InfoPanel({info}) {
 function renderBoundingBox(boundingBox) {
   return (
     <React.Fragment>
-      Latitudes: {boundingBox.minLat} to {boundingBox.maxLat}, Longitudes: {boundingBox.minLong} to {boundingBox.maxLong}
+      Latitudes: {(boundingBox.minLat).toFixed(1)} to {(boundingBox.maxLat).toFixed(1)}, Longitudes: {(boundingBox.minLong).toFixed(1)} to {(boundingBox.maxLong).toFixed(1)}
     </React.Fragment>);
 };
 
@@ -127,6 +137,7 @@ function AvailableDatsets({datasets, boundingBox}) {
                 name={key}
                 value={key}
                 disabled={!bbsOverlap}
+                checked={bbsOverlap ? undefined : false}
               />
               {key} {renderBoundingBox(datasets[key].bounds)}
             </label>
@@ -161,6 +172,10 @@ function CSVParser({
         header: true,
         skipEmptyLines: true,
         complete: function(results) {
+          const filteredData = results.data.filter(row => {
+            return Object.values(row).some(
+              value => value && value.trim() !== '');
+          });
           setHeaders(results.meta.fields);
           setLatField(findMatch(
             results.meta.fields,
@@ -169,7 +184,7 @@ function CSVParser({
             results.meta.fields,
             ['lon', 'long', 'longitude', 'y']));
           setYearField(findMatch(results.meta.fields, ['.*year.*']));
-          setTableData(results.data);
+          setTableData(filteredData);
         }
       });
     }
@@ -304,6 +319,39 @@ function DownloadManager({csvData, csvFilename, rasterIds, taskId, setRasterToRe
   );
 }
 
+function calculateBoundingBoxAndPoints(rawData, latField, longField) {
+  let bbox = {
+      minLat: 90,
+      maxLat: -90,
+      minLong: 360,
+      maxLong: -180,
+  };
+  var pointArray = [];
+  for (let point of rawData) {
+    let lat = parseFloat(point[latField]);
+    let long = parseFloat(point[longField]);
+    if (isNaN(lat) || isNaN(long)) {
+      continue;
+    }
+    if (lat < -90 || lat > 90 || long < -180 || long > 180) {
+      continue;
+    }
+    pointArray.push([long, lat]);
+    if (lat < bbox.minLat) {
+      bbox.minLat = lat;
+    } else if (lat > bbox.maxLat) {
+      bbox.maxLat = lat;
+    }
+
+    if (long < bbox.minLong) {
+      bbox.minLong = long;
+    } else if (long > bbox.maxLong) {
+      bbox.maxLong = long;
+    }
+  }
+  return [bbox, pointArray];
+}
+
 function TableSubmitForm({
     availableDatasets,
     setDataInfo,
@@ -316,7 +364,7 @@ function TableSubmitForm({
     setTaskId
   }) {
   const [formActive, setFormActive] = useState(true);
-  const [submitButtonText, setSubmitButtonText] = useState("Submit form");
+  const [submitButtonText, setSubmitButtonText] = useState("Click to process");
   const [yearField, setYearField] = useState(null);
   const [longField, setLongField] = useState(null);
   const [latField, setLatField] = useState(null);
@@ -328,39 +376,16 @@ function TableSubmitForm({
     if (longField === null || latField === null || tableData === null) {
       return;
     }
-    let bbox = {
-      minLat: parseFloat(tableData[0][latField]),
-      maxLat: parseFloat(tableData[0][latField]),
-      minLong: parseFloat(tableData[0][longField]),
-      maxLong: parseFloat(tableData[0][longField]),
-    };
-
-    // Iterate over the tableData updating the bounding box.
-    for (let point of tableData) {
-      let lat = parseFloat(point[latField]);
-      let long = parseFloat(point[longField]);
-
-      if (lat < bbox.minLat) {
-        bbox.minLat = lat;
-      } else if (lat > bbox.maxLat) {
-        bbox.maxLat = lat;
-      }
-
-      if (long < bbox.minLong) {
-        bbox.minLong = long;
-      } else if (long > bbox.maxLong) {
-        bbox.maxLong = long;
-      }
+    let bbox = null;
+    let pointArray = null;
+    [bbox, pointArray] = calculateBoundingBoxAndPoints(tableData, latField, longField);
+    if (pointArray.length > 0) {
+      setBoundingBox(bbox);
+      setMarkers(pointArray);
     }
-    setBoundingBox(bbox);
-  }, [longField, latField, tableData]);
+  }, [longField, latField, tableData, setMarkers]);
+
   function processCompletedData(data, time_running) {
-    /*const urls = [];
-    for (const raster_id in data.band_and_bounds_by_id) {
-      if (data.band_and_bounds_by_id.hasOwnProperty(raster_id)) {
-        urls.push([raster_id, data.band_and_bounds_by_id[raster_id]]);
-      }
-    }*/
     setRasterIds(data.band_ids);
     setMapCenter(data.center);
     setMarkers(data.points);
@@ -371,8 +396,8 @@ function TableSubmitForm({
     setCsvData(csvData);
     setCsvFilename(data.csv_filename);
     setDataInfo("Complete in " + time_running + "s! Click to download CSV table.");
-    setSubmitButtonText("Submit form");
-    //setFormActive(true);
+    setSubmitButtonText("Click to process");
+    setFormActive(true);
   };
 
   function handleSubmit(event) {
@@ -430,6 +455,7 @@ function TableSubmitForm({
             setDataInfo(err.message);
           }
           setSubmitButtonText("error, try again");
+          setFormActive(true);
         });
       }, 500);
     });
@@ -546,6 +572,7 @@ function App() {
         setTaskId={setTaskId}
         />
       <InfoPanel info={dataInfo}/>
+      <br/>
       <DownloadManager
         csvData={csvData}
         csvFilename={csvFilename}
