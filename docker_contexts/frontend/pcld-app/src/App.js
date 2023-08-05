@@ -450,14 +450,14 @@ function TableSubmitForm({
         <>
           <h3>Verify the following are the correct lat/long/year fields in your CSV:</h3>
           <label>Longitude field:
-            <select value={latField} name="lat_field" onChange={e => setLatField(e.target.value)}>
+            <select value={longField} name="long_field" onChange={e => setLongField(e.target.value)}>
               {headers.map((header, i) => (
                 <option key={i} value={header}>{header}</option>
               ))}
             </select>
           </label>
           <label>Latitude field:
-            <select value={longField} name="long_field" onChange={e => setLongField(e.target.value)}>
+            <select value={latField} name="lat_field" onChange={e => setLatField(e.target.value)}>
               {headers.map((header, i) => (
                 <option key={i} value={header}>{header}</option>
               ))}

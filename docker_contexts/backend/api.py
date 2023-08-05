@@ -100,16 +100,18 @@ def download_raster_worker(global_task_id, raster_id):
 def _process_table(
         table, datasets_to_process, year_field, long_field, lat_field,
         buffer_size, cmd_args):
-    table = table.dropna()
     pts_by_year = {}
     for year in table[year_field].unique():
+        for index, row in table[table[year_field] == year].iterrows():
+            print(f'**************** {row}')
+        year = int(year)  # somehow this was a float sometimes
         pts_by_year[year] = ee.FeatureCollection([
             ee.Feature(
                 ee.Geometry.Point(row[long_field], row[lat_field]).
                 buffer(buffer_size),
                 row.to_dict())
             for index, row in table[
-                table[year_field] == year].dropna().iterrows()])
+                table[year_field] == year].iterrows()])
 
     LOGGER.debug('calculating pheno variables')
     sample_scale = 1000
@@ -123,32 +125,40 @@ def _process_table(
 def process_file_worker(
         file_basename, file_data, long_field, lat_field, year_field,
         buffer_size, datasets_to_process, task_id):
-    LOGGER.debug(f'processing file {file_data}')
+    LOGGER.debug('processing table file')
     try:
-        table = pd.read_csv(
+        input_table = pd.read_csv(
             StringIO(file_data),
             skip_blank_lines=True,
             converters={
                 long_field: lambda x: None if x == '' else float(x),
                 lat_field: lambda x: None if x == '' else float(x),
                 year_field: lambda x: None if x == '' else int(x),
-            },)
+            }, low_memory=False)
+        # point_list = [
+        #     (row[1][0], row[1][1]) for row in table[
+        #         [lat_field, long_field]].iterrows()]
+        input_table = input_table.dropna(subset=[lat_field, long_field, year_field])
+        input_table = input_table.fillna('')
+        lat_lng_year_table = input_table[[lat_field, long_field, year_field]]
+        # table[lat_field] = pd.to_numeric(table[lat_field], errors='coerce')
+        # table[long_field] = pd.to_numeric(table[long_field], errors='coerce')
         point_list = [
-            (row[1][0], row[1][1]) for row in table[
-                [lat_field, long_field]].iterrows()]
+            (row[0], row[1])
+            for index, row in lat_lng_year_table[[lat_field, long_field]].iterrows()
+        ]
+
         points = MultiPoint(point_list)
-        fields = list(table.columns)
-        LOGGER.debug(f'fields: {fields}')
+        fields = list(lat_lng_year_table.columns)
         result_payload = {
             'center': [points.centroid.x, points.centroid.y],
             'data': file_data,
             'points': point_list,
             'info': fields,
             }
-
         precip_args = {}
         header_fields, sample_list, band_and_bounds_by_id = _process_table(
-            table, datasets_to_process,
+            lat_lng_year_table, datasets_to_process,
             year_field, long_field, lat_field, buffer_size,
             precip_args)
         result_payload['band_ids'] = list(band_and_bounds_by_id)
@@ -158,18 +168,24 @@ def process_file_worker(
             file_basename}'''
         csv_blob_result = ''
         csv_blob_result += (
-            ','.join(table.columns) + f',{",".join(header_fields)}\n')
+            ','.join(lat_lng_year_table.columns) + f',{",".join(header_fields)}\n')
         geojson_str_list = []
         for sample in sample_list:
             csv_blob_result += (','.join([
                 str(sample['properties'][key])
-                for key in table.columns]) + ',')
+                for key in lat_lng_year_table.columns]) + ',')
             csv_blob_result += (','.join([
                 'invalid' if field not in sample['properties']
                 else str(sample['properties'][field])
                 for field in header_fields]) + '\n')
             geojson_str_list.append(sample['geometry'])
-        result_payload['csv_blob_result'] = csv_blob_result
+        # join to original table here?
+        pheno_table = pd.read_csv(StringIO(csv_blob_result))
+        result_table = pd.merge(pheno_table, input_table, on=[lat_field, long_field, year_field], how='inner')
+        table_string_io = StringIO()
+        result_table.to_csv(table_string_io, index=False)
+        result_payload['csv_blob_result'] = table_string_io.getvalue()
+        table_string_io.close()
         result_payload['csv_filename'] = csv_filename
         result_payload['geojson_str_list'] = geojson_str_list
         LOCAL_CONTEXT[task_id] = {
@@ -401,9 +417,7 @@ def _sample_pheno(
     header_fields_set = set(header_fields)
     band_and_bounds_by_id = {}
     for year, year_points in pts_by_year.items():
-        LOGGER.debug(f'processing year {year}')
-
-        LOGGER.info(f'parse out MODIS variables for year {year}')
+        year = int(year)
         raw_band_stack = None
         raw_band_names = []
         valid_modis_year = False
@@ -584,7 +598,6 @@ def get_download_url(global_task_id, task_id, raster_id):
 
 @functools.cache
 def get_datasets():
-    LOGGER.debug(f'********* GETTING DATASETS')
     args_datasets = {}
     ini_path_list = list(glob.glob(os.path.join(INI_DIR, '*.ini')))
     dataset_config_future_list = []
