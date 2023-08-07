@@ -605,13 +605,13 @@ function App() {
 
   return (
     <div className="App">
-      <header className="App-header">
+      <div>
         <h1>Pestalytics - Phenological Sampling App</h1>
         <p>
           {serverStatus && serverStatus}
         </p>
         <p>Sample Data: <FileDropdown /></p>
-      </header>
+      </div>
       <TableSubmitForm
         availableDatasets={availableDatasets}
         setDataInfo={setDataInfo}
