@@ -102,8 +102,8 @@ def _process_table(
         buffer_size, cmd_args):
     pts_by_year = {}
     for year in table[year_field].unique():
-        for index, row in table[table[year_field] == year].iterrows():
-            print(f'**************** {row}')
+        # for index, row in table[table[year_field] == year].iterrows():
+        #     print(f'**************** {row}')
         year = int(year)  # somehow this was a float sometimes
         pts_by_year[year] = ee.FeatureCollection([
             ee.Feature(

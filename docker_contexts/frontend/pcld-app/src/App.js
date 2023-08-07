@@ -12,6 +12,59 @@ import JSZip from 'jszip';
 import Papa from 'papaparse';
 
 
+function FileDropdown() {
+  const [url, setUrl] = useState();
+  const [buttonText, setButtonText] = useState("Select a file")
+  const files = [
+    {
+      url: 'https://storage.googleapis.com/ecoshard-root/pestalytics_sample_data/cotton_site_info_2002_small.csv',
+      name: '4 point file of cotton farms in CA in 1 year (cotton_site_info_2002_small.csv)'
+    },
+    {
+      url: 'https://storage.googleapis.com/ecoshard-root/pestalytics_sample_data/cotton_site_info_2002-2008.csv',
+      name: 'Multipoint/year file of cotton farms in CA (cotton_site_info_2002-2008.csv)'
+    },
+    {
+      url: 'https://storage.googleapis.com/ecoshard-root/pestalytics_sample_data/fixed_scrubbed_plotdata.cotton.csv',
+      name: 'Complex and data-dirty multipoint file of samples in Spain (fixed_scrubbed_plotdata.cotton.csv)'
+    }];
+
+  const handleDownload = () => {
+    if (url) {
+      window.open(url, '_blank');
+      setButtonText("Downloaded!");
+      setUrl(null);
+    }
+  };
+
+  const handleChange = (e) => {
+    const selectedFile = files.find(file => file.url === e.target.value);
+    if (selectedFile) {
+      setUrl(selectedFile.url);
+      setButtonText("Download " + selectedFile.name);
+    } else {
+      setUrl(null);
+    }
+  };
+
+  return (
+    <div>
+      <select onChange={handleChange}>
+        <option value="">Select a file...</option>
+        {files.map((file, index) => (
+          <option key={index} value={file.url}>{file.name}</option>
+        ))}
+      </select><br/>
+      <button
+        onClick={handleDownload}
+        disabled={!url}
+      >
+        {buttonText}
+      </button>
+    </div>
+  );
+}
+
 function MapComponent({ mapCenter, markers, geoJsonStrList, rasterIds, rasterToRender }) {
   let opacity = 1;
   let color = ['#ffffff', '#ff0000'];
@@ -108,7 +161,7 @@ function InfoPanel({info}) {
       {info}
       </div>);
   } else {
-    return (<div className="Info-panel"><p>Load a csv.</p></div>);
+    return (<div className="Info-panel"></div>);
   };
 }
 
@@ -203,7 +256,7 @@ function CSVParser({
 
   return (
     <div>
-    <label>Select sample CSV:
+    <label>Upload Point CSV:
       <input type="file" name="file" onChange={handleChange} accepts=".csv">
       </input>
     </label>
@@ -326,7 +379,7 @@ function calculateBoundingBoxAndPoints(rawData, latField, longField) {
       minLong: 360,
       maxLong: -180,
   };
-  var pointArray = [];
+  var latLngPointArray = [];
   for (let point of rawData) {
     let lat = parseFloat(point[latField]);
     let long = parseFloat(point[longField]);
@@ -336,7 +389,7 @@ function calculateBoundingBoxAndPoints(rawData, latField, longField) {
     if (lat < -90 || lat > 90 || long < -180 || long > 180) {
       continue;
     }
-    pointArray.push([long, lat]);
+    latLngPointArray.push([lat, long]);
     if (lat < bbox.minLat) {
       bbox.minLat = lat;
     } else if (lat > bbox.maxLat) {
@@ -349,7 +402,7 @@ function calculateBoundingBoxAndPoints(rawData, latField, longField) {
       bbox.maxLong = long;
     }
   }
-  return [bbox, pointArray];
+  return [bbox, latLngPointArray];
 }
 
 function TableSubmitForm({
@@ -377,11 +430,11 @@ function TableSubmitForm({
       return;
     }
     let bbox = null;
-    let pointArray = null;
-    [bbox, pointArray] = calculateBoundingBoxAndPoints(tableData, latField, longField);
-    if (pointArray.length > 0) {
+    let latLngPointArray = null;
+    [bbox, latLngPointArray] = calculateBoundingBoxAndPoints(tableData, latField, longField);
+    if (latLngPointArray.length > 0) {
       setBoundingBox(bbox);
-      setMarkers(pointArray);
+      setMarkers(latLngPointArray);
     }
   }, [longField, latField, tableData, setMarkers]);
 
@@ -496,13 +549,11 @@ function TableSubmitForm({
               ))}
             </select>
           </label>
-        </>) : (
-        <p>load a csv...</p>
-        )
+        <br/>
+        <hr/>
+        </>
+        ) : ""
       }
-      </div>
-      <br/>
-      <hr/>
        {headers.length ? (
         <>
           <p>Choose Datasets:</p>
@@ -513,11 +564,11 @@ function TableSubmitForm({
               <input type="number" name="buffer_size" defaultValue="5000"/>
             </label><br/>
             <button type="submit" disabled={!formActive}>{submitButtonText}</button><br/>
-          </>
-      ) : (
-        <p>Please select your CSV</p>
-      )}
-      <hr/>
+          <hr/>
+        </>
+      ) : ""
+      }
+      </div>
     </form>
   );
 }
@@ -559,6 +610,7 @@ function App() {
         <p>
           {serverStatus && serverStatus}
         </p>
+        <p>Sample Data: <FileDropdown /></p>
       </header>
       <TableSubmitForm
         availableDatasets={availableDatasets}
