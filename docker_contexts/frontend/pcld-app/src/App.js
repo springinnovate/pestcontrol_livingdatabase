@@ -590,9 +590,9 @@ function App() {
     fetch('/api/time').then(
       res => res.json()).then(
       data => {
-        setServerStatus('server is online')
+        setServerStatus('');
       }).catch(
-        setServerStatus('ERROR: backend server down, refresh this page and try again'))
+        setServerStatus('ERROR: backend server down, refresh this page and try again'));
   }, []);
 
 
