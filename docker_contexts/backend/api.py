@@ -276,7 +276,8 @@ EXPECTED_INI_ELEMENTS = {
 
 OPTIONAL_INI_ELEMENTS = {
     'image_only',
-    'disabled'
+    'disabled',
+    'viewer',
 }
 
 PRECIP_SECTION = 'precip'
