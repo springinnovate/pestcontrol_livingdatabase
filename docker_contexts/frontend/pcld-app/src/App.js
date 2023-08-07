@@ -324,7 +324,7 @@ function DownloadManager({csvData, csvFilename, rasterIds, taskId, setRasterToRe
                 setDownloadButtonText('Click to save '+raster_id+ ' to disk');
               })();
             } else {
-              console.error("Error: " + data.status);
+              setDownloadButtonText("Error: " + data.status);
             }
           } else {
             setDownloadButtonText(
@@ -494,7 +494,9 @@ function TableSubmitForm({
                 parseFloat(data.time_running).toFixed(1));
               console.log("Task completed successfully");
             } else {
-              console.error("Error: " + data.status);
+              setDataInfo("Error: " + data.status);
+              setSubmitButtonText("Click to process");
+              setFormActive(true);
             }
           } else {
             setDataInfo(

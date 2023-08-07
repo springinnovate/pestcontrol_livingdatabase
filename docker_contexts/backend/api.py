@@ -199,7 +199,7 @@ def process_file_worker(
         error_type = type(e).__name__
         error_message = str(e)
         TASK_LOOKUP[task_id].update({
-            'state': 'ERROR',
+            'state': 'FAILURE',
             'result': error_message
             })
         return make_response(jsonify(
