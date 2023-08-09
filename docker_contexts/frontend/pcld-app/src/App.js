@@ -259,9 +259,14 @@ function CSVParser({
 
   return (
     <div>
-    <label>Upload Point CSV:
-      <input type="file" name="file" onChange={handleChange} accepts=".csv">
-      </input>
+    <label>
+      {!file && (
+        <>
+          Upload Point Site data CSV, must include fields for latitude, longitude, and year of sample:
+          <br />
+        </>
+      )}
+      <input type="file" name="file" onChange={handleChange} accepts=".csv" />
     </label>
     </div>
   );
@@ -439,9 +444,10 @@ function TableSubmitForm({
     if (latLngPointArray.length > 0) {
       setBoundingBox(bbox);
       setMarkers(latLngPointArray);
+      setGeoJsonStrList([]);
     }
     setFileUploaded(true);
-  }, [longField, latField, tableData, setMarkers, setFileUploaded]);
+  }, [longField, latField, tableData, setMarkers, setFileUploaded, setGeoJsonStrList]);
 
   function processCompletedData(data, time_running) {
     setRasterIds(data.band_ids);
