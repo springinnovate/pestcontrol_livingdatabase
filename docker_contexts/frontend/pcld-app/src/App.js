@@ -12,7 +12,7 @@ import JSZip from 'jszip';
 import Papa from 'papaparse';
 
 
-function FileDropdown() {
+function SampleDataFetcher() {
   const [url, setUrl] = useState();
   const [buttonText, setButtonText] = useState("Select a file")
   const files = [
@@ -49,6 +49,7 @@ function FileDropdown() {
 
   return (
     <div>
+      Sample Data:
       <select onChange={handleChange}>
         <option value="">Select a file...</option>
         {files.map((file, index) => (
@@ -414,7 +415,8 @@ function TableSubmitForm({
     setRasterIds,
     setCsvData,
     setCsvFilename,
-    setTaskId
+    setTaskId,
+    setFileUploaded
   }) {
   const [formActive, setFormActive] = useState(true);
   const [submitButtonText, setSubmitButtonText] = useState("Click to process");
@@ -436,7 +438,8 @@ function TableSubmitForm({
       setBoundingBox(bbox);
       setMarkers(latLngPointArray);
     }
-  }, [longField, latField, tableData, setMarkers]);
+    setFileUploaded(true);
+  }, [longField, latField, tableData, setMarkers, setFileUploaded]);
 
   function processCompletedData(data, time_running) {
     setRasterIds(data.band_ids);
@@ -587,6 +590,7 @@ function App() {
   const [csvFilename, setCsvFilename] = useState(null);
   const [taskId, setTaskId] = useState(null);
   const [rasterToRender, setRasterToRender] = useState();
+  const [fileUploaded, setFileUploaded] = useState();
 
   useEffect(() => {
     fetch('/api/time').then(
@@ -612,7 +616,7 @@ function App() {
         <p>
           {serverStatus && serverStatus}
         </p>
-        <p>Sample Data: <FileDropdown /></p>
+        { !fileUploaded && <SampleDataFetcher /> }
       </div>
       <TableSubmitForm
         availableDatasets={availableDatasets}
@@ -624,6 +628,7 @@ function App() {
         setCsvData={setCsvData}
         setCsvFilename={setCsvFilename}
         setTaskId={setTaskId}
+        setFileUploaded={setFileUploaded}
         />
       <InfoPanel info={dataInfo}/>
       <br/>
