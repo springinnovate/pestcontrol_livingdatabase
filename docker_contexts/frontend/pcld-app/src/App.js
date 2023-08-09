@@ -563,7 +563,7 @@ function TableSubmitForm({
       }
        {headers.length ? (
         <>
-          <h3>(optional) Choose Landcover Datasets to mask MODIS phenological variables by "cultivated" vs "natural":</h3>
+          <h3>(optional) Choose Landcover Datasets to mask the <a href="https://developers.google.cn/earth-engine/datasets/catalog/MODIS_061_MCD12Q2#bands">MODIS phenological variables</a> by "cultivated" vs "natural":</h3>
             <AvailableDatsets datasets={availableDatasets} boundingBox={boundingBox}/>
             <p>
             <label>search buffer_size around sample points(m):
