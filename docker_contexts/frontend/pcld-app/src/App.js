@@ -563,13 +563,14 @@ function TableSubmitForm({
       }
        {headers.length ? (
         <>
-          <p>Choose Datasets:</p>
+          <p>(optional) Choose Landcover Datasets to mask MODIS phenological variables by "cultivated" vs "natural":</p>
             <AvailableDatsets datasets={availableDatasets} boundingBox={boundingBox}/>
-            <hr/>
-            <p>Edit any other desired fields:</p>
-            <label>buffer_size (m):
+            <p>
+            <label>search buffer_size around sample points(m):
               <input type="number" name="buffer_size" defaultValue="5000"/>
-            </label><br/>
+            </label>
+            </p>
+            <br/>
             <button type="submit" disabled={!formActive}>{submitButtonText}</button><br/>
           <hr/>
         </>
