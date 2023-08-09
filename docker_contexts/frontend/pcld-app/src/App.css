@@ -46,3 +46,7 @@
 .disabled {
   color: gray;
 }
+
+.spaced-link {
+  margin-left: 10px;
+}

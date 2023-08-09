@@ -193,7 +193,9 @@ function AvailableDatsets({datasets, boundingBox}) {
                 disabled={!bbsOverlap}
                 checked={bbsOverlap ? undefined : false}
               />
-              {key} {renderBoundingBox(datasets[key].bounds)} <a href={datasets[key].viewer}>[viewer]</a>
+              {key} {renderBoundingBox(datasets[key].bounds)}
+              <a href={datasets[key].viewer} className="spaced-link">[viewer]</a>
+              <a href={datasets[key].documentation} className="spaced-link">[documentation]</a>
             </label>
             <br/>
           </React.Fragment>

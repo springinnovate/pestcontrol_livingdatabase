@@ -278,6 +278,7 @@ OPTIONAL_INI_ELEMENTS = {
     'image_only',
     'disabled',
     'viewer',
+    'documentation',
 }
 
 PRECIP_SECTION = 'precip'
