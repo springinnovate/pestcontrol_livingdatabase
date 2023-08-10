@@ -100,8 +100,6 @@ def _process_table(
         buffer_size, cmd_args):
     pts_by_year = {}
     for year in table[year_field].unique():
-        # for index, row in table[table[year_field] == year].iterrows():
-        #     print(f'**************** {row}')
         year = int(year)  # somehow this was a float sometimes
         pts_by_year[year] = ee.FeatureCollection([
             ee.Feature(
@@ -318,7 +316,6 @@ def build_landcover_masks(year, dataset_info):
         gee_dataset_path = dataset_info['gee_dataset']
         if dataset_info['filter_by'] == 'dataset_year_pattern':
             gee_dataset_path = gee_dataset_path.format(year=closest_year)
-        LOGGER.debug(f'****************** {gee_dataset_path}')
         if image_only:
             imagecollection = ee.Image(gee_dataset_path)
         else:
@@ -344,8 +341,6 @@ def build_landcover_masks(year, dataset_info):
             for mask_type in dataset_info['mask_types']:
                 mask_dict[mask_type] = None
                 for code_value in dataset_info['mask_types'][mask_type]:
-                    LOGGER.debug(f'************ {mask_type} {code_value}')
-
                     if isinstance(code_value, tuple):
                         local_mask = (band.gte(code_value[0])).And(band.lte(code_value[1]))
                     else:
@@ -511,8 +506,6 @@ def _sample_pheno(
 
         for dataset in datasets_to_process:
             dataset_id = dataset['key']
-            LOGGER.debug(f'masking {dataset_id}')
-            LOGGER.debug(f'***** {dataset}')
             for mask_type in ['natural', 'cultivated']:
                 datasets[dataset_id]['mask_types'][mask_type] = eval(
                     dataset[mask_type])
@@ -606,7 +599,6 @@ def get_download_url(global_task_id, task_id, raster_id):
             error={'error': f'{error_type}: {error_message}'}), 500)
 
 
-@functools.cache
 def get_datasets():
     args_datasets = {}
     ini_path_list = list(glob.glob(os.path.join(INI_DIR, '*.ini')))
@@ -625,7 +617,6 @@ def get_datasets():
     return args_datasets
 
 
-@functools.cache
 def parse_ini(ini_path):
     """Parse ini and return a validated config."""
     basename = os.path.splitext(os.path.basename(ini_path))[0]

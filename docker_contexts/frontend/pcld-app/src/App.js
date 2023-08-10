@@ -26,6 +26,21 @@ function formatList(list) {
 
 function CheckBoxWithDetails({ keyValue, bbsOverlap, dataset }) {
   const [detailsVisible, setDetailsVisible] = useState(false);
+  const [naturalValue, setNaturalValue] = useState(formatList(dataset.mask_types.natural));
+  const [cultivatedValue, setCultivatedValue] = useState(formatList(dataset.mask_types.cultivated));
+
+  const handleDetailsToggle = () => {
+    setDetailsVisible(!detailsVisible);
+  };
+
+  const handleNaturalChange = (event) => {
+    setNaturalValue(event.target.value);
+  };
+
+  const handleCultivatedChange = (event) => {
+    setCultivatedValue(event.target.value);
+  };
+
 
   const handleCheckboxChange = (e) => {
     setDetailsVisible(e.target.checked);
@@ -42,16 +57,26 @@ function CheckBoxWithDetails({ keyValue, bbsOverlap, dataset }) {
         checked={bbsOverlap ? undefined : false}
         onChange={handleCheckboxChange}
       />
-      <label htmlFor={keyValue}> {keyValue} {renderBoundingBox(dataset.bounds)} </label>
+      <label htmlFor={keyValue} onClick={handleDetailsToggle}> {keyValue} {renderBoundingBox(dataset.bounds)} </label>
          <a href={dataset.viewer} className="spaced-link">[viewer]</a>
          <a href={dataset.documentation} className="spaced-link">[documentation]</a>
       {detailsVisible && (
         <div>
             <label>Natural:</label>
-              <input type="text" name={keyValue + "_natural"} defaultValue={formatList(dataset.mask_types.natural)} />
+              <input
+                type="text"
+                name={keyValue + "_natural"}
+                value={naturalValue}
+                onChange={handleNaturalChange}
+              />
               <br />
               <label>Cultivated:</label>
-              <input type="text" name={keyValue + "_cultivated"} defaultValue={formatList(dataset.mask_types.cultivated)} />
+              <input
+                type="text"
+                name={keyValue + "_cultivated"}
+                value={cultivatedValue}
+                onChange={handleCultivatedChange}
+              />
         </div>
       )}
       <br />
@@ -228,6 +253,7 @@ function AvailableDatsets({datasets, boundingBox}) {
           let bbsOverlap = doBoundingBoxesOverlap(datasets[keyValue].bounds, boundingBox);
           return (
             <CheckBoxWithDetails
+                key={keyValue}
                 keyValue={keyValue}
                 bbsOverlap={bbsOverlap}
                 dataset={datasets[keyValue]}
