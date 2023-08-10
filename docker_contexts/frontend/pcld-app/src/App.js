@@ -57,9 +57,9 @@ function CheckBoxWithDetails({ keyValue, bbsOverlap, dataset }) {
         checked={bbsOverlap ? undefined : false}
         onChange={handleCheckboxChange}
       />
-      <label htmlFor={keyValue} onClick={handleDetailsToggle}> <b>{keyValue}</b> {renderBoundingBox(dataset.bounds)} </label>
-         <a href={dataset.viewer} className="spaced-link">[viewer]</a>
-         <a href={dataset.documentation} className="spaced-link">[documentation]</a>
+      <label htmlFor={keyValue} onClick={handleDetailsToggle}> <b>{dataset.dataset_name}</b> {renderBoundingBox(dataset.bounds)} </label>
+         <a target="_blank" rel="noopener noreferrer" href={dataset.viewer} className="spaced-link">[viewer]</a>
+         <a target="_blank" rel="noopener noreferrer" href={dataset.documentation} className="spaced-link">[documentation]</a>
       {detailsVisible && (
         <div>
             <label>Natural landcover codes:</label>
@@ -168,7 +168,7 @@ function MapComponent({ mapCenter, markers, geoJsonStrList, rasterIds, rasterToR
         maxZoom={18}>
         <TileLayer
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          attribution='&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors'
+          attribution='&copy; <a target="_blank" rel="noopener noreferrer" href="http://osm.org/copyright">OpenStreetMap</a> contributors'
         />
         <MapControl bounds={bounds} />
         {rasterToRender &&
@@ -241,7 +241,7 @@ function InfoPanel({info}) {
 function renderBoundingBox(boundingBox) {
   return (
     <React.Fragment>
-      Latitudes: {(boundingBox.minLat).toFixed(1)} to {(boundingBox.maxLat).toFixed(1)}, Longitudes: {(boundingBox.minLong).toFixed(1)} to {(boundingBox.maxLong).toFixed(1)}
+      (Latitudes: {(boundingBox.minLat).toFixed(1)} to {(boundingBox.maxLat).toFixed(1)}, Longitudes: {(boundingBox.minLong).toFixed(1)} to {(boundingBox.maxLong).toFixed(1))}
     </React.Fragment>);
 };
 
@@ -641,7 +641,7 @@ function TableSubmitForm({
       }
        {headers.length ? (
         <>
-          <h3>(optional) Choose Landcover Datasets to mask the <a href="https://developers.google.cn/earth-engine/datasets/catalog/MODIS_061_MCD12Q2#bands">MODIS phenological variables</a> by "cultivated" vs "natural":</h3>
+          <h3>(optional) Choose Landcover Datasets to mask the <a target="_blank" rel="noopener noreferrer" href="https://developers.google.cn/earth-engine/datasets/catalog/MODIS_061_MCD12Q2#bands">MODIS phenological variables</a> by "cultivated" vs "natural":</h3>
             <AvailableDatsets datasets={availableDatasets} boundingBox={boundingBox}/>
             <p>
             <label>search buffer_size around sample points(m):

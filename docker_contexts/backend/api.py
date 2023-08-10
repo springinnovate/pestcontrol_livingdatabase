@@ -10,7 +10,6 @@ import json
 import secrets
 import sys
 import uuid
-import functools
 import time
 import threading
 
@@ -275,6 +274,7 @@ OPTIONAL_INI_ELEMENTS = {
     'disabled',
     'viewer',
     'documentation',
+    'dataset_name',
 }
 
 PRECIP_SECTION = 'precip'
