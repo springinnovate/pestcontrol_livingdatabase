@@ -517,7 +517,8 @@ function TableSubmitForm({
       setGeoJsonStrList([]);
     }
     setFileUploaded(true);
-  }, [longField, latField, tableData, setMarkers, setFileUploaded, setGeoJsonStrList]);
+    setFormActive(true);
+  }, [longField, latField, yearField, tableData, setMarkers, setFileUploaded, setGeoJsonStrList]);
 
   function processCompletedData(data, time_running) {
     setRasterIds(data.band_ids);
@@ -581,9 +582,9 @@ function TableSubmitForm({
                 parseFloat(data.time_running).toFixed(1));
               console.log("Task completed successfully");
             } else {
-              setDataInfo("Error: " + data.status);
+              setDataInfo("Error: " + data.result);
               setSubmitButtonText("Click to process");
-              setFormActive(true);
+              setFormActive(false);
             }
           } else {
             setDataInfo(
