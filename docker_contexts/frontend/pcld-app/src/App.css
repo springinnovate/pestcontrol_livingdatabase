@@ -54,6 +54,11 @@
   margin-left: 10px;
 }
 
+.helptext {
+    font-size: 12px;
+    margin-left: 10px;
+}
+
 a {
   color: #42a5f5; /* bright blue */
   text-decoration: none; /* removes the underline */

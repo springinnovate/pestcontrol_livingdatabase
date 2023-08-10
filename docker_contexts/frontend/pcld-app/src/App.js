@@ -77,6 +77,10 @@ function CheckBoxWithDetails({ keyValue, bbsOverlap, dataset }) {
                 value={cultivatedValue}
                 onChange={handleCultivatedChange}
               />
+            <div className="helptext">
+            Note: integers in parenthesis are ranges (minvalue, maxvalue)<br/>
+            Example: "1, (2, 5), 10" resolves to landcover codes "1, 2, 3, 4, 5, 10"
+            </div>
         </div>
       )}
       <br />
@@ -693,7 +697,7 @@ function App() {
   return (
     <div className="App">
       <div>
-        <h1>Pestalytics - Phenological Sampling App</h1>
+        <h1>Living Database - Phenological Sampling App</h1>
         <p>
           {serverStatus && serverStatus}
         </p>
