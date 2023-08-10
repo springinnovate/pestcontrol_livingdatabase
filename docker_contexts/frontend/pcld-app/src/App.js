@@ -241,7 +241,7 @@ function InfoPanel({info}) {
 function renderBoundingBox(boundingBox) {
   return (
     <React.Fragment>
-      (Latitudes: {(boundingBox.minLat).toFixed(1)} to {(boundingBox.maxLat).toFixed(1)}, Longitudes: {(boundingBox.minLong).toFixed(1)} to {(boundingBox.maxLong).toFixed(1))}
+      (Latitudes: {(boundingBox.minLat).toFixed(1)} to {(boundingBox.maxLat).toFixed(1)}, Longitudes: {(boundingBox.minLong).toFixed(1)} to {(boundingBox.maxLong).toFixed(1)})
     </React.Fragment>);
 };
 
