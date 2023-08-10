@@ -57,12 +57,12 @@ function CheckBoxWithDetails({ keyValue, bbsOverlap, dataset }) {
         checked={bbsOverlap ? undefined : false}
         onChange={handleCheckboxChange}
       />
-      <label htmlFor={keyValue} onClick={handleDetailsToggle}> {keyValue} {renderBoundingBox(dataset.bounds)} </label>
+      <label htmlFor={keyValue} onClick={handleDetailsToggle}> <b>{keyValue}</b> {renderBoundingBox(dataset.bounds)} </label>
          <a href={dataset.viewer} className="spaced-link">[viewer]</a>
          <a href={dataset.documentation} className="spaced-link">[documentation]</a>
       {detailsVisible && (
         <div>
-            <label>Natural:</label>
+            <label>Natural landcover codes:</label>
               <input
                 type="text"
                 name={keyValue + "_natural"}
@@ -70,7 +70,7 @@ function CheckBoxWithDetails({ keyValue, bbsOverlap, dataset }) {
                 onChange={handleNaturalChange}
               />
               <br />
-              <label>Cultivated:</label>
+              <label>Cultivated landcover codes:</label>
               <input
                 type="text"
                 name={keyValue + "_cultivated"}
@@ -323,7 +323,12 @@ function CSVParser({
     <label>
       {!file && (
         <>
-          Upload Point Site data CSV, must include fields for latitude, longitude, and year of sample:
+          Upload a point site sample CSV, please include fields for:
+          <ul>
+          <li>latitude</li>
+          <li>longitude</li>
+          <li>year of sample</li>
+          </ul>
           <br />
         </>
       )}
