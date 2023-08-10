@@ -11,6 +11,53 @@ import chroma from 'chroma-js';
 import JSZip from 'jszip';
 import Papa from 'papaparse';
 
+function formatList(list) {
+  if (!Array.isArray(list)) {
+    return list.toString();
+  }
+
+  return list.map(item => {
+    if (Array.isArray(item)) {
+      return `(${item.join(', ')})`;
+    }
+    return item;
+  }).join(', ');
+}
+
+function CheckBoxWithDetails({ keyValue, bbsOverlap, dataset }) {
+  const [detailsVisible, setDetailsVisible] = useState(false);
+
+  const handleCheckboxChange = (e) => {
+    setDetailsVisible(e.target.checked);
+  };
+
+  return (
+    <React.Fragment key={keyValue}>
+      <input
+        type="checkbox"
+        id={keyValue}
+        name={keyValue}
+        value={keyValue}
+        disabled={!bbsOverlap}
+        checked={bbsOverlap ? undefined : false}
+        onChange={handleCheckboxChange}
+      />
+      <label htmlFor={keyValue}> {keyValue} {renderBoundingBox(dataset.bounds)} </label>
+         <a href={dataset.viewer} className="spaced-link">[viewer]</a>
+         <a href={dataset.documentation} className="spaced-link">[documentation]</a>
+      {detailsVisible && (
+        <div>
+            <label>Natural:</label>
+              <input type="text" name={keyValue + "_natural"} defaultValue={formatList(dataset.mask_types.natural)} />
+              <br />
+              <label>Cultivated:</label>
+              <input type="text" name={keyValue + "_cultivated"} defaultValue={formatList(dataset.mask_types.cultivated)} />
+        </div>
+      )}
+      <br />
+    </React.Fragment>
+  );
+}
 
 function SampleDataFetcher() {
   const [url, setUrl] = useState();
@@ -177,29 +224,17 @@ function AvailableDatsets({datasets, boundingBox}) {
   return (
     <React.Fragment>
       {String(datasets) === datasets ? datasets :
-        Object.keys(datasets).map(key => {
-          let bbsOverlap = doBoundingBoxesOverlap(datasets[key].bounds, boundingBox);
+        Object.keys(datasets).map(keyValue => {
+          let bbsOverlap = doBoundingBoxesOverlap(datasets[keyValue].bounds, boundingBox);
           return (
-            <React.Fragment key={key}>
-            <label
-              htmlFor={key}
-              className={!bbsOverlap ? "disabled" : ""}
-            >
-              <input
-                type="checkbox"
-                id={key}
-                name={key}
-                value={key}
-                disabled={!bbsOverlap}
-                checked={bbsOverlap ? undefined : false}
-              />
-              {key} {renderBoundingBox(datasets[key].bounds)}
-              <a href={datasets[key].viewer} className="spaced-link">[viewer]</a>
-              <a href={datasets[key].documentation} className="spaced-link">[documentation]</a>
-            </label>
-            <br/>
-          </React.Fragment>
-      )})}
+            <CheckBoxWithDetails
+                keyValue={keyValue}
+                bbsOverlap={bbsOverlap}
+                dataset={datasets[keyValue]}
+            />
+          );
+      })
+    }
     </React.Fragment>
   );
 };
@@ -477,11 +512,17 @@ function TableSubmitForm({
       var value = availableDatasets[key];
       if (value !== null) {
         if (form[key].checked) {
-          datasets_to_process.push(key);
+          var naturalValue = "["+form[key + "_natural"].value+"]"; // assuming you've named the input fields accordingly
+          var cultivatedValue = "["+form[key + "_cultivated"].value+"]";
+          datasets_to_process.push({
+            key: key,
+            natural: naturalValue,
+            cultivated: cultivatedValue
+          });
         }
       }
     };
-    formData.append('datasets_to_process', datasets_to_process);
+    formData.append('datasets_to_process', JSON.stringify(datasets_to_process));
     for (const [name,value] of formData) {
       console.log(name, ":", value)
     }

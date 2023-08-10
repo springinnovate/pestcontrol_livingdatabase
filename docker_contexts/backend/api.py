@@ -62,10 +62,8 @@ def process_file():
         lat_field = request.form['lat_field']
         year_field = request.form['year_field']
         buffer_size = float(request.form['buffer_size'])
-        datasets_to_process = []
-        datasets_to_process_str = request.form['datasets_to_process']
-        if datasets_to_process_str:
-            datasets_to_process = datasets_to_process_str.split(',')
+        datasets_to_process = json.loads(
+            request.form['datasets_to_process'])
         threading.Thread(
             target=process_file_worker, args=(
                 file_basename, file_data, long_field, lat_field, year_field,
@@ -163,7 +161,7 @@ def process_file_worker(
             precip_args)
         result_payload['band_ids'] = list(band_and_bounds_by_id)
 
-        landcover_substring = '_'.join(datasets_to_process)
+        landcover_substring = '_'.join([x['key'] for x in datasets_to_process])
         csv_filename = f'''sampled_{buffer_size}m_{landcover_substring}_{
             file_basename}'''
         csv_blob_result = ''
@@ -458,7 +456,8 @@ def _sample_pheno(
             header_fields.append('valid_modis_year')
             header_fields_set.add(header_fields[-1])
 
-        for precip_dataset_id in datasets_to_process:
+        for dataset in datasets_to_process:
+            precip_dataset_id = dataset['key']
             if not precip_dataset_id.startswith('precip_'):
                 continue
             precip_dataset = ee.ImageCollection(
@@ -510,8 +509,13 @@ def _sample_pheno(
             else:
                 raw_band_stack = precip_band
 
-        for dataset_id in datasets_to_process:
+        for dataset in datasets_to_process:
+            dataset_id = dataset['key']
             LOGGER.debug(f'masking {dataset_id}')
+            LOGGER.debug(f'***** {dataset}')
+            for mask_type in ['natural', 'cultivated']:
+                datasets[dataset_id]['mask_types'][mask_type] = eval(
+                    dataset[mask_type])
             mask_map, nearest_year_image = build_landcover_masks(
                 year, datasets[dataset_id])
             for mask_id, mask_image in mask_map.items():
