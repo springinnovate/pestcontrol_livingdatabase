@@ -291,7 +291,7 @@ POLY_IN_FIELD = 'POLY-in'
 POLY_OUT_FIELD = 'POLY-out'
 
 MODIS_DATASET_NAME = 'MODIS/006/MCD12Q2'  # 500m resolution
-VALID_MODIS_RANGE = (2001, 2019)
+VALID_MODIS_RANGE = (2001, 2021)
 
 
 def build_landcover_masks(year, dataset_info):
@@ -442,7 +442,6 @@ def _sample_pheno(
             all_bands = raw_band_stack
             all_bands = all_bands.addBands(ee.Image(1).rename(
                 'valid_modis_year'))
-
         else:
             all_bands = ee.Image().rename(GEE_BUG_WORKAROUND_BANDNAME)
             all_bands = all_bands.addBands(ee.Image(0).rename(
