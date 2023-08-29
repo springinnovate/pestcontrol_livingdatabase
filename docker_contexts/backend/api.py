@@ -441,7 +441,6 @@ def _sample_pheno(
             all_bands = raw_band_stack
             all_bands = all_bands.addBands(ee.Image(1).rename(
                 'valid_modis_year'))
-
         else:
             all_bands = ee.Image().rename(GEE_BUG_WORKAROUND_BANDNAME)
             all_bands = all_bands.addBands(ee.Image(0).rename(
