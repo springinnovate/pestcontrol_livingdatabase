@@ -290,8 +290,8 @@ REDUCER = 'mean'
 POLY_IN_FIELD = 'POLY-in'
 POLY_OUT_FIELD = 'POLY-out'
 
-MODIS_DATASET_NAME = 'MODIS/006/MCD12Q2'  # 500m resolution
-VALID_MODIS_RANGE = (2001, 2019)
+MODIS_DATASET_NAME = 'MODIS/061/MCD12Q2'  # 500m resolution
+VALID_MODIS_RANGE = (2001, 2021)
 
 
 def build_landcover_masks(year, dataset_info):
@@ -409,7 +409,7 @@ def _sample_pheno(
     ]
 
     epoch_date = datetime.strptime('1970-01-01', "%Y-%m-%d")
-    modis_phen = ee.ImageCollection(MODIS_DATASET_NAME)
+    #modis_phen = ee.Image(MODIS_DATASET_NAME)
 
     sample_future_list = []
     header_fields = julian_day_variables + raw_variables
@@ -427,15 +427,14 @@ def _sample_pheno(
                 f'{year}-01-01', "%Y-%m-%d")
             days_since_epoch = (current_year - epoch_date).days
             raw_band_names.extend(julian_day_variables + raw_variables)
-            bands_since_1970 = modis_phen.select(
-                julian_day_variables).filterDate(
-                f'{year}-01-01', f'{year}-12-31')
+            current_year_modis_phen = ee.Image(f'{MODIS_DATASET_NAME}/{year}_01_01')
+            bands_since_1970 = current_year_modis_phen.select(
+                julian_day_variables)
             julian_day_bands = (
-                bands_since_1970.toBands()).subtract(days_since_epoch)
+                bands_since_1970).subtract(days_since_epoch)
             julian_day_bands = julian_day_bands.rename(julian_day_variables)
-            raw_variable_bands = modis_phen.select(
-                raw_variables).filterDate(
-                f'{year}-01-01', f'{year}-12-31').toBands()
+            raw_variable_bands = current_year_modis_phen.select(
+                raw_variables)
 
             raw_variable_bands = raw_variable_bands.rename(raw_variables)
             raw_band_stack = julian_day_bands.addBands(raw_variable_bands)
