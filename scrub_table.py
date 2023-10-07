@@ -4,6 +4,7 @@ import concurrent
 import logging
 import os
 import sys
+import time
 
 from itertools import islice
 from clean_table import _process_line
@@ -40,6 +41,7 @@ def main():
     missing_letter_set = set()
     with concurrent.futures.ProcessPoolExecutor() as executor:
         print(f'process reading {args.table_path}')
+        last_time = time.time()
         with open(args.table_path, 'rb') as table_file:
             n_lines = len(['x' for line in table_file])
             print(f'lines in table: {n_lines}')
@@ -49,16 +51,17 @@ def main():
                 n_lines -= 1000
                 processed_lines = list(
                     executor.map(_process_line, lines_batch))
-                print(f'{n_lines} left to process')
 
-            for line_no, line in enumerate(processed_lines):
-                missing_letter_set.update([
-                    word.replace('"', '')
-                    for element in line.decode('utf-8').split(',') if '_' in element
-                    for word in element.split(' ')
-                    if '_' in word])
-                scrubbed_file.write(line)
+                for line_no, line in enumerate(processed_lines):
+                    missing_letter_set.update([
+                        word.replace('"', '')
+                        for element in line.decode('utf-8').split(',') if '_' in element
+                        for word in element.split(' ')
+                        if '_' in word])
+                    scrubbed_file.write(line)
 
+            print(f'{n_lines} left to process, took {time.time()-last_time:.2f}s')
+            last_time = time.time()
 
 if __name__ == '__main__':
     main()
