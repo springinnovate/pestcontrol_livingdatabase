@@ -219,7 +219,6 @@ def main():
         LOGGER.info('Compute the comparison')
         features = compare_cl.compute(pairs, clean_names, clean_names)
 
-
         for prob_array, index_array in zip(features.values, features.index):
             val1 = clean_names.loc[index_array[0], field_name]
             val2 = clean_names.loc[index_array[1], field_name]
