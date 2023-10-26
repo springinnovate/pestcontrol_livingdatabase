@@ -47,7 +47,7 @@ LOCAL_CONTEXT = {}
 
 def process_file():
     try:
-        LOGGER.debug(f'PROCESSING FILE')
+        LOGGER.debug('PROCESSING FILE')
         task_id = str(uuid.uuid4())  # generate a unique task id
         TASK_LOOKUP[task_id] = {
             'state': 'RUNNING',
@@ -277,10 +277,11 @@ OPTIONAL_INI_ELEMENTS = {
     'dataset_name',
 }
 
-PRECIP_SECTION = 'precip'
+SEASONAL_SECTION = 'seasonal'
+AGGREGATE_FUNCTION_FIELD = 'aggregate_function'
 
 EXPECTED_INI_SECTIONS = {
-    'mask_types', PRECIP_SECTION
+    'mask_types', SEASONAL_SECTION
 }
 
 GEE_BUG_WORKAROUND_BANDNAME = 'gee_bug_single_band_doesnt_get_name'
@@ -349,7 +350,6 @@ def build_landcover_masks(year, dataset_info):
                         mask_dict[mask_type] = local_mask
                     else:
                         mask_dict[mask_type] = mask_dict[mask_type].Or(local_mask)
-
         return mask_dict, closest_year_image
     except Exception:
         LOGGER.exception(f"ERROR ON {dataset_info['gee_dataset']} {dataset_info['band_name']}, {year}")
@@ -412,7 +412,10 @@ def _sample_pheno(
     #modis_phen = ee.Image(MODIS_DATASET_NAME)
 
     sample_future_list = []
-    header_fields = julian_day_variables + raw_variables
+    if cmd_args['process_phenological_vars']:
+        header_fields = julian_day_variables + raw_variables
+    else:
+        header_fields = []
     header_fields_set = set(header_fields)
     band_and_bounds_by_id = {}
     for year, year_points in pts_by_year.items():
@@ -449,28 +452,30 @@ def _sample_pheno(
             header_fields.append('valid_modis_year')
             header_fields_set.add(header_fields[-1])
 
-        for dataset in datasets_to_process:
-            precip_dataset_id = dataset['key']
-            if not precip_dataset_id.startswith('precip_'):
+        for seasonal_dataset_id in datasets_to_process:
+            if SEASONAL_SECTION not in datasets[seasonal_dataset_id]:
                 continue
-            precip_dataset = ee.ImageCollection(
-                datasets[precip_dataset_id]['gee_dataset']).select(
-                datasets[precip_dataset_id]['band_name'])
+            seasonal_dataset = ee.ImageCollection(
+                datasets[seasonal_dataset_id]['gee_dataset']).select(
+                datasets[seasonal_dataset_id]['band_name'])
+            start_day, end_day = cmd_args['season_start_end']
 
-            start_day, end_day = cmd_args.precip_season_start_end
-            agg_days = cmd_args.precip_aggregation_days
+            agg_days = cmd_args['precip_aggregation_days']
+            if agg_days is None:
+                agg_days = 365
             current_day = start_day
             start_date = ee.Date(f'{year}-01-01').advance(start_day, 'day')
             end_date = ee.Date(f'{year}-01-01').advance(end_day, 'day')
-            total_precip_bandname = (
-                f'{precip_dataset_id}_{start_day}_{end_day}')
-            raw_band_names.append(total_precip_bandname)
+            total_seasonal_bandname = (
+                f'{seasonal_dataset_id}_{start_day}_{end_day}')
+            raw_band_names.append(total_seasonal_bandname)
             if raw_band_names[-1] not in header_fields_set:
                 header_fields.append(raw_band_names[-1])
                 header_fields_set.add(header_fields[-1])
-            precip_band = precip_dataset.filterDate(
-                start_date, end_date).reduce('sum').rename(
-                total_precip_bandname)
+            seasonal_band = seasonal_dataset.filterDate(
+                start_date, end_date).reduce(
+                datasets[seasonal_dataset_id][SEASONAL_SECTION][AGGREGATE_FUNCTION_FIELD]).rename(
+                total_seasonal_bandname)
 
             while True:
                 if current_day >= end_day:
@@ -481,72 +486,73 @@ def _sample_pheno(
                 if agg_days + current_day > end_day:
                     agg_days = end_day-current_day
                 end_date = start_date.advance(agg_days, 'day')
-                period_precip_bandname = f'''{precip_dataset_id}_{
+                period_seasonal_bandname = f'''{seasonal_dataset_id}_{
                     current_day}_{current_day+agg_days}'''
-                raw_band_names.append(period_precip_bandname)
+                raw_band_names.append(period_seasonal_bandname)
                 if raw_band_names[-1] not in header_fields_set:
                     header_fields.append(raw_band_names[-1])
                     header_fields_set.add(header_fields[-1])
-                period_precip_sample = precip_dataset.select(
-                    datasets[precip_dataset_id]['band_name']).filterDate(
-                    start_date, end_date).reduce('sum').rename(
-                    period_precip_bandname)
-                precip_band = precip_band.addBands(period_precip_sample)
+                period_precip_sample = seasonal_dataset.select(
+                    datasets[seasonal_dataset_id]['band_name']).filterDate(
+                    start_date, end_date).reduce(
+                        datasets[
+                            seasonal_dataset_id][
+                            SEASONAL_SECTION][
+                            AGGREGATE_FUNCTION_FIELD]).rename(
+                    period_seasonal_bandname)
+                seasonal_band = seasonal_band.addBands(period_precip_sample)
                 start_date = end_date
                 current_day += agg_days
 
             LOGGER.debug('adding all precip bands to modis')
-            all_bands = all_bands.addBands(precip_band)
+            all_bands = all_bands.addBands(seasonal_band)
             if raw_band_stack is not None:
-                raw_band_stack = raw_band_stack.addBands(precip_band)
+                raw_band_stack = raw_band_stack.addBands(seasonal_band)
             else:
-                raw_band_stack = precip_band
+                raw_band_stack = seasonal_band
 
-        for dataset in datasets_to_process:
-            dataset_id = dataset['key']
-            for mask_type in ['natural', 'cultivated']:
-                datasets[dataset_id]['mask_types'][mask_type] = eval(
-                    dataset[mask_type])
-            mask_map, nearest_year_image = build_landcover_masks(
-                year, datasets[dataset_id])
-            for mask_id, mask_image in mask_map.items():
-                if raw_band_stack is not None:
-                    mask_band_names = [
-                        f'{band_name}-{dataset_id}-{mask_id}'
-                        for band_name in raw_band_names]
-                    masked_raw_band_stack = raw_band_stack.updateMask(
-                        mask_image).rename(mask_band_names)
-                    for mask_band_name in mask_band_names:
-                        if mask_band_name not in header_fields_set:
-                            header_fields.append(mask_band_name)
-                            header_fields_set.add(header_fields[-1])
-                    all_bands = all_bands.addBands(masked_raw_band_stack)
-                    # get modis mask
-                    if valid_modis_year:
-                        # just get the first image because it will have the
-                        # base mask
-                        modis_mask = raw_band_stack.select(0).mask()
-                        modis_overlap_mask = modis_mask.And(mask_image)
-                        modis_field_name = f'''{dataset_id}-{mask_id}-valid-modis-overlap-prop'''
-                        if modis_field_name not in header_fields_set:
-                            header_fields.append(modis_field_name)
-                            header_fields_set.add(header_fields[-1])
-                        all_bands = all_bands.addBands(
-                            modis_overlap_mask.rename(modis_field_name))
+        if cmd_args['process_phenological_vars']:
+            for dataset_id in datasets_to_process:
+                mask_map, nearest_year_image = build_landcover_masks(
+                    year, datasets[dataset_id])
+                for mask_id, mask_image in mask_map.items():
+                    if raw_band_stack is not None:
+                        mask_band_names = [
+                            f'{band_name}-{dataset_id}-{mask_id}'
+                            for band_name in raw_band_names]
+                        masked_raw_band_stack = raw_band_stack.updateMask(
+                            mask_image).rename(mask_band_names)
+                        for mask_band_name in mask_band_names:
+                            if mask_band_name not in header_fields_set:
+                                header_fields.append(mask_band_name)
+                                header_fields_set.add(header_fields[-1])
+                        all_bands = all_bands.addBands(masked_raw_band_stack)
+                        # get modis mask
+                        if valid_modis_year:
+                            # just get the first image because it will have the
+                            # base mask
+                            modis_mask = raw_band_stack.select(0).mask()
+                            modis_overlap_mask = modis_mask.And(mask_image)
+                            modis_field_name = f'''{dataset_id}-{mask_id}-valid-modis-overlap-prop'''
+                            if modis_field_name not in header_fields_set:
+                                header_fields.append(modis_field_name)
+                                header_fields_set.add(header_fields[-1])
+                            all_bands = all_bands.addBands(
+                                modis_overlap_mask.rename(modis_field_name))
 
-                pixel_prop_field_name = f'{dataset_id}-{mask_id}-pixel-prop'
-                if pixel_prop_field_name not in header_fields_set:
-                    header_fields.append(pixel_prop_field_name)
+                    pixel_prop_field_name = f'{dataset_id}-{mask_id}-pixel-prop'
+                    if pixel_prop_field_name not in header_fields_set:
+                        header_fields.append(pixel_prop_field_name)
+                        header_fields_set.add(header_fields[-1])
+                    all_bands = all_bands.addBands(
+                        mask_image.rename(pixel_prop_field_name))
+
+                nearest_year_field_name = f'{dataset_id}-nearest_year'
+                if nearest_year_field_name not in header_fields_set:
+                    header_fields.append(nearest_year_field_name)
                     header_fields_set.add(header_fields[-1])
-                all_bands = all_bands.addBands(
-                    mask_image.rename(pixel_prop_field_name))
-
-            nearest_year_field_name = f'{dataset_id}-nearest_year'
-            if nearest_year_field_name not in header_fields_set:
-                header_fields.append(nearest_year_field_name)
-                header_fields_set.add(header_fields[-1])
-            nearest_year_image = nearest_year_image.rename(nearest_year_field_name)
-            all_bands = all_bands.addBands(nearest_year_image)
+                nearest_year_image = nearest_year_image.rename(nearest_year_field_name)
+                all_bands = all_bands.addBands(nearest_year_image)
 
         future = executor.submit(
             _process_sample_regions, all_bands, year_points, sample_scale)
@@ -617,44 +623,52 @@ def get_datasets():
 
 def parse_ini(ini_path):
     """Parse ini and return a validated config."""
-    basename = os.path.splitext(os.path.basename(ini_path))[0]
-    dataset_config = configparser.ConfigParser(allow_no_value=True)
-    dataset_config.read(ini_path)
-    dataset_result = {}
-    if basename not in dataset_config:
-        raise ValueError(
-            f'expected a section called {basename} but only found '
-            f'{dataset_config.sections()}')
-    if 'disabled' in dataset_config[basename]:
-        LOGGER.debug(f'disabled is in {ini_path}')
-        if dataset_config[basename]['disabled'].lower() == 'true':
-            LOGGER.debug(f'skipping {ini_path} because disabled')
-            return None
-    for element_id in EXPECTED_INI_ELEMENTS:
-        if element_id not in dataset_config[basename]:
+    try:
+        LOGGER.debug(f'parsing {ini_path}')
+        basename = os.path.splitext(os.path.basename(ini_path))[0]
+        dataset_config = configparser.ConfigParser(allow_no_value=True)
+        dataset_config.read(ini_path)
+        dataset_result = {}
+        if basename not in dataset_config:
             raise ValueError(
-                f'expected an entry called {element_id} but only found '
-                f'{dataset_config[basename].items()}')
-        dataset_result[element_id] = dataset_config[basename][element_id]
-    for element_id in OPTIONAL_INI_ELEMENTS:
-        if element_id in dataset_config[basename]:
+                f'expected a section called {basename} but only found '
+                f'{dataset_config.sections()}')
+        if 'disabled' in dataset_config[basename]:
+            LOGGER.debug(f'disabled is in {ini_path}')
+            if dataset_config[basename]['disabled'].lower() == 'true':
+                LOGGER.debug(f'skipping {ini_path} because disabled')
+                return None
+        for element_id in EXPECTED_INI_ELEMENTS:
+            if element_id not in dataset_config[basename]:
+                raise ValueError(
+                    f'expected an entry called {element_id} but only found '
+                    f'{dataset_config[basename].items()}')
             dataset_result[element_id] = dataset_config[basename][element_id]
-    found_expected_section = False
-    for section_id in EXPECTED_INI_SECTIONS:
-        if section_id in dataset_config:
-            found_expected_section = True
-            break
-    if not found_expected_section:
-        raise ValueError(
-            f'expected any one of sections called {EXPECTED_INI_SECTIONS} '
-            f'but only found {dataset_config.sections()}')
-    dataset_result[section_id] = {}
-    for element_id in dataset_config[section_id].items():
-        LOGGER.debug(element_id)
-        dataset_result[section_id][element_id[0]] = eval(element_id[1])
-
-    dataset_result['bounds'] = eval(dataset_result['bounds'])
-    return dataset_result
+        for element_id in OPTIONAL_INI_ELEMENTS:
+            if element_id in dataset_config[basename]:
+                dataset_result[element_id] = dataset_config[basename][element_id]
+        found_expected_section = False
+        for section_id in EXPECTED_INI_SECTIONS:
+            if section_id in dataset_config:
+                found_expected_section = True
+                break
+        if not found_expected_section:
+            raise ValueError(
+                f'expected any one of sections called {EXPECTED_INI_SECTIONS} '
+                f'but only found {dataset_config.sections()}')
+        dataset_result[section_id] = {}
+        for element_id in dataset_config[section_id].items():
+            element_val = element_id[1]
+            try:
+                element_val = eval(element_val)
+            except NameError:
+                pass
+            dataset_result[section_id][element_id[0]] = element_val
+        dataset_result['bounds'] = eval(dataset_result['bounds'])
+        return dataset_result
+    except Exception:
+        LOGGER.exception(f'error when parsing {ini_path}')
+        raise
 
 
 if __name__ == '__main__':
