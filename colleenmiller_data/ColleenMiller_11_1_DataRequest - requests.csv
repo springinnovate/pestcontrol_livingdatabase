@@ -1,69 +1,64 @@
-GEE link,Dataset name,Variable name,Description,Range,Aggregate By,Julian Range,Notes
-https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MCD12Q2,Greenup_1,Greenup_1,0,mean,1-365,May want broader range later
-https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MCD12Q2,MidGreenup_1,MidGreenup_1,0,mean,1-365,May want broader range later
-https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MCD12Q2,Peak_1,Peak_1,0,mean,1-365,May want broader range later
-https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MCD12Q2,Maturity_1,Maturity_1,0,mean,1-365,May want broader range later
-https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MCD12Q2,MidGreendown_1,MidGreendown_1,0,mean,1-365,May want broader range later
-https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MCD12Q2,Senescence_1,Senescence_1,0,mean,1-365,May want broader range later
-https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MCD12Q2,Dormancy_1,Dormancy_1,0,mean,1-365,May want broader range later
-https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MOD15A2H,Lai_500m,Leaf Area Index min,0,mean,1-365,May want broader range later
-https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MOD15A2H,Lai_500m,Leaf Area Index max,0,mean,1-365,May want broader range later
-https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MOD15A2H,Lai_500m,Leaf Area Index std dev,0,mean,1-365,May want broader range later
-https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MOD15A2H,Lai_500m,Leaf Area Index mean,0,mean,1-365,May want broader range later
-https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MOD15A2H,Fpar_500m,FPAR mean,0,mean,1-365,May want broader range later
-https://developers.google.com/earth-engine/datasets/catalog/LANDSAT_LE07_C01_T1_8DAY_NDVI,LANDSAT/LE7_L1T_8DAY_NDVI,NDVI,NDVI annual min,1000,mean,1-365,
-https://developers.google.com/earth-engine/datasets/catalog/LANDSAT_LE07_C01_T1_8DAY_NDVI,LANDSAT/LE7_L1T_8DAY_NDVI,NDVI,NDVI annual max,1000,mean,1-365,
-https://developers.google.com/earth-engine/datasets/catalog/LANDSAT_LE07_C01_T1_8DAY_NDVI,LANDSAT/LE7_L1T_8DAY_NDVI,NDVI,NDVI annual stdev,1000,mean,1-365,
-https://developers.google.com/earth-engine/datasets/catalog/LANDSAT_LE07_C01_T1_8DAY_NDVI,LANDSAT/LE7_L1T_8DAY_NDVI,NDVI,NDVI annual min,10000,mean,1-365,
-https://developers.google.com/earth-engine/datasets/catalog/LANDSAT_LE07_C01_T1_8DAY_NDVI,LANDSAT/LE7_L1T_8DAY_NDVI,NDVI,NDVI annual max,10000,mean,1-365,
-https://developers.google.com/earth-engine/datasets/catalog/LANDSAT_LE07_C01_T1_8DAY_NDVI,LANDSAT/LE7_L1T_8DAY_NDVI,NDVI,NDVI annual stdev,10000,mean,1-365,
-https://developers.google.com/earth-engine/datasets/catalog/COPERNICUS_CORINE_V20_100m#description,COPERNICUS/CORINE/V20/100m,landcover,Classification bands,0,"mask - [142, 211, 212, 213, 221, 222, 223, 231, 241, 242, 243, 244]",1-365,
-https://developers.google.com/earth-engine/datasets/catalog/COPERNICUS_CORINE_V20_100m#description,COPERNICUS/CORINE/V20/100m,landcover,Classification bands,1000,"mask - [142, 211, 212, 213, 221, 222, 223, 231, 241, 242, 243, 244]",1-365,
-https://developers.google.com/earth-engine/datasets/catalog/COPERNICUS_CORINE_V20_100m#description,COPERNICUS/CORINE/V20/100m,landcover,Classification bands,10000,"mask - [142, 211, 212, 213, 221, 222, 223, 231, 241, 242, 243, 244]",1-365,
-https://developers.google.com/earth-engine/datasets/catalog/JRC_GSW1_4_MonthlyHistory,JRC/GSW1_4/MonthlyHistory,water,Annual mean: Monthly information,0,mean,1-365,
-https://developers.google.com/earth-engine/datasets/catalog/JRC_GSW1_4_MonthlyHistory,JRC/GSW1_4/MonthlyHistory,water,Annual stdev: Monthly information,0,mean,1-365,
-https://developers.google.com/earth-engine/datasets/catalog/JRC_GSW1_4_MonthlyHistory,JRC/GSW1_4/MonthlyHistory,water,Annual mean: Monthly information,1000,mean,1-365,
-https://developers.google.com/earth-engine/datasets/catalog/JRC_GSW1_4_MonthlyHistory,JRC/GSW1_4/MonthlyHistory,water,Annual stdev: Monthly information,1000,mean,1-365,
-https://developers.google.com/earth-engine/datasets/catalog/JRC_GSW1_4_MonthlyHistory,JRC/GSW1_4/MonthlyHistory,water,Annual mean: Monthly information,10000,mean,1-365,
-https://developers.google.com/earth-engine/datasets/catalog/JRC_GSW1_4_MonthlyHistory,JRC/GSW1_4/MonthlyHistory,water,Annual stdev: Monthly information,10000,mean,1-365,
-https://developers.google.com/earth-engine/datasets/catalog/NOAA_DMSP-OLS_NIGHTTIME_LIGHTS,NOAA/DMSP-OLS/NIGHTTIME_LIGHTS,stable_lights,Stable artificial light measure,1000,mean,1-365,
-https://developers.google.com/earth-engine/datasets/catalog/NOAA_DMSP-OLS_NIGHTTIME_LIGHTS,NOAA/DMSP-OLS/NIGHTTIME_LIGHTS,stable_lights,Stable artificial light measure,10000,mean,1-365,
-https://developers.google.com/earth-engine/datasets/catalog/CSP_ERGo_1_0_Global_SRTM_topoDiversity#bands,CSP/ERGo/1_0/Global/SRTM_topoDiversity,constant,Measure of diversity,1000,mean,1-365,
-https://developers.google.com/earth-engine/datasets/catalog/CSP_ERGo_1_0_Global_SRTM_topoDiversity#bands,CSP/ERGo/1_0/Global/SRTM_topoDiversity,constant,Measure of diversity,10000,mean,1-365,
-https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,mean_2m_air_temperature,mean temp,0,mean,1-365,annual average
-https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,minimum_2m_air_temperature,min temp,0,mean,1-365,annual average
-https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,maximum_2m_air_temperature,max temp,0,mean,1-365,annual average
-https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,dewpoint_2m_temperature,dewpoint,0,mean,1-365,annual average
-https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,total_precipitation,precip,0,mean,1-365,annual average
-https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,mean_2m_air_temperature,mean temp,0,min,1-365,annual minimum
-https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,minimum_2m_air_temperature,min temp,0,min,1-365,annual minimum
-https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,maximum_2m_air_temperature,max temp,0,min,1-365,annual minimum
-https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,dewpoint_2m_temperature,dewpoint,0,min,1-365,annual minimum
-https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,total_precipitation,precip,0,min,1-365,annual minimum
-https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,mean_2m_air_temperature,mean temp,0,max,1-365,annual maximum
-https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,minimum_2m_air_temperature,min temp,0,max,1-365,annual maximum
-https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,maximum_2m_air_temperature,max temp,0,max,1-365,annual maximum
-https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,dewpoint_2m_temperature,dewpoint,0,max,1-365,annual maximum
-https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,total_precipitation,precip,0,max,1-365,annual maximum
-https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,mean_2m_air_temperature,mean temp,0,mean,121-273,may-sept average
-https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,minimum_2m_air_temperature,min temp,0,mean,121-273,may-sept average
-https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,maximum_2m_air_temperature,max temp,0,mean,121-273,may-sept average
-https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,dewpoint_2m_temperature,dewpoint,0,mean,121-273,may-sept average
-https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,total_precipitation,precip,0,mean,121-273,may-sept average
-https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,mean_2m_air_temperature,mean temp,0,mean,121-273,may-sept average
-https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,minimum_2m_air_temperature,min temp,0,mean,121-273,may-sept average
-https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,maximum_2m_air_temperature,max temp,0,mean,121-273,may-sept average
-https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,dewpoint_2m_temperature,dewpoint,0,mean,121-273,may-sept average
-https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,total_precipitation,precip,0,mean,121-273,may-sept average
-https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,mean_2m_air_temperature,mean temp,0,mean,121-273,may-sept average
-https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,minimum_2m_air_temperature,min temp,0,mean,121-273,may-sept average
-https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,maximum_2m_air_temperature,max temp,0,mean,121-273,may-sept average
-https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,dewpoint_2m_temperature,dewpoint,0,mean,121-273,may-sept average
-https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,total_precipitation,precip,0,mean,121-273,may-sept average
-https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MOD10A1,MODIS/061/MOD10A1,NDSI_Snow_Cover,snow cover,0,mean,1-365,annual average
-https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MOD10A1,MODIS/061/MOD10A1,NDSI_Snow_Cover,snow cover,10000,mean,1-365,annual average
-,,,,,,,
-,,,,,,,
-,,,,,,,
-,,,,,,,
-,,,,,,,
+GEE link,Dataset name,Variable name,Description,Range,Aggregate By,Julian Range,Valid Years,Notes
+https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MCD12Q2,Greenup_1,Greenup_1,0,mean,1-365,,May want broader range later
+https://developers.google.com/earth-engine/datasets/catalog/COPERNICUS_CORINE_V20_100m#description,COPERNICUS/CORINE/V20/100m/{year},landcover,Classification bands,0,"mask - [142, 211, 212, 213, 221, 222, 223, 231, 241, 242, 243, 244]",1-365,"[1990,2000,2006,2012,2018]",
+https://developers.google.com/earth-engine/datasets/catalog/COPERNICUS_CORINE_V20_100m#description,COPERNICUS/CORINE/V20/100m/{year},landcover,Classification bands,1000,"mask - [142, 211, 212, 213, 221, 222, 223, 231, 241, 242, 243, 244]",1-365,"[1990,2000,2006,2012,2018]",
+https://developers.google.com/earth-engine/datasets/catalog/COPERNICUS_CORINE_V20_100m#description,COPERNICUS/CORINE/V20/100m/{year},landcover,Classification bands,10000,"mask - [142, 211, 212, 213, 221, 222, 223, 231, 241, 242, 243, 244]",1-365,"[1990,2000,2006,2012,2018]",
+https://developers.google.com/earth-engine/datasets/catalog/CSP_ERGo_1_0_Global_SRTM_topoDiversity#bands,CSP/ERGo/1_0/Global/SRTM_topoDiversity,constant,Measure of diversity,1000,mean,1-365,,May want broader range later
+https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MCD12Q2,MidGreenup_1,MidGreenup_1,0,mean,1-365,,May want broader range later
+https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MCD12Q2,Peak_1,Peak_1,0,mean,1-365,,May want broader range later
+https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MCD12Q2,Maturity_1,Maturity_1,0,mean,1-365,,May want broader range later
+https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MCD12Q2,MidGreendown_1,MidGreendown_1,0,mean,1-365,,May want broader range later
+https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MCD12Q2,Senescence_1,Senescence_1,0,mean,1-365,,May want broader range later
+https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MCD12Q2,Dormancy_1,Dormancy_1,0,mean,1-365,,May want broader range later
+https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MOD15A2H,Lai_500m,Leaf Area Index min,0,mean,1-365,,May want broader range later
+https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MOD15A2H,Lai_500m,Leaf Area Index max,0,mean,1-365,,May want broader range later
+https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MOD15A2H,Lai_500m,Leaf Area Index std dev,0,mean,1-365,,May want broader range later
+https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MOD15A2H,Lai_500m,Leaf Area Index mean,0,mean,1-365,,May want broader range later
+https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MOD15A2H,Fpar_500m,FPAR mean,0,mean,1-365,,
+https://developers.google.com/earth-engine/datasets/catalog/LANDSAT_LE07_C01_T1_8DAY_NDVI,LANDSAT/LE7_L1T_8DAY_NDVI,NDVI,NDVI annual min,1000,mean,1-365,,
+https://developers.google.com/earth-engine/datasets/catalog/LANDSAT_LE07_C01_T1_8DAY_NDVI,LANDSAT/LE7_L1T_8DAY_NDVI,NDVI,NDVI annual max,1000,mean,1-365,,
+https://developers.google.com/earth-engine/datasets/catalog/LANDSAT_LE07_C01_T1_8DAY_NDVI,LANDSAT/LE7_L1T_8DAY_NDVI,NDVI,NDVI annual stdev,1000,mean,1-365,,
+https://developers.google.com/earth-engine/datasets/catalog/LANDSAT_LE07_C01_T1_8DAY_NDVI,LANDSAT/LE7_L1T_8DAY_NDVI,NDVI,NDVI annual min,10000,mean,1-365,,
+https://developers.google.com/earth-engine/datasets/catalog/LANDSAT_LE07_C01_T1_8DAY_NDVI,LANDSAT/LE7_L1T_8DAY_NDVI,NDVI,NDVI annual max,10000,mean,1-365,,
+https://developers.google.com/earth-engine/datasets/catalog/LANDSAT_LE07_C01_T1_8DAY_NDVI,LANDSAT/LE7_L1T_8DAY_NDVI,NDVI,NDVI annual stdev,10000,mean,1-365,,
+https://developers.google.com/earth-engine/datasets/catalog/JRC_GSW1_4_MonthlyHistory,JRC/GSW1_4/MonthlyHistory,water,Annual mean: Monthly information,0,mean,1-365,,
+https://developers.google.com/earth-engine/datasets/catalog/JRC_GSW1_4_MonthlyHistory,JRC/GSW1_4/MonthlyHistory,water,Annual stdev: Monthly information,0,mean,1-365,,
+https://developers.google.com/earth-engine/datasets/catalog/JRC_GSW1_4_MonthlyHistory,JRC/GSW1_4/MonthlyHistory,water,Annual mean: Monthly information,1000,mean,1-365,,
+https://developers.google.com/earth-engine/datasets/catalog/JRC_GSW1_4_MonthlyHistory,JRC/GSW1_4/MonthlyHistory,water,Annual stdev: Monthly information,1000,mean,1-365,,
+https://developers.google.com/earth-engine/datasets/catalog/JRC_GSW1_4_MonthlyHistory,JRC/GSW1_4/MonthlyHistory,water,Annual mean: Monthly information,10000,mean,1-365,,
+https://developers.google.com/earth-engine/datasets/catalog/JRC_GSW1_4_MonthlyHistory,JRC/GSW1_4/MonthlyHistory,water,Annual stdev: Monthly information,10000,mean,1-365,,
+https://developers.google.com/earth-engine/datasets/catalog/NOAA_DMSP-OLS_NIGHTTIME_LIGHTS,NOAA/DMSP-OLS/NIGHTTIME_LIGHTS,stable_lights,Stable artificial light measure,1000,mean,1-365,,
+https://developers.google.com/earth-engine/datasets/catalog/NOAA_DMSP-OLS_NIGHTTIME_LIGHTS,NOAA/DMSP-OLS/NIGHTTIME_LIGHTS,stable_lights,Stable artificial light measure,10000,mean,1-365,,
+https://developers.google.com/earth-engine/datasets/catalog/CSP_ERGo_1_0_Global_SRTM_topoDiversity#bands,CSP/ERGo/1_0/Global/SRTM_topoDiversity,constant,Measure of diversity,10000,mean,1-365,,
+https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,mean_2m_air_temperature,mean temp,0,mean,1-365,,annual average
+https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,minimum_2m_air_temperature,min temp,0,mean,1-365,,annual average
+https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,maximum_2m_air_temperature,max temp,0,mean,1-365,,annual average
+https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,dewpoint_2m_temperature,dewpoint,0,mean,1-365,,annual average
+https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,total_precipitation,precip,0,mean,1-365,,annual average
+https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,mean_2m_air_temperature,mean temp,0,min,1-365,,annual minimum
+https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,minimum_2m_air_temperature,min temp,0,min,1-365,,annual minimum
+https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,maximum_2m_air_temperature,max temp,0,min,1-365,,annual minimum
+https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,dewpoint_2m_temperature,dewpoint,0,min,1-365,,annual minimum
+https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,total_precipitation,precip,0,min,1-365,,annual minimum
+https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,mean_2m_air_temperature,mean temp,0,max,1-365,,annual maximum
+https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,minimum_2m_air_temperature,min temp,0,max,1-365,,annual maximum
+https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,maximum_2m_air_temperature,max temp,0,max,1-365,,annual maximum
+https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,dewpoint_2m_temperature,dewpoint,0,max,1-365,,annual maximum
+https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,total_precipitation,precip,0,max,1-365,,annual maximum
+https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,mean_2m_air_temperature,mean temp,0,mean,121-273,,may-sept average
+https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,minimum_2m_air_temperature,min temp,0,mean,121-273,,may-sept average
+https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,maximum_2m_air_temperature,max temp,0,mean,121-273,,may-sept average
+https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,dewpoint_2m_temperature,dewpoint,0,mean,121-273,,may-sept average
+https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,total_precipitation,precip,0,mean,121-273,,may-sept average
+https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,mean_2m_air_temperature,mean temp,0,mean,121-273,,may-sept average
+https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,minimum_2m_air_temperature,min temp,0,mean,121-273,,may-sept average
+https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,maximum_2m_air_temperature,max temp,0,mean,121-273,,may-sept average
+https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,dewpoint_2m_temperature,dewpoint,0,mean,121-273,,may-sept average
+https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,total_precipitation,precip,0,mean,121-273,,may-sept average
+https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,mean_2m_air_temperature,mean temp,0,mean,121-273,,may-sept average
+https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,minimum_2m_air_temperature,min temp,0,mean,121-273,,may-sept average
+https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,maximum_2m_air_temperature,max temp,0,mean,121-273,,may-sept average
+https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,dewpoint_2m_temperature,dewpoint,0,mean,121-273,,may-sept average
+https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY,ECMWF/ERA5/MONTHLY,total_precipitation,precip,0,mean,121-273,,may-sept average
+https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MOD10A1,MODIS/061/MOD10A1,NDSI_Snow_Cover,snow cover,0,mean,1-365,,annual average
+https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MOD10A1,MODIS/061/MOD10A1,NDSI_Snow_Cover,snow cover,10000,mean,1-365,,annual average
