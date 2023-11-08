@@ -117,7 +117,7 @@ def sample_dataset(dataset_name, variable_name, scale, julian_range, aggregate_f
                 # first reduce the by date so we don't have a bunch of images
                 image = image.remap(
                     remap_value_list, [1]*len(remap_value_list)).rename(variable_name)
-        for i, points_chunk in enumerate(chunk_points(point_list, 100)):
+        for i, points_chunk in enumerate(chunk_points(point_list, 5000)):
             try:
                 samples = image.reduceRegions(
                     collection=ee.FeatureCollection(points_chunk),
@@ -125,7 +125,7 @@ def sample_dataset(dataset_name, variable_name, scale, julian_range, aggregate_f
                     scale=max(1, scale))
                 result_samples_by_year[year].extend([
                     (point['geometry']['coordinates'],
-                     'nodata'
+                     'NA'
                      if aggregate_function not in sample['properties']
                      else sample['properties'][aggregate_function])
                     for point, sample in
