@@ -116,13 +116,16 @@ def sample_dataset(dataset_name, variable_name, scale, julian_range, aggregate_f
             if remap_value_list is not None:
                 # first reduce the by date so we don't have a bunch of images
                 image = image.remap(
-                    remap_value_list, [1]*len(remap_value_list)).rename(variable_name)
+                    remap_value_list, [1]*len(remap_value_list)).unmask(0).rename(variable_name)
         for i, points_chunk in enumerate(chunk_points(point_list, 5000)):
             try:
-                samples = image.reduceRegions(
-                    collection=ee.FeatureCollection(points_chunk),
-                    reducer=aggregate_function,
-                    scale=max(1, scale))
+
+                circles = ee.FeatureCollection(points_chunk).map(
+                    lambda feature: feature.buffer(scale)
+                    if scale > 0 else feature)
+                samples = image.toFloat().reduceRegions(
+                    collection=circles,
+                    reducer=aggregate_function)
                 result_samples_by_year[year].extend([
                     (point['geometry']['coordinates'],
                      'NA'
@@ -133,6 +136,7 @@ def sample_dataset(dataset_name, variable_name, scale, julian_range, aggregate_f
                         samples.getInfo()['features'])])
                 LOGGER.debug(f'processed batch {i}')
             except Exception:
+                LOGGER.exception(f'big error')
                 pass
 
     return result_samples_by_year
@@ -253,7 +257,6 @@ def main():
         value_dict[args.long_field] = longitude
         value_dict[args.lat_field] = latitude
         pandas_dict_list.append(value_dict)
-    LOGGER.debug(pandas_dict_list)
     df = pandas.DataFrame(pandas_dict_list)
     first_columns = [args.year_field, args.long_field, args.lat_field]
     other_columns = [col for col in df.columns if col not in first_columns]
