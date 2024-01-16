@@ -61,7 +61,7 @@ def get_dataset_info(dataset_row, dataset_name_field, variable_name_field):
         return (info, dataset_name, variable_name)
 
 
-def sample_dataset(year, point_list):
+def sample_dataset(year, sample_distance, point_list):
     # this works if its an image collection
     image = ee.ImageCollection(DATASET_ID).select(BAND_ID).filterDate(
         ee.Date.fromYMD(year, 1, 1)).first().rename(f'{DATASET_ID}_{year}')
@@ -69,39 +69,16 @@ def sample_dataset(year, point_list):
     result_by_cover_type = collections.defaultdict(list)
     for i, points_chunk in enumerate(chunk_points(point_list, 5000)):
         distance_circles = ee.FeatureCollection(points_chunk).map(
-            lambda feature: feature.buffer(RESOLUTION*10))  # TODO: set to user val
+            lambda feature: feature.buffer(RESOLUTION))
         landcover_masks = ee.ImageCollection(
             [image.eq(landcover_id).toFloat().rename(f'{landcover_id}')
              for landcover_id in CLASS_TABLE]).toBands()
 
-        radius = RESOLUTION*10
-        # Create a Euclidean distance kernel
-        euclidean_kernel = ee.Kernel.euclidean(radius, 'meters', False)
-
-        # Normalize the kernel so that the center is 0 and edges are 1
-        max_distance = ee.Image.constant(radius)
-        normalized_kernel = euclidean_kernel.divide(max_distance)
-
-        # Apply linear decay: weight = 1 - normalized distance
-        linear_decay_kernel = normalized_kernel.multiply(-1).add(1)
-
-        # Convert the kernel to an image
-        kernel_image = ee.Image(1).convolve(linear_decay_kernel)
-
-        # Compute the sum of the kernel elements
-        kernel_sum = kernel_image.reduceRegion(
-            reducer=ee.Reducer.sum(),
-            geometry=kernel_image.geometry(),
-            scale=radius,
-            maxPixels=1e9
-        ).getInfo()['constant']
-        LOGGER.debug(f'KERNEL SUM: {kernel_sum}')
-
-        # Normalize the kernel so that the sum is 1
-        normalized_sum_kernel = linear_decay_kernel.divide(kernel_sum)
-
-        landcover_masks = landcover_masks.convolve(normalized_sum_kernel)
-        samples = landcover_masks.reduceRegions(
+        gaussian_kernel = ee.Kernel.gaussian(
+            sample_distance, sigma=sample_distance/3, units='meters',
+            normalize=True)
+        landcover_average_mask = landcover_masks.convolve(gaussian_kernel)
+        samples = landcover_average_mask.reduceRegions(
             collection=distance_circles,
             reducer=ee.Reducer.mean(),
             scale=RESOLUTION)
@@ -138,6 +115,10 @@ def main():
     parser = argparse.ArgumentParser(description='sample points on GEE data')
     parser.add_argument(
         'point_table_path', help='path to point sample locations')
+    parser.add_argument(
+        'sample_distance_m', type=int, help=(
+            'Distance in meters to sample out from the point when '
+            'calculating landcover proportions'))
     parser.add_argument('--authenticate', action='store_true', help='Pass this flag if you need to reauthenticate with GEE')
     parser.add_argument('--n_point_rows', type=int, help='limit csv read to this many rows')
 
@@ -175,6 +156,7 @@ def main():
                 (year, executor.submit(
                     sample_dataset,
                     year,
+                    args.sample_distance_m,
                     point_feature_list)))
 
         # Iterate over the futures as they complete (as_completed returns them in the order they complete).
@@ -182,7 +164,6 @@ def main():
         for year, future in futures_work_list:
             LOGGER.debug(f'fetching {year} result')
             result = future.result()  # This gets the return value from get_dataset_info when it is done.
-            LOGGER.debug(result)
             temp_df = point_table.copy()
             temp_df['Year'] = year
             for key, val_list in result.items():
@@ -192,7 +173,9 @@ def main():
 
     output_table = output_table.sort_values(by=[POINT_ID, 'Year'])
     output_table = output_table.drop(columns=[POINT_ID])
-    output_table.to_csv('output.csv', index=False)
+    input_table_basename = os.path.splitext(os.path.basename(args.point_table_path))[0]
+    output_table.to_csv(
+        f'{input_table_basename}_{args.sample_distance_m}.csv', index=False)
 
     LOGGER.info('all done')
 
