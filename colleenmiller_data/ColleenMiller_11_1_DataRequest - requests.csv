@@ -1,4 +1,5 @@
 GEE link,Dataset name,Variable name,Description,Range,Aggregate By,Julian Range,Valid Years,Notes
+https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MOD15A2H,Lai_500m,Leaf Area Index min,0,mean,1-365,,May want broader range later
 https://developers.google.com/earth-engine/datasets/catalog/COPERNICUS_CORINE_V20_100m#description,COPERNICUS/CORINE/V20/100m/{year},landcover,Classification bands,0,"mask - [211, 212, 213, 221, 222, 223, 231, 241, 242, 243, 244]",1-365,"[1990,2000,2006,2012,2018]",
 https://developers.google.com/earth-engine/datasets/catalog/COPERNICUS_CORINE_V20_100m#description,COPERNICUS/CORINE/V20/100m/{year},landcover,Classification bands,1000,"mask - [211, 212, 213, 221, 222, 223, 231, 241, 242, 243, 244]",1-365,"[1990,2000,2006,2012,2018]",
 https://developers.google.com/earth-engine/datasets/catalog/COPERNICUS_CORINE_V20_100m#description,COPERNICUS/CORINE/V20/100m/{year},landcover,Classification bands,10000,"mask - [211, 212, 213, 221, 222, 223, 231, 241, 242, 243, 244]",1-365,"[1990,2000,2006,2012,2018]",
@@ -10,7 +11,6 @@ https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MO
 https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MCD12Q2,MidGreendown_1,MidGreendown_1,0,mean,1-365,,May want broader range later
 https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MCD12Q2,Senescence_1,Senescence_1,0,mean,1-365,,May want broader range later
 https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MCD12Q2,Dormancy_1,Dormancy_1,0,mean,1-365,,May want broader range later
-https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MOD15A2H,Lai_500m,Leaf Area Index min,0,mean,1-365,,May want broader range later
 https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MOD15A2H,Lai_500m,Leaf Area Index max,0,mean,1-365,,May want broader range later
 https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MOD15A2H,Lai_500m,Leaf Area Index std dev,0,mean,1-365,,May want broader range later
 https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MODIS/006/MOD15A2H,Lai_500m,Leaf Area Index mean,0,mean,1-365,,May want broader range later

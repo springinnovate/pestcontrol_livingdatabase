@@ -123,9 +123,11 @@ def sample_dataset(dataset_name, variable_name, scale, julian_range, aggregate_f
                 circles = ee.FeatureCollection(points_chunk).map(
                     lambda feature: feature.buffer(scale)
                     if scale > 0 else feature)
+                nominal_scale = image.projection().nominalScale()
                 samples = image.toFloat().reduceRegions(
                     collection=circles,
-                    reducer=aggregate_function)
+                    reducer=aggregate_function,
+                    scale=nominal_scale.getInfo())
                 result_samples_by_year[year].extend([
                     (point['geometry']['coordinates'],
                      'NA'
@@ -134,10 +136,14 @@ def sample_dataset(dataset_name, variable_name, scale, julian_range, aggregate_f
                     for point, sample in
                     zip(ee.List(points_chunk).getInfo(),
                         samples.getInfo()['features'])])
-                LOGGER.debug(f'processed batch {i}')
+                LOGGER.debug(f'processed batch {i} on {dataset_name} {variable_name} {year}')
             except Exception:
-                LOGGER.exception(f'big error')
-                pass
+                LOGGER.exception(f'big error on {dataset_name} {variable_name} {year}')
+                # fill in an NA
+                result_samples_by_year[year].extend([
+                    (point['geometry']['coordinates'], 'NA')
+                    for point in
+                    ee.List(points_chunk).getInfo()])
 
     return result_samples_by_year
 
