@@ -73,6 +73,34 @@ def sample_dataset(year, point_list):
         landcover_masks = ee.ImageCollection(
             [image.eq(landcover_id).toFloat().rename(f'{landcover_id}')
              for landcover_id in CLASS_TABLE]).toBands()
+
+        radius = RESOLUTION*10
+        # Create a Euclidean distance kernel
+        euclidean_kernel = ee.Kernel.euclidean(radius, 'meters', False)
+
+        # Normalize the kernel so that the center is 0 and edges are 1
+        max_distance = ee.Image.constant(radius)
+        normalized_kernel = euclidean_kernel.divide(max_distance)
+
+        # Apply linear decay: weight = 1 - normalized distance
+        linear_decay_kernel = normalized_kernel.multiply(-1).add(1)
+
+        # Convert the kernel to an image
+        kernel_image = ee.Image(1).convolve(linear_decay_kernel)
+
+        # Compute the sum of the kernel elements
+        kernel_sum = kernel_image.reduceRegion(
+            reducer=ee.Reducer.sum(),
+            geometry=kernel_image.geometry(),
+            scale=radius,
+            maxPixels=1e9
+        ).getInfo()['constant']
+        LOGGER.debug(f'KERNEL SUM: {kernel_sum}')
+
+        # Normalize the kernel so that the sum is 1
+        normalized_sum_kernel = linear_decay_kernel.divide(kernel_sum)
+
+        landcover_masks = landcover_masks.convolve(normalized_sum_kernel)
         samples = landcover_masks.reduceRegions(
             collection=distance_circles,
             reducer=ee.Reducer.mean(),
@@ -161,7 +189,6 @@ def main():
                 temp_df = pandas.concat(
                     [temp_df, pandas.DataFrame({key: val_list})], axis=1)
             output_table = pandas.concat([output_table, temp_df], ignore_index=True)
-
 
     output_table = output_table.sort_values(by=[POINT_ID, 'Year'])
     output_table = output_table.drop(columns=[POINT_ID])
