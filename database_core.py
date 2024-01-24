@@ -2,6 +2,8 @@ import sqlalchemy
 from sqlalchemy import create_engine
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+from sqlalchemy import MetaData
+from sqlalchemy import Table, Column, Integer, String
 
 
 def main():
@@ -60,6 +62,21 @@ def main():
         result = session.execute(stmt, {"y": 6})
         for row in result:
             print(f"x: {row.x}  y: {row.y}")
+
+    print('metadata section')
+
+    metadata_obj = MetaData()
+
+    user_table = Table(
+        "user_account",
+        metadata_obj,
+        Column("id", Integer, primary_key=True),
+        Column("name", String(30)),
+        Column("fullname", String),
+    )
+
+    print(user_table.primary_key)
+
 
 if __name__ == '__main__':
     main()
