@@ -4,6 +4,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from sqlalchemy import MetaData
 from sqlalchemy import Table, Column, Integer, String
+from sqlalchemy import ForeignKey
 
 
 def main():
@@ -77,6 +78,24 @@ def main():
 
     print(user_table.primary_key)
 
+    address_table = Table(
+        "address",
+        metadata_obj,
+        Column("id", Integer, primary_key=True),
+        # we don't have to say the type of user_id since it's inferred from
+        #   user_account.id
+        Column("user_id", ForeignKey("user_account.id"), nullable=False),
+        Column("email_address", String, nullable=False),
+    )
+
+    metadata_obj.create_all(engine)
+    # metadata_obj.drop_all(engine) #  how to drop it
+
+    # For management of an application database schema over the long term
+    # a schema management tool such as Alembic, which builds upon SQLAlchemy,
+    # is likely a better choice, as it can manage and orchestrate the process
+    # of incrementally altering a fixed database schema over time as the design
+    # of the application changes.
 
 if __name__ == '__main__':
     main()
