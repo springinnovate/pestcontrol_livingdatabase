@@ -98,15 +98,33 @@ def _process_table(
         table, datasets_to_process, year_field, long_field, lat_field,
         buffer_size, cmd_args):
     pts_by_year = {}
+    # for year in table[year_field].unique():
+    #     year = int(year)  # somehow this was a float sometimes
+    #     pts_by_year[year] = ee.FeatureCollection([
+    #         ee.Feature(
+    #             ee.Geometry.Point(row[long_field], row[lat_field]).
+    #             buffer(buffer_size),
+    #             row.to_dict())
+    #         for index, row in table[
+    #             table[year_field] == year].iterrows()])
+
+    n_points_per_batch = 4000
     for year in table[year_field].unique():
-        year = int(year)  # somehow this was a float sometimes
-        pts_by_year[year] = ee.FeatureCollection([
-            ee.Feature(
-                ee.Geometry.Point(row[long_field], row[lat_field]).
-                buffer(buffer_size),
-                row.to_dict())
-            for index, row in table[
-                table[year_field] == year].iterrows()])
+        year = int(year)  # Convert year to int
+        year_data = table[table[year_field] == year]
+        num_batches = -(-len(year_data) // n_points_per_batch) # round up
+
+        batches = numpy.array_split(year_data, num_batches)
+        pts_by_year[year] = []
+        for batch in batches:
+            batch_collection = ee.FeatureCollection([
+                ee.Feature(
+                    ee.Geometry.Point(row[long_field], row[lat_field]).
+                    buffer(buffer_size),
+                    row.to_dict())
+                for index, row in batch.iterrows()])
+
+            pts_by_year[year].append(batch_collection)  # Append the batch collection to the year's list
 
     LOGGER.debug('calculating pheno variables')
     sample_scale = 1000
@@ -388,7 +406,7 @@ def _sample_pheno(
             indexed by the header field + year of sample.
     """
     # these variables are measured in days since 1-1-1970
-    executor = ThreadPoolExecutor(max_workers=24*3)
+    executor = ThreadPoolExecutor(max_workers=10)
     LOGGER.debug('starting phenological sampling')
     julian_day_variables = [
         'Greenup_1',
@@ -418,7 +436,7 @@ def _sample_pheno(
         header_fields = []
     header_fields_set = set(header_fields)
     band_and_bounds_by_id = {}
-    for year, year_points in pts_by_year.items():
+    for year, year_point_list in pts_by_year.items():
         year = int(year)
         raw_band_stack = None
         raw_band_names = []
@@ -554,15 +572,23 @@ def _sample_pheno(
                 nearest_year_image = nearest_year_image.rename(nearest_year_field_name)
                 all_bands = all_bands.addBands(nearest_year_image)
 
-        future = executor.submit(
-            _process_sample_regions, all_bands, year_points, sample_scale)
-        sample_future_list.append(future)
+        for year_points in year_point_list:
+            future = executor.submit(
+                _process_sample_regions, all_bands, year_points, sample_scale)
+            sample_future_list.append(future)
+
+        # Assuming collections is your list of ee.FeatureCollection objects
+        combined_geometry = ee.Geometry.MultiPolygon([])
+        for collection in year_point_list:
+            collection_geometry = collection.geometry()
+            combined_geometry = combined_geometry.union(collection_geometry)
+        point_bounds = combined_geometry.bounds()
 
         for band_id in header_fields:
             # Select the band from the all_bands.
             single_band_image = all_bands.select(band_id)
             band_and_bounds_by_id[f'{band_id}_{year}'] = (
-                single_band_image, year_points.geometry().bounds())
+                single_band_image, point_bounds)
 
     executor.shutdown()
     sample_list = [
