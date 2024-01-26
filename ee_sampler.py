@@ -44,12 +44,15 @@ def main():
             f'--dataset_{dataset_id}', default=False, action='store_true',
             help=f'use the {dataset_id} {datasets[dataset_id]["band_name"]} {datasets[dataset_id]["gee_dataset"]} dataset for masking')
     parser.add_argument(
-        '--precip_season_start_end', type=int, nargs=2, help=(
+        '--season_start_end', type=int, default=(1, 365), nargs=2, help=(
             'Two arguments defining the START day offset of the season from number of days away from Jan 1 of the '
             'current year (can be negative) to number of days away from Jan 1 for end of season (e.x. -100, 100 '
             'defines a season starting at Sep 23 of previous year to April 10 of current year.'))
     parser.add_argument(
         '--precip_aggregation_days', type=int, help='number of days to aggregate precipitation over to report in periods.')
+    parser.add_argument(
+        '--process_phenological_vars', action='store_true',
+        help='to process pheno variables too.')
     # 2) the natural habitat eo characteristics in and out of polygon
     # 3) proportion of area outside of polygon
 
@@ -65,9 +68,6 @@ def main():
         if PRECIP_SECTION in datasets[dataset_id])
 
     if precip_required:
-        if args.precip_season_start_end is None:
-            raise ValueError(
-                f'Expected --precip_season_start_end because {precip_required} is/are precip')
         if args.precip_aggregation_days is None:
             raise ValueError(
                 f'Expected --precip_aggregation_days because {precip_required} is/are precip')
@@ -94,7 +94,10 @@ def main():
         table, datasets_to_process, args.year_field, args.long_field,
         args.lat_field, args.buffer, vars(args))
 
-    with open(f'sampled_{args.buffer}m_{landcover_substring}_{os.path.basename(args.csv_path)}', 'w') as table_file:
+    table_file_path = (
+        f'sampled_{args.buffer}m_{landcover_substring}_'
+        f'{os.path.basename(args.csv_path)}')
+    with open(table_file_path, 'w') as table_file:
         table_file.write(
             ','.join(table.columns) + f',{",".join(header_fields)}\n')
         for sample in sample_list:
@@ -105,6 +108,7 @@ def main():
                 'invalid' if field not in sample['properties']
                 else str(sample['properties'][field])
                 for field in header_fields]) + '\n')
+    LOGGER.info(f'ALL DONE result in: {table_file_path}')
 
 
 if __name__ == '__main__':

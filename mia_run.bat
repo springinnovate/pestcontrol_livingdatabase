@@ -1,0 +1,1 @@
+call python ee_sampler.py "D:\Users\richp\Downloads\olive_prepped.csv" --year_field yr --long_field long --lat_field lat --buffer 30000 --n_rows 10
