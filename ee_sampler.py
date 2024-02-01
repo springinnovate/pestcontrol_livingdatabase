@@ -93,21 +93,33 @@ def main():
     header_fields, sample_list, _ = _process_table(
         table, datasets_to_process, args.year_field, args.long_field,
         args.lat_field, args.buffer, vars(args))
+    stddev_header_fields = [f'{field}_stddev' for field in header_fields]
 
+    interleaved_header_fields = [
+        field
+        for field_tuple in zip(header_fields, stddev_header_fields)
+        for field in field_tuple]
     table_file_path = (
         f'sampled_{args.buffer}m_{landcover_substring}_'
         f'{os.path.basename(args.csv_path)}')
     with open(table_file_path, 'w') as table_file:
         table_file.write(
-            ','.join(table.columns) + f',{",".join(header_fields)}\n')
-        for sample in sample_list:
+            ','.join(table.columns) + f',{",".join(interleaved_header_fields)}\n')
+        # we expect normal then stddevEV order of sample results
+        sample_list_itr = iter(sample_list)
+        for sample, sample_stddev in zip(sample_list_itr, sample_list_itr):
             table_file.write(','.join([
                 str(sample['properties'][key])
                 for key in table.columns]) + ',')
-            table_file.write(','.join([
+            base_sample_list = [
                 'invalid' if field not in sample['properties']
                 else str(sample['properties'][field])
-                for field in header_fields]) + '\n')
+                for field in header_fields]
+            stddev_sample_list = [
+                'invalid' if field not in sample_stddev['properties']
+                else str(sample_stddev['properties'][field])
+                for field in header_fields]
+            table_file.write(','.join([val for val_tuple in zip(base_sample_list, stddev_sample_list) for val in val_tuple]) + '\n')
     LOGGER.info(f'ALL DONE result in: {table_file_path}')
 
 

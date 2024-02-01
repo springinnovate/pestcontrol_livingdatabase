@@ -13,7 +13,6 @@ import uuid
 import time
 import threading
 
-
 from flask import request
 from flask import session
 from flask import jsonify
@@ -174,6 +173,8 @@ def process_file_worker(
             lat_lng_year_table, datasets_to_process,
             year_field, long_field, lat_field, buffer_size,
             precip_args)
+        LOGGER.debug(sample_list)
+        return
         result_payload['band_ids'] = list(band_and_bounds_by_id)
 
         landcover_substring = '_'.join([x['key'] for x in datasets_to_process])
@@ -591,10 +592,13 @@ def _sample_pheno(
                 single_band_image, point_bounds)
 
     executor.shutdown()
+
     sample_list = [
         feature
         for future in sample_future_list
-        for feature in future.result()]
+        for feature_tuple in zip(*future.result())
+        for feature in feature_tuple
+        ]
     return header_fields, sample_list, band_and_bounds_by_id
 
 
@@ -604,8 +608,13 @@ def _process_sample_regions(all_bands, year_points, sample_scale):
         'reducer': REDUCER,
         'scale': sample_scale,
     }).getInfo()
-    # TODO: return some other kind of geometry here?
-    return samples['features']
+
+    samples_stdev = all_bands.reduceRegions(**{
+        'collection': year_points,
+        'reducer': ee.Reducer.stdDev(),
+        'scale': sample_scale,
+    }).getInfo()
+    return (samples['features'], samples_stdev['features'])
 
 
 def get_download_url(global_task_id, task_id, raster_id):
