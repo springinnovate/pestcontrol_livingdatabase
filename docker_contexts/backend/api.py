@@ -134,6 +134,41 @@ def _process_table(
     return header_fields, sample_list, band_and_bounds_by_id
 
 
+def long_converter(x):
+    if x == '':
+        return None
+    try:
+        val = float(x)
+        if val > 180 or val < -180:
+            raise ValueError(f'{val} is outside the range of -180 to 180 expected by longitude.')
+        return x
+    except ValueError:
+        raise ValueError(f"Error converting '{x}' to float for long_field")
+
+def lat_converter(x):
+    if x == '':
+        return None
+    try:
+        val = float(x)
+        if val > 90 or val < -90:
+            raise ValueError(f'{val} is outside the range of -90 to 90 expected by latitude.')
+        return x
+    except ValueError:
+        raise ValueError(f"Error converting '{x}' to float for lat_field")
+
+def year_converter(x):
+    if x == '':
+        return None
+    try:
+        val = int(x)
+        if val > 2100 or val < 1950:
+            raise ValueError(f'expected a year value between 1950 and 2100 but got {val}')
+        return int(x)
+    except ValueError:
+        raise ValueError(f"Error converting '{x}' to int for year_field")
+
+
+
 def process_file_worker(
         file_basename, file_data, long_field, lat_field, year_field,
         buffer_size, datasets_to_process, task_id):
@@ -143,13 +178,10 @@ def process_file_worker(
             StringIO(file_data),
             skip_blank_lines=True,
             converters={
-                long_field: lambda x: None if x == '' else float(x),
-                lat_field: lambda x: None if x == '' else float(x),
-                year_field: lambda x: None if x == '' else int(x),
+                long_field: long_converter,
+                lat_field: lat_converter,
+                year_field: year_converter,
             }, low_memory=False)
-        # point_list = [
-        #     (row[1][0], row[1][1]) for row in table[
-        #         [lat_field, long_field]].iterrows()]
         input_table = input_table.dropna(subset=[lat_field, long_field, year_field])
         input_table = input_table.fillna('')
         lat_lng_year_table = input_table[[lat_field, long_field, year_field]]
