@@ -128,9 +128,10 @@ def _process_line(raw_line):
         for item in next(iter(csv.reader([line])))]
     # run any unicode fixes
     fixed_line = [
-        _replace_common_substring_errors(
-            ftfy.fix_text(
-                element, normalization='NFKC').replace('"', '').lower())
+        # _replace_common_substring_errors(
+        #     ftfy.fix_text(
+        #         element, normalization='NFKC').replace('"', '').lower())
+        ftfy.fix_text(element, normalization='NFKC').replace('"', '')
         for element in quoteless]
     return (','.join(
         [f'"{val}"' for val in fixed_line])+'\n').encode('utf-8')
@@ -193,8 +194,9 @@ def main():
         with open('missing.txt', 'w') as file:
             file.write('\n'.join(sorted(missing_letter_set)))
     table = pandas.read_csv(
-        scrubbed_file_path, encoding='utf-8', engine='python')
-    LOGGER.info(f'{table}')
+        args.table_path, encoding='utf-8', engine='python')
+    LOGGER.info(f'{table.head()}')
+    LOGGER.info(f'{table.columns}')
 
     # now iterate through the args.field_name pairs ....
     prob_array_list = []
@@ -215,15 +217,18 @@ def main():
                 'qgram', 'cosine', 'smith_waterman', 'lcs']:
             compare_cl.string(field_name, field_name, method=method)
 
-        LOGGER.info('Compute the comparison')
-        features = compare_cl.compute(pairs, clean_names, clean_names)
+        LOGGER.info(f'Compute the comparison: {pairs}\n\n{clean_names}')
+        try:
+            features = compare_cl.compute(pairs, clean_names, clean_names)
 
-        for prob_array, index_array in zip(features.values, features.index):
-            val1 = clean_names.loc[index_array[0], field_name]
-            val2 = clean_names.loc[index_array[1], field_name]
-            match_pair_list.append((val1, val2, field_name))
-            prob_array_list.append(
-                numpy.append(prob_array, [len(val1)/MAX_LINE_LEN, len(val2)/MAX_LINE_LEN]))
+            for prob_array, index_array in zip(features.values, features.index):
+                val1 = clean_names.loc[index_array[0], field_name]
+                val2 = clean_names.loc[index_array[1], field_name]
+                match_pair_list.append((val1, val2, field_name))
+                prob_array_list.append(
+                    numpy.append(prob_array, [len(val1)/MAX_LINE_LEN, len(val2)/MAX_LINE_LEN]))
+        except AttributeError:
+            LOGGER.warn(f'too few pairs to compare on {field_name}, no duplicates probably')
 
     classification_list = classifier.predict(prob_array_list)
     with open(f'replacement_{scrubbed_file_path}', 'w') as file:
