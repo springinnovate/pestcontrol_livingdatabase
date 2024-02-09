@@ -14,7 +14,6 @@ from sklearn.linear_model import LinearRegression
 import editdistance
 import ftfy
 import matplotlib.pyplot as plt
-import networkx as nx
 import numpy
 import pandas
 import recordlinkage
@@ -233,55 +232,6 @@ def main():
             if raw_class < 1:
                 continue
             file.write(f'{int(numpy.round(raw_class+0.25))},{",".join(match_pair)}\n')
-
-    sys.exit()
-
-    with open('training.csv', 'a', encoding='utf-8') as file:
-        match_list = []
-        for prob_array, index_array in zip(potential_matches.values, potential_matches.index):
-            avg_rate = numpy.average(prob_array)
-            if avg_rate < 0.5:
-                continue
-            val1 = clean_names.loc[index_array[0], field_name]
-            val2 = clean_names.loc[index_array[1], field_name]
-            match_string = (
-                f',"{val1}","{val2}",'
-                + ','.join(str(x) for x in prob_array) +
-                f',{len(val1)/max_len},{len(val2)/max_len}\n')
-            match_list.append((avg_rate, match_string))
-        for _, line in reversed(sorted(match_list)):
-            file.write(line)
-    return
-
-    LOGGER.info('Create a graph to store the matches')
-    G = nx.Graph()
-
-    LOGGER.info('Add an edge for each match')
-    for match in potential_matches.index:
-        G.add_edge(match[0], match[1])
-
-    LOGGER.info('Find connected components, which correspond to sets of matches')
-    match_sets = list(nx.connected_components(G))
-
-    candidate_table = f'candidate_table_{field_name}.csv'
-    LOGGER.info(f'Generating {candidate_table}')
-    processed_set = set()
-
-    with open(candidate_table, 'wb') as candidate_table:
-        candidate_table.write(b'\xEF\xBB\xBF')
-        for match_set in match_sets:
-            similar_list = [clean_names.loc[i, field_name] for i in match_set]
-            # Sort names by length (descending) and number of non-ASCII characters (ascending)
-            similar_list = list(sorted(
-                similar_list, key=lambda name: -count_valid_characters(name)))
-            candidate_table.write(
-                (','.join([f'"{name}"' for name in similar_list]) + '\n').encode('utf-8'))
-            local_table = table.copy()
-            local_table.replace(
-                {field_name: similar_list[1:]}, similar_list[0],
-                inplace=True)
-            local_table[field_name] = clean(local_table[field_name])
-            local_table.to_csv(field_name + '.csv')
 
 
 if __name__ == '__main__':

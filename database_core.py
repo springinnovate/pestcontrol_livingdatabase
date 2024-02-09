@@ -27,6 +27,7 @@ class User(Base):
     def __repr__(self) -> str:
         return f"User(id_key={self.id_key!r}, name={self.name!r}, fullname={self.fullname!r})"
 
+
 class Address(Base):
     __tablename__ = "address"
     id: Mapped[int] = mapped_column(primary_key=True)
