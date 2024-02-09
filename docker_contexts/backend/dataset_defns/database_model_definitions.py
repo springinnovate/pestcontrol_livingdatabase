@@ -1,4 +1,7 @@
-"""Database definitions for news articles and their classifications."""
+"""Database definitions for news articles and their classifications.
+
+Defined from: https://docs.google.com/spreadsheets/d/1yZwc7fPB0kHI9F5jdgUKuNflgkQF7SHS/edit#gid=1487741928
+"""
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
