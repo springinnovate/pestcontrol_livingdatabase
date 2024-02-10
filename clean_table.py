@@ -193,8 +193,15 @@ def main():
                 scrubbed_file.write(line)
         with open('missing.txt', 'w') as file:
             file.write('\n'.join(sorted(missing_letter_set)))
-    table = pandas.read_csv(
-        args.table_path, encoding='utf-8', engine='python')
+    table = None
+    for encoding in ['utf8', 'latin1', 'cp1252']:
+        try:
+            table = pandas.read_csv(args.table_path, engine='python', encoding=encoding)
+            break
+        except UnicodeDecodeError:
+            pass
+    if table is None:
+        raise RuntimeError(f'could not decode {args.table_path}')
     LOGGER.info(f'{table.head()}')
     LOGGER.info(f'{table.columns}')
 

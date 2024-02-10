@@ -17,40 +17,45 @@ class Base(DeclarativeBase):
 class Study(Base):
     __tablename__ = 'study'
     id_key: Mapped[int] = mapped_column(primary_key=True)
-    study_id = Mapped[str]
-    data_contributor = Mapped[str]
-    data_contributor_contact_info = Mapped[str]
-    paper_doi = Mapped[List[str]]
-    metadata = Mapped[str]
-    response_types = Mapped[str]
-    names_of_covariates = Mapped[List[str]]
+    study_id: Mapped[str]
+    data_contributor: Mapped[str]
+    data_contributor_contact_info: Mapped[str]
+    paper_doi: Mapped[List["DOI"]]
+    metadata: Mapped[str]
+    response_types: Mapped[str]
     samples: Mapped[Optional["Sample"]] = relationship(back_populates="study")
+
+
+class DOI(Base):
+    __tablename__ = 'doi'
+    id_key: Mapped[int] = mapped_column(primary_key=True)
+    doi: Mapped[str]
 
 
 class Sample(Base):
     __tablename__ = 'sample'
     id_key: Mapped[int] = mapped_column(primary_key=True)
     study: Mapped[Study]
-    latitude = Mapped[float]
-    longitude = Mapped[float]
-    manager = Mapped[Optional[str]]
-    year = Mapped[int]
-    month = Mapped[Optional[int]]
-    day = Mapped[Optional[int]]
-    local_time = Mapped[Optional[str]]
-    replicate = Mapped[Optional[str]]
-    sampling_effort = Mapped[str]
-    observation = Mapped[str]
-    observer_id = Mapped[str]
-    response_variable = Mapped[str]
-    units = Mapped[str]
-    sampling_method = Mapped[str]
-    sampler_type = Mapped[str]
-    functional_type = Mapped[str]
-    crop_commercial_name = Mapped[str]
-    crop_latin_name = Mapped[str]
-    growth_stage_of_crop_at_sampling = Mapped[Optional[str]]
-    covariate_list = Mapped[Optional["Covariate"]] = relationship(
+    latitude: Mapped[float]
+    longitude: Mapped[float]
+    manager: Mapped[Optional[str]]
+    year: Mapped[int]
+    month: Mapped[Optional[int]]
+    day: Mapped[Optional[int]]
+    local_time: Mapped[Optional[str]]
+    replicate: Mapped[Optional[str]]
+    sampling_effort: Mapped[str]
+    observation: Mapped[str]
+    observer_id: Mapped[str]
+    response_variable: Mapped[str]
+    units: Mapped[str]
+    sampling_method: Mapped[str]
+    sampler_type: Mapped[str]
+    functional_type: Mapped[str]
+    crop_commercial_name: Mapped[str]
+    crop_latin_name: Mapped[str]
+    growth_stage_of_crop_at_sampling: Mapped[Optional[str]]
+    covariate_list: Mapped[Optional["Covariate"]] = relationship(
         back_populates="sample")
 
 
@@ -63,8 +68,8 @@ class Covariate(Base):
     sample: Mapped[Sample]
 
 
-class Abudance(Base):
-    __tablename__ = 'abudance'
+class Abundance(Base):
+    __tablename__ = 'abundance'
     abundance_class: Mapped[Optional[str]]
     order: Mapped[Optional[str]]
     family: Mapped[Optional[str]]
