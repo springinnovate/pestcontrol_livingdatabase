@@ -7,7 +7,6 @@ from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
 from sqlalchemy import ForeignKey
-from sqlalchemy import Integer
 from typing import List
 from typing import Optional
 
@@ -96,17 +95,17 @@ class Abundance(Base):
 class Activity(Base):
     __tablename__ = 'activity'
     id_key: Mapped[int] = mapped_column(primary_key=True)
-    Pest_class: Mapped[Optional[str]]
-    Pest_order: Mapped[Optional[str]]
-    Pest_family: Mapped[Optional[str]]
-    Pest_species: Mapped[Optional[str]]
-    Pest_sub_species: Mapped[Optional[str]]
-    Pest_morphospecies: Mapped[Optional[str]]
-    Pest_life_stage: Mapped[Optional[str]]
-    Enemy_class: Mapped[Optional[str]]
-    Enemy_order: Mapped[Optional[str]]
-    Enemy_family: Mapped[Optional[str]]
-    Enemy_species: Mapped[Optional[str]]
-    Enemy_sub_species: Mapped[Optional[str]]
-    Enemy_morphospecies: Mapped[Optional[str]]
-    Enemy_lifestage: Mapped[Optional[str]]
+    pest_class: Mapped[Optional[str]]
+    pest_order: Mapped[Optional[str]]
+    pest_family: Mapped[Optional[str]]
+    pest_species: Mapped[Optional[str]]
+    pest_sub_species: Mapped[Optional[str]]
+    pest_morphospecies: Mapped[Optional[str]]
+    pest_life_stage: Mapped[Optional[str]]
+    enemy_class: Mapped[Optional[str]]
+    enemy_order: Mapped[Optional[str]]
+    enemy_family: Mapped[Optional[str]]
+    enemy_species: Mapped[Optional[str]]
+    enemy_sub_species: Mapped[Optional[str]]
+    enemy_morphospecies: Mapped[Optional[str]]
+    enemy_lifestage: Mapped[Optional[str]]
