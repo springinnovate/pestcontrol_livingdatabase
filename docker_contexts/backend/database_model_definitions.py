@@ -10,6 +10,8 @@ from sqlalchemy import ForeignKey
 from typing import List
 from typing import Optional
 
+RESERVED_NAMES = ['covariate']
+
 
 class Base(DeclarativeBase):
     pass
@@ -66,22 +68,7 @@ class Sample(Base):
     functional_type: Mapped[str]
     crop_commercial_name: Mapped[str]
     crop_latin_name: Mapped[str]
-    growth_stage_of_crop_at_sampling: Mapped[Optional[str]]
-    covariates: Mapped[List["Covariate"]] = relationship("Covariate", back_populates="sample")
 
-
-class Covariate(Base):
-    __tablename__ = 'covariate'
-    id_key: Mapped[int] = mapped_column(primary_key=True)
-    category: Mapped[str]
-    name: Mapped[str]
-    value: Mapped[str]
-    sample: Mapped["Sample"] = relationship(back_populates="covariates")
-
-
-class Abundance(Base):
-    __tablename__ = 'abundance'
-    id_key: Mapped[int] = mapped_column(primary_key=True)
     abundance_class: Mapped[Optional[str]]
     order: Mapped[Optional[str]]
     family: Mapped[Optional[str]]
@@ -90,11 +77,6 @@ class Abundance(Base):
     sub_species: Mapped[Optional[str]]
     morphospecies: Mapped[Optional[str]]
     life_stage: Mapped[Optional[str]]
-
-
-class Activity(Base):
-    __tablename__ = 'activity'
-    id_key: Mapped[int] = mapped_column(primary_key=True)
     pest_class: Mapped[Optional[str]]
     pest_order: Mapped[Optional[str]]
     pest_family: Mapped[Optional[str]]
@@ -109,3 +91,15 @@ class Activity(Base):
     enemy_sub_species: Mapped[Optional[str]]
     enemy_morphospecies: Mapped[Optional[str]]
     enemy_lifestage: Mapped[Optional[str]]
+    growth_stage_of_crop_at_sampling: Mapped[Optional[str]]
+    covariates: Mapped[List["Covariate"]] = relationship(
+        back_populates="sample")
+
+
+class Covariate(Base):
+    __tablename__ = 'covariate'
+    id_key: Mapped[int] = mapped_column(primary_key=True)
+    covariate_category: Mapped[Optional[str]]
+    covariate_name: Mapped[str]
+    covariate_value: Mapped[str]
+    sample: Mapped["Sample"] = relationship(back_populates="covariates")
