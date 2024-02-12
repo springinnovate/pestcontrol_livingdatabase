@@ -6,6 +6,8 @@ from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import Mapped
 from sqlalchemy.orm import mapped_column
 from sqlalchemy.orm import relationship
+from sqlalchemy import ForeignKey
+from sqlalchemy import Integer
 from typing import List
 from typing import Optional
 
@@ -20,22 +22,33 @@ class Study(Base):
     study_id: Mapped[str]
     data_contributor: Mapped[str]
     data_contributor_contact_info: Mapped[str]
-    paper_doi: Mapped[List["DOI"]]
-    metadata: Mapped[str]
+    study_metadata: Mapped[str]
     response_types: Mapped[str]
     samples: Mapped[Optional["Sample"]] = relationship(back_populates="study")
+    paper_dois = relationship(
+        "DOI", secondary="StudyDOIAssociation", back_populates="studies")
 
 
 class DOI(Base):
     __tablename__ = 'doi'
     id_key: Mapped[int] = mapped_column(primary_key=True)
     doi: Mapped[str]
+    studies = relationship(
+        "Study", secondary="StudyDOIAssociation", back_populates="paper_dois")
+
+
+class StudyDOIAssociation(Base):
+    __tablename__ = 'study_doi'
+    study_id: Mapped[int] = mapped_column(
+        ForeignKey('study.id_key'), primary_key=True)
+    doi_id: Mapped[int] = mapped_column(
+        ForeignKey('doi.id_key'), primary_key=True)
 
 
 class Sample(Base):
     __tablename__ = 'sample'
     id_key: Mapped[int] = mapped_column(primary_key=True)
-    study: Mapped[Study]
+    study: Mapped[Study] = relationship(back_populates="id_key")
     latitude: Mapped[float]
     longitude: Mapped[float]
     manager: Mapped[Optional[str]]
@@ -55,8 +68,7 @@ class Sample(Base):
     crop_commercial_name: Mapped[str]
     crop_latin_name: Mapped[str]
     growth_stage_of_crop_at_sampling: Mapped[Optional[str]]
-    covariate_list: Mapped[Optional["Covariate"]] = relationship(
-        back_populates="sample")
+    covariates: Mapped[List["Covariate"]] = relationship("Covariate", back_populates="sample")
 
 
 class Covariate(Base):
@@ -65,11 +77,12 @@ class Covariate(Base):
     category: Mapped[str]
     name: Mapped[str]
     value: Mapped[str]
-    sample: Mapped[Sample]
+    sample: Mapped["Sample"] = relationship(back_populates="covariates")
 
 
 class Abundance(Base):
     __tablename__ = 'abundance'
+    id_key: Mapped[int] = mapped_column(primary_key=True)
     abundance_class: Mapped[Optional[str]]
     order: Mapped[Optional[str]]
     family: Mapped[Optional[str]]
@@ -81,6 +94,8 @@ class Abundance(Base):
 
 
 class Activity(Base):
+    __tablename__ = 'activity'
+    id_key: Mapped[int] = mapped_column(primary_key=True)
     Pest_class: Mapped[Optional[str]]
     Pest_order: Mapped[Optional[str]]
     Pest_family: Mapped[Optional[str]]
