@@ -63,7 +63,7 @@ def main():
 
     study_map = {}
     for index, row in sample_table.iterrows():
-        print(f'{index} of {len(sample_table.index)}')
+        print(f'{100*index/len(sample_table.index):.2f}%')
         new_doi = None
         sample_dict = dict()
         covariate_dict_list = []

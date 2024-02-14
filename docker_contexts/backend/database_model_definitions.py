@@ -62,7 +62,7 @@ class Sample(Base):
     day: Mapped[Optional[int]]
     local_time: Mapped[Optional[str]]
     replicate: Mapped[Optional[str]]
-    sampling_effort: Mapped[str]
+    sampling_effort: Mapped[Optional[str]]
     observation: Mapped[str]
     observer_id: Mapped[Optional[str]]
     response_variable: Mapped[str]
