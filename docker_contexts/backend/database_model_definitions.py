@@ -1,6 +1,7 @@
 """Database definitions for news articles and their classifications.
 
-Defined from: https://docs.google.com/spreadsheets/d/1yZwc7fPB0kHI9F5jdgUKuNflgkQF7SHS/edit#gid=1487741928
+Defined from:
+https://docs.google.com/spreadsheets/d/1yZwc7fPB0kHI9F5jdgUKuNflgkQF7SHS/edit#gid=1487741928
 """
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import Mapped
@@ -9,25 +10,35 @@ from sqlalchemy.orm import relationship
 from sqlalchemy import ForeignKey
 from typing import List
 from typing import Optional
+from sqlalchemy import Table, Column, Integer, ForeignKey, MetaData
 
-RESERVED_NAMES = ['covariate']
+COVARIATE_ID = 'covariate'
+DOI_ID = 'doi'
+RESERVED_NAMES = [COVARIATE_ID]
 
 
 class Base(DeclarativeBase):
     pass
 
 
+StudyDOIAssociation = Table(
+    'study_doi_association', Base.metadata,
+    Column('study_id', Integer, ForeignKey('study.id_key'), primary_key=True),
+    Column('doi_id', Integer, ForeignKey('doi.id_key'), primary_key=True)
+)
+
+
 class Study(Base):
     __tablename__ = 'study'
     id_key: Mapped[int] = mapped_column(primary_key=True)
     study_id: Mapped[str]
-    data_contributor: Mapped[str]
-    data_contributor_contact_info: Mapped[str]
-    study_metadata: Mapped[str]
-    response_types: Mapped[str]
-    samples: Mapped[Optional["Sample"]] = relationship(back_populates="study")
+    data_contributor: Mapped[Optional[str]]
+    data_contributor_contact_info: Mapped[Optional[str]]
+    study_metadata: Mapped[Optional[str]]
+    response_types: Mapped[Optional[str]]
     paper_dois = relationship(
-        "DOI", secondary="StudyDOIAssociation", back_populates="studies")
+        "DOI", secondary=StudyDOIAssociation, back_populates="studies")
+    samples: Mapped[List["Sample"]] = relationship("Sample", back_populates="study")
 
 
 class DOI(Base):
@@ -35,21 +46,14 @@ class DOI(Base):
     id_key: Mapped[int] = mapped_column(primary_key=True)
     doi: Mapped[str]
     studies = relationship(
-        "Study", secondary="StudyDOIAssociation", back_populates="paper_dois")
-
-
-class StudyDOIAssociation(Base):
-    __tablename__ = 'study_doi'
-    study_id: Mapped[int] = mapped_column(
-        ForeignKey('study.id_key'), primary_key=True)
-    doi_id: Mapped[int] = mapped_column(
-        ForeignKey('doi.id_key'), primary_key=True)
+        "Study", secondary=StudyDOIAssociation, back_populates="paper_dois")
 
 
 class Sample(Base):
     __tablename__ = 'sample'
     id_key: Mapped[int] = mapped_column(primary_key=True)
-    study: Mapped[Study] = relationship(back_populates="id_key")
+    study_id: Mapped[int] = mapped_column(ForeignKey('study.id_key'))
+    study: Mapped[Study] = relationship("Study", back_populates="samples")
     latitude: Mapped[float]
     longitude: Mapped[float]
     manager: Mapped[Optional[str]]
@@ -68,7 +72,6 @@ class Sample(Base):
     functional_type: Mapped[str]
     crop_commercial_name: Mapped[str]
     crop_latin_name: Mapped[str]
-
     abundance_class: Mapped[Optional[str]]
     order: Mapped[Optional[str]]
     family: Mapped[Optional[str]]
@@ -99,6 +102,7 @@ class Sample(Base):
 class Covariate(Base):
     __tablename__ = 'covariate'
     id_key: Mapped[int] = mapped_column(primary_key=True)
+    sample_id: Mapped[int] = mapped_column(ForeignKey('sample.id_key'))
     covariate_category: Mapped[Optional[str]]
     covariate_name: Mapped[str]
     covariate_value: Mapped[str]

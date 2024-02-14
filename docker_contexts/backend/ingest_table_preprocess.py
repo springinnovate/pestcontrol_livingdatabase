@@ -28,11 +28,14 @@ def main():
     sample_columns = [(column.name, column.nullable) for column in inspector.columns]
     inspector = inspect(Covariate)
     covariate_columns = [(column.name, column.nullable) for column in inspector.columns]
+    inspector = inspect(DOI)
+    doi_columns = [(column.name, column.nullable) for column in inspector.columns]
+
 
     with open('table_mapping.csv', 'w') as table:
         table.write('input columns,database column,base columns,required\n')
         for column_val, csv_column_name in zip_longest(
-                study_columns+sample_columns+covariate_columns,
+                study_columns+sample_columns+covariate_columns+doi_columns,
                 df.columns
                 ):
             if column_val is None:
