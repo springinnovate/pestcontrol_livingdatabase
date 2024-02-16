@@ -10,7 +10,8 @@ from sqlalchemy.orm import relationship
 from sqlalchemy import ForeignKey
 from typing import List
 from typing import Optional
-from sqlalchemy import Table, Column, Integer, ForeignKey, MetaData
+from sqlalchemy import Table, Column, Integer, ForeignKey
+
 
 COVARIATE_ID = 'covariate'
 DOI_ID = 'doi'
