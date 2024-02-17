@@ -523,11 +523,21 @@ def _sample_pheno(
             if raw_band_names[-1] not in header_fields_set:
                 header_fields.append(raw_band_names[-1])
                 header_fields_set.add(header_fields[-1])
-            seasonal_band = seasonal_dataset.filterDate(
-                start_date, end_date).reduce(
-                datasets[seasonal_dataset_id][SEASONAL_SECTION][AGGREGATE_FUNCTION_FIELD]).rename(
-                total_seasonal_bandname)
 
+            if 'limit_to_n_samples' in cmd_args:
+                mode, sample_count = cmd_args['limit_to_n_samples']
+                sample_count = int(sample_count)
+
+                sorted_dataset = seasonal_dataset.filterDate(start_date, end_date).sort(
+                    'temperature', mode == 'bottom')
+                _seasonal_band = sorted_dataset.limit(sample_count)
+            else:
+                _seasonal_band = seasonal_dataset.filterDate(
+                    start_date, end_date)
+
+            seasonal_band = _seasonal_band.reduce(
+                    datasets[seasonal_dataset_id][SEASONAL_SECTION][AGGREGATE_FUNCTION_FIELD]).rename(
+                    total_seasonal_bandname)
             while True:
                 if current_day >= end_day:
                     break

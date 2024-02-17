@@ -53,6 +53,8 @@ def main():
     parser.add_argument(
         '--process_phenological_vars', action='store_true',
         help='to process pheno variables too.')
+    parser.add_argument(
+        '--limit_to_n_samples', nargs=2, help='[top|bottom] [count] limit the number of samples of days to this many')
     # 2) the natural habitat eo characteristics in and out of polygon
     # 3) proportion of area outside of polygon
 
