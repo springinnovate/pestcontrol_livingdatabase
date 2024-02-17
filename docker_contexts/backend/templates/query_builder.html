@@ -11,18 +11,20 @@
     <div id="queryBuilder">
         <!-- Query row template -->
         <div class="queryRow">
-            <select name="field[]">
-                <option value="field1">Field 1</option>
-                <option value="field2">Field 2</option>
-                <!-- Add more fields as needed -->
+            <label for="fieldSelect">Choose a field:</label>
+            <select name="field" id="fieldSelect">
+                <!-- Use Jinja2 to loop through the fields and create an option for each one -->
+                {% for field in fields %}
+                    <option value="{{ field }}">{{ field }}</option>
+                {% endfor %}
             </select>
-            <select name="operation[]">
+            <select name="operation">
                 <option value="=">=</option>
                 <option value=">">&gt;</option>
                 <option value="<">&lt;</option>
                 <!-- Add more operations as needed -->
             </select>
-            <input type="text" name="value[]">
+            <input type="text" name="value">
             <button type="button" onclick="removeRow(this)">Remove</button>
         </div>
     </div>

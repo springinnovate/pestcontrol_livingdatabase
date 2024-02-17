@@ -5,6 +5,7 @@ from flask import request
 import configparser
 from database import SessionLocal, init_db
 from database_model_definitions import Study, DOI, Sample, Covariate, COVARIATE_ID, DOI_ID
+from sqlalchemy import inspect
 
 config = configparser.ConfigParser()
 config.read('alembic.ini')
@@ -24,18 +25,38 @@ def index():
 
 @app.route('/home')
 def home():
-    return render_template('query_builder.html')
+    inspector = inspect(Study)
+    print(inspector.columns.id_key)
+    study_columns = [
+        column.name for column in inspector.columns
+        if not column.primary_key]
+    inspector = inspect(Sample)
+    sample_columns = [
+        column.name for column in inspector.columns
+        if not column.primary_key]
+    inspector = inspect(Covariate)
+    covariate_columns = [
+        column.name for column in inspector.columns
+        if not column.primary_key]
+
+    return render_template(
+        'query_builder.html',
+        fields=study_columns+sample_columns+covariate_columns)
 
 
 @app.route('/process_query', methods=['POST'])
 def process_query():
-    fields = request.form.getlist('field[]')
-    operations = request.form.getlist('operation[]')
-    values = request.form.getlist('value[]')
+    fields = request.form.getlist('field')
+    operations = request.form.getlist('operation')
+    values = request.form.getlist('value')
+
+    session = SessionLocal()
+    # Example: Fetch all records from ExampleModel
+    samples = session.query(Sample).all()
 
     # Example of how you might process these queries
     for field, operation, value in zip(fields, operations, values):
-        print(f"{field} {operation} {value}")
+        print(f"query: {field} {operation} {value}")
         # Build your query based on the input
     return "Query processed"
 
