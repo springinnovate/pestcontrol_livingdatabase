@@ -535,9 +535,13 @@ def _sample_pheno(
                 _seasonal_band = seasonal_dataset.filterDate(
                     start_date, end_date)
 
+            _reduce_fn = cmd_args['override_aggregate']
+            if _reduce_fn is None:
+                # default to the dataset default
+                _reduce_fn = datasets[seasonal_dataset_id][SEASONAL_SECTION][AGGREGATE_FUNCTION_FIELD]
             seasonal_band = _seasonal_band.reduce(
-                    datasets[seasonal_dataset_id][SEASONAL_SECTION][AGGREGATE_FUNCTION_FIELD]).rename(
-                    total_seasonal_bandname)
+                _reduce_fn).rename(
+                total_seasonal_bandname)
             while True:
                 if current_day >= end_day:
                     break
