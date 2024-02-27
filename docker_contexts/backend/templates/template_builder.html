@@ -5,53 +5,119 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Living Database Template Builder</title>
 </head>
+<style>
+    body {
+        font-family: Arial, sans-serif;
+    }
+    #templateForm {
+        width: 80%;
+        margin: 20px auto;
+        padding: 20px;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+    }
+    .builderRow, .covariateRow, .covariateEntry, .covariateCategory {
+        margin-bottom: 10px;
+    }
+    label {
+        display: inline-block;
+        width: 180px;
+        text-align: right;
+        margin-right: 10px;
+    }
+    input[type="text"] {
+        width: 60%;
+        padding: 8px;
+        margin: 4px 0;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+    }
+    button {
+        margin-left: 190px;
+        padding: 8px 16px;
+        background-color: #007bff;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+    button:hover {
+        background-color: #0056b3;
+    }
+    input[type="submit"] {
+        padding: 8px 16px;
+        background-color: #28a745;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        margin-left: 190px;
+    }
+    input[type="submit"]:hover {
+        background-color: #218838;
+    }
+    .section-header {
+        margin-top: 20px;
+        padding-top: 10px;
+        border-top: 2px solid #ccc;
+        font-size: 20px;
+        font-weight: bold;
+        color: #333;
+    }
+</style>
 <body>
 
-<form id="queryForm" action="/process_query" method="post">
+<form id="templateForm" action="/build_template" method="post">
     <div id="templateBuilder">
+        <div class="section-header">Study Level Variables</div>
         {% for study_level_field in study_level_fields %}
         <div class="builderRow">
             <label for="fieldSelect">{{study_level_field}}</label>
-            <input type="text" id="{{study_level_field}}" name="{{study_level_field}}">
+            <input type="text" name="{{study_level_field}}">
         </div>
         {% endfor %}
-        <div class="covariateRow">
-            <div class="covariateEntry">
-                <label for="">Covariate Name</label>
-                <input type="text" id="" name="">
-            </div>
-            <div class="covariateCategory">
-                <label for="">Covariate Name</label>
-                <input type="text" id="" name="">
-            </div>
-            <button type="button" onclick="removeRow(this)">Remove</button>
+        <div class="section-header">Covariate Variables</div>
+        <div id="templateBuilder">
+            <!-- Empty initially, rows will be added by JavaScript -->
         </div>
     </div>
     <button type="button" onclick="addRow()">Add Covariate</button>
-    <input type="submit">
+    <div class="section-header"></div>
+    <div style="text-align: center; margin-top: 20px;">
+        <input type="submit" value="Generate Template" style="margin-top: 20px;">
+    </div>
 </form>
 
 <script>
-function addRow() {
-    const templateBuilder = document.getElementById("templateBuilder");
-    // Use querySelector to select the first .covariateRow to clone
-    const covariateRow = templateBuilder.querySelector(".covariateRow").cloneNode(true);
-
-    // Clear the input values in the cloned row
-    covariateRow.querySelectorAll("input[type=text]").forEach(input => {
-        input.value = "";
-    });
-    // Append the cloned and cleared row to the end of the templateBuilder
-    templateBuilder.appendChild(covariateRow);
-}
-
+var covariateCounter = 0; // Initialize a counter to make unique names
 function removeRow(button) {
-    if (document.getElementsByClassName("queryRow").length > 1) {
+    if (document.getElementsByClassName("covariateRow").length > 1) {
         button.parentNode.remove();
+        covariateCounter -= 1;
     } else {
         alert("You must have at least one condition.");
     }
 }
+
+function addRow() {
+    const templateBuilder = document.getElementById("templateBuilder");
+    const newRow = document.createElement("div"); // Create a new div for the covariate row
+    newRow.className = "covariateRow";
+    newRow.innerHTML = `
+        <div class="covariateEntry">
+            <label>Covariate Name</label>
+            <input type="text" name="covariate_name_${covariateCounter}">
+        </div>
+        <div class="covariateCategory">
+            <label>Covariate Category</label>
+            <input type="text" name="covariate_category_${covariateCounter}">
+        </div>
+        <button type="button" onclick="removeRow(this)">Remove</button>
+    `;
+    templateBuilder.appendChild(newRow);
+    covariateCounter++; // Increment the counter
+}
+
 </script>
 
 </body>

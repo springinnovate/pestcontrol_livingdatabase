@@ -55,6 +55,21 @@ def template():
         study_level_fields=STUDY_LEVEL_VARIABLES)
 
 
+@app.route('/build_template', methods=['POST'])
+def build_template():
+    data = {}
+    # Loop through the request.form dictionary
+    for key in request.form:
+        # Store each form input value in the data dictionary using its name as the key
+        data[key] = request.form[key]
+
+    # Now data contains all your form inputs, and you can use it as needed
+    # For example, print it to the console
+    print(data)
+
+    return data
+
+
 @app.route('/process_query', methods=['POST'])
 def process_query():
     fields = request.form.getlist('field')
