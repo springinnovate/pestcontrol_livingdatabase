@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Living Database Template Builder</title>
+</head>
+<body>
+
+<form id="queryForm" action="/process_query" method="post">
+    <div id="templateBuilder">
+        {% for study_level_field in study_level_fields %}
+        <div class="builderRow">
+            <label for="fieldSelect">{{study_level_field}}</label>
+            <input type="text" id="{{study_level_field}}" name="{{study_level_field}}">
+        </div>
+        {% endfor %}
+        <div class="covariateRow">
+            <div class="covariateEntry">
+                <label for="">Covariate Name</label>
+                <input type="text" id="" name="">
+            </div>
+            <div class="covariateCategory">
+                <label for="">Covariate Name</label>
+                <input type="text" id="" name="">
+            </div>
+            <button type="button" onclick="removeRow(this)">Remove</button>
+        </div>
+    </div>
+    <button type="button" onclick="addRow()">Add Covariate</button>
+    <input type="submit">
+</form>
+
+<script>
+function addRow() {
+    const templateBuilder = document.getElementById("templateBuilder");
+    // Use querySelector to select the first .covariateRow to clone
+    const covariateRow = templateBuilder.querySelector(".covariateRow").cloneNode(true);
+
+    // Clear the input values in the cloned row
+    covariateRow.querySelectorAll("input[type=text]").forEach(input => {
+        input.value = "";
+    });
+    // Append the cloned and cleared row to the end of the templateBuilder
+    templateBuilder.appendChild(covariateRow);
+}
+
+function removeRow(button) {
+    if (document.getElementsByClassName("queryRow").length > 1) {
+        button.parentNode.remove();
+    } else {
+        alert("You must have at least one condition.");
+    }
+}
+</script>
+
+</body>
+</html>

@@ -10,12 +10,44 @@ from sqlalchemy.orm import relationship
 from sqlalchemy import ForeignKey
 from typing import List
 from typing import Optional
-from sqlalchemy import Table, Column, Integer, ForeignKey
+from sqlalchemy import Table, Column, Integer
 
 
 COVARIATE_ID = 'covariate'
 DOI_ID = 'doi'
 RESERVED_NAMES = [COVARIATE_ID]
+
+STUDY_LEVEL_VARIABLES = [
+    'Study ID',
+    'Data contributor',
+    'Data contributor contact info',
+    'Paper(s) DOI',
+    'Metadata',
+    'Response types',
+    'Privacy',
+]
+
+BASE_FIELDS = [
+    'Latitude',
+    'Longitude',
+    'Manager',
+    'Year',
+    'Month',
+    'Day',
+    'Time',
+    'Replicate',
+    'Sampling effort',
+    'Observation',
+    'Observer ID',
+    'Response variable',
+    'Units',
+    'Sampling method',
+    'Sampler type',
+    'Functional type',
+    'Crop commercial name',
+    'Crop latin name',
+    'Growth stage of crop at sampling',
+    ]
 
 
 class Base(DeclarativeBase):

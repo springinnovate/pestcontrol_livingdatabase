@@ -3,9 +3,13 @@ from flask import render_template
 from flask import request
 
 import configparser
-from database import SessionLocal, init_db
-from database_model_definitions import Study, DOI, Sample, Covariate, COVARIATE_ID, DOI_ID
+from database import SessionLocal
+from database_model_definitions import Study, Sample, Covariate
 from sqlalchemy import inspect
+
+from database_model_definitions import STUDY_LEVEL_VARIABLES
+from database_model_definitions import BASE_FIELDS
+
 
 config = configparser.ConfigParser()
 config.read('alembic.ini')
@@ -42,6 +46,13 @@ def home():
     return render_template(
         'query_builder.html',
         fields=study_columns+sample_columns+covariate_columns)
+
+
+@app.route('/template')
+def template():
+    return render_template(
+        'template_builder.html',
+        study_level_fields=STUDY_LEVEL_VARIABLES)
 
 
 @app.route('/process_query', methods=['POST'])

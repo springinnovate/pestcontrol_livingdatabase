@@ -1,4 +1,6 @@
 from jinja2 import Template
+from database_model_definitions import STUDY_LEVEL_VARIABLES
+from database_model_definitions import BASE_FIELDS
 
 
 def main():
@@ -9,36 +11,7 @@ def main():
     living_database_template = Template(template_content)
 
     # Define the variables to fill in the template
-    study_level_variables = [
-        'Study ID',
-        'Data contributor',
-        'Data contributor contact info',
-        'Paper(s) DOI',
-        'Metadata',
-        'Response types',
-        'Privacy',
-    ]
-    headers = [
-        'Latitude',
-        'Longitude',
-        'Manager',
-        'Year',
-        'Month',
-        'Day',
-        'Time',
-        'Replicate',
-        'Sampling effort',
-        'Observation',
-        'Observer ID',
-        'Response variable',
-        'Units',
-        'Sampling method',
-        'Sampler type',
-        'Functional type',
-        'Crop commercial name',
-        'Crop latin name',
-        'Growth stage of crop at sampling',
-        ]
+
     covariate_names = [
         'LC1Gau250',
         'LC2Gau250',
@@ -99,8 +72,8 @@ def main():
     ]
 
     variables = {
-        'study_level_variables': study_level_variables,
-        'headers': headers + [f'Covariate_{val}' for val in covariate_names],
+        'study_level_variables': STUDY_LEVEL_VARIABLES,
+        'headers': BASE_FIELDS + [f'Covariate_{val}' for val in covariate_names],
     }
 
     # Render the template with variables
