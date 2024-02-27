@@ -1,14 +1,14 @@
+import configparser
+
+from database import SessionLocal
+from database_model_definitions import BASE_FIELDS
+from database_model_definitions import Study, Sample, Covariate
+from database_model_definitions import STUDY_LEVEL_VARIABLES
 from flask import Flask
 from flask import render_template
 from flask import request
-
-import configparser
-from database import SessionLocal
-from database_model_definitions import Study, Sample, Covariate
+from jinja2 import Template
 from sqlalchemy import inspect
-
-from database_model_definitions import STUDY_LEVEL_VARIABLES
-from database_model_definitions import BASE_FIELDS
 
 
 config = configparser.ConfigParser()
@@ -59,15 +59,35 @@ def template():
 def build_template():
     data = {}
     # Loop through the request.form dictionary
+    study_level_var_list = []
+    for study_level_key in STUDY_LEVEL_VARIABLES:
+        study_level_var_list.append(
+            (study_level_key, request.form[study_level_key]))
+
+    covariates = []
+    # search for the covariates
     for key in request.form:
-        # Store each form input value in the data dictionary using its name as the key
-        data[key] = request.form[key]
+        if key.startswith('covariate_name_'):
+            # Extract the index
+            index = key.split('_')[-1]
+            category_key = f'covariate_category_{index}'
+            covariate_name = request.form[key]
+            covariate_category = request.form.get(category_key, '')
+            covariates.append((covariate_name, covariate_category))
 
-    # Now data contains all your form inputs, and you can use it as needed
-    # For example, print it to the console
-    print(data)
+    variables = {
+        'study_level_variables': study_level_var_list,
+        'headers': BASE_FIELDS + [
+            f'Covariate_{name}' for name, _ in covariates],
+    }
 
-    return data
+    # Render the template with variables
+    with open('templates/living_database_study.jinja', 'r') as file:
+        template_content = file.read()
+    living_database_template = Template(template_content)
+    output = living_database_template.render(variables)
+    print(output)
+    return output
 
 
 @app.route('/process_query', methods=['POST'])

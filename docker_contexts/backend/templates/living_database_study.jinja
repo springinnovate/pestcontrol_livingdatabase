@@ -1,5 +1,5 @@
 Study Level Variables:
-{% for var in study_level_variables %}{{ var }}{% if not loop.last %},{% endif %}
+{% for study_key, study_value in study_level_variables %}{{ study_key }},{{study_value}}
 {% endfor %}
 
 Sample Table:
