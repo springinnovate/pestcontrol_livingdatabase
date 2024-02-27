@@ -1,0 +1,6 @@
+Study Level Variables:
+{% for var in study_level_variables %}{{ var }}{% if not loop.last %},{% endif %}
+{% endfor %}
+
+Sample Table:
+{% for header in headers %}{{ header }}{% if not loop.last %},{% endif %}{% endfor %}

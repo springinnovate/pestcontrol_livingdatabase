@@ -1,5 +1,6 @@
 """Script to take in a CSV table and put it in the database."""
 import argparse
+import collections
 import glob
 from itertools import zip_longest
 
@@ -62,15 +63,19 @@ def main():
             row['input columns']
 
     study_map = {}
+    sample_by_study_list = collections.defaultdict(list)
     for index, row in sample_table.iterrows():
+        if index > 1000:
+            break
         print(f'{100*index/len(sample_table.index):.2f}%')
         new_doi = None
         sample_dict = dict()
         covariate_dict_list = []
         for input_col, db_col in table_to_database_column_map.items():
             if db_col == DOI_ID:
-                new_doi = fetch_or_create_doi(session, "10.1234/doiXYZ")
-                sample_dict[input_col] = new_doi
+                new_doi = fetch_or_create_doi(session, row[input_col])
+                if new_doi is not None:
+                    sample_dict[input_col] = new_doi
                 continue
             if db_col == COVARIATE_ID:
                 val = row[input_col]
@@ -102,7 +107,12 @@ def main():
             covariate = Covariate(**covariate_dict)
             covariate_list.append(covariate)
         sample.covariates = covariate_list
+        sample_by_study_list[study_tuple].append(sample)
         session.add(sample)
+
+    for study_tuple in sample_by_study_list:
+        study_map[study_tuple].samples = sample_by_study_list[study_tuple]
+        session.add(study_map[study_tuple])
 
     session.commit()
     return
