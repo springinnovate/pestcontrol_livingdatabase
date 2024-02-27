@@ -1,4 +1,5 @@
 #!/bin/bash
-set FLASK_APP=database_app.py
-set FLASK_ENV=development
-flask run
+
+export FLASK_APP=database_app.py
+export FLASK_ENV=development
+flask run --port=80
