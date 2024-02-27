@@ -1,4 +1,5 @@
 import configparser
+import datetime
 
 from database import SessionLocal
 from database_model_definitions import BASE_FIELDS
@@ -7,6 +8,7 @@ from database_model_definitions import STUDY_LEVEL_VARIABLES
 from flask import Flask
 from flask import render_template
 from flask import request
+from flask import Response
 from jinja2 import Template
 from sqlalchemy import inspect
 
@@ -57,7 +59,6 @@ def template():
 
 @app.route('/build_template', methods=['POST'])
 def build_template():
-    data = {}
     # Loop through the request.form dictionary
     study_level_var_list = []
     for study_level_key in STUDY_LEVEL_VARIABLES:
@@ -75,7 +76,10 @@ def build_template():
             covariate_category = request.form.get(category_key, '')
             covariates.append((covariate_name, covariate_category))
 
+    datetime_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    user_ip = request.remote_addr
     variables = {
+        'header': f'{datetime_str},{user_ip}',
         'study_level_variables': study_level_var_list,
         'headers': BASE_FIELDS + [
             f'Covariate_{name}' for name, _ in covariates],
@@ -87,7 +91,13 @@ def build_template():
     living_database_template = Template(template_content)
     output = living_database_template.render(variables)
     print(output)
-    return output
+
+    response = Response(output, mimetype='text/csv')
+    # Specify the name of the download file
+    filename = f"living_database_template_{datetime_str}.csv"
+    response.headers['Content-Disposition'] = (
+        f'attachment; filename={filename}')
+    return response
 
 
 @app.route('/process_query', methods=['POST'])

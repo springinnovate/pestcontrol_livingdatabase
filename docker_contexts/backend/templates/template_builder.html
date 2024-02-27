@@ -91,12 +91,9 @@
 <script>
 var covariateCounter = 0; // Initialize a counter to make unique names
 function removeRow(button) {
-    if (document.getElementsByClassName("covariateRow").length > 1) {
-        button.parentNode.remove();
-        covariateCounter -= 1;
-    } else {
-        alert("You must have at least one condition.");
-    }
+    button.parentNode.remove();
+    covariateCounter -= 1;
+
 }
 
 function addRow() {
