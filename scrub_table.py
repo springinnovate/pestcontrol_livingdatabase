@@ -32,6 +32,7 @@ def main():
     parser = argparse.ArgumentParser(description=(
         'replace column in CSV with replacement values in a second table.'))
     parser.add_argument('table_path', help='Path to table.')
+    parser.add_argument('n_lines', type=int, help='n lines to process in batch')
     args = parser.parse_args()
 
     scrubbed_file = open(
@@ -47,8 +48,8 @@ def main():
             print(f'lines in table: {n_lines}')
             table_file.seek(0)
             processed_lines = []
-            for lines_batch in batch(table_file, 1000):
-                n_lines -= 1000
+            for lines_batch in batch(table_file, args.n_lines):
+                n_lines -= args.n_lines
                 processed_lines = list(
                     executor.map(_process_line, lines_batch))
 
@@ -60,8 +61,8 @@ def main():
                         if '_' in word])
                     scrubbed_file.write(line)
 
-            print(f'{n_lines} left to process, took {time.time()-last_time:.2f}s')
-            last_time = time.time()
+                print(f'{n_lines} left to process, took {time.time()-last_time:.2f}s')
+                last_time = time.time()
 
 if __name__ == '__main__':
     main()

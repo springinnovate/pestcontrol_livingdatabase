@@ -25,12 +25,14 @@
         text-align: right;
         margin-right: 10px;
     }
-    input[type="text"] {
+    input[type="text"],
+    select {
         width: 60%;
         padding: 8px;
         margin: 4px 0;
         border: 1px solid #ccc;
         border-radius: 4px;
+        box-sizing: border-box;
     }
     button {
         margin-left: 190px;
@@ -64,6 +66,11 @@
         font-weight: bold;
         color: #333;
     }
+
+    .builderRow {
+        margin-bottom: 10px;
+        display: block;
+    }
 </style>
 <body>
 
@@ -72,8 +79,19 @@
         <div class="section-header">Study Level Variables</div>
         {% for study_level_field in study_level_fields %}
         <div class="builderRow">
-            <label for="fieldSelect">{{study_level_field}}</label>
-            <input type="text" name="{{study_level_field}}">
+            {% if study_level_field is string %}
+                <label for="fieldSelect">{{ study_level_field }}</label>
+                <input type="text" name="{{ study_level_field }}">
+            {% else %}
+                <label for="fieldSelect">{{ study_level_field[0] }}</label>
+                <select name="{{ study_level_field[0] }}">
+                    {% for option in study_level_field[1] %}
+                        <option value="{{ option }}">{{ option }}</option>
+                    {% endfor %}
+                </select>
+            {% endif %}
+            <div id="coarsenCoordinates">
+            </div>
         </div>
         {% endfor %}
         <div class="section-header">Covariate Variables</div>

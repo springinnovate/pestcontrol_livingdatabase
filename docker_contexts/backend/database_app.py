@@ -5,6 +5,10 @@ from database import SessionLocal
 from database_model_definitions import BASE_FIELDS
 from database_model_definitions import Study, Sample, Covariate
 from database_model_definitions import STUDY_LEVEL_VARIABLES
+from database_model_definitions import RESPONSE_TYPES
+from database_model_definitions import FIELDS_BY_REPONSE_TYPE
+from database_model_definitions import COORDINATE_PRECISION_FIELD
+from database_model_definitions import COORDINATE_PRECISION_FULL_PRECISION_VALUE
 from flask import Flask
 from flask import render_template
 from flask import request
@@ -61,10 +65,22 @@ def template():
 def build_template():
     # Loop through the request.form dictionary
     study_level_var_list = []
+    response_type_variable_list = None
+    precision_level = None
     for study_level_key in STUDY_LEVEL_VARIABLES:
-        study_level_var_list.append(
-            (study_level_key, request.form[study_level_key]))
-
+        if isinstance(study_level_key, tuple):
+            study_level_key = study_level_key[0]
+            if study_level_key == COORDINATE_PRECISION_FIELD:
+                precision_level = request.form[study_level_key]
+                study_level_var_list.append(
+                    (study_level_key, precision_level))
+            else:
+                response_type_variable_list = FIELDS_BY_REPONSE_TYPE[
+                    request.form[study_level_key]]
+        else:
+            study_level_var_list.append(
+                (study_level_key, request.form[study_level_key]))
+    print(f'THIS IS THE LIST: {study_level_var_list}')
     covariates = []
     # search for the covariates
     for key in request.form:
@@ -78,11 +94,16 @@ def build_template():
 
     datetime_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     user_ip = request.remote_addr
+    additional_fields = []
+    if precision_level != COORDINATE_PRECISION_FULL_PRECISION_VALUE:
+        additional_fields.append('SiteID')
     variables = {
         'header': f'{datetime_str},{user_ip}',
         'study_level_variables': study_level_var_list,
-        'headers': BASE_FIELDS + [
-            f'Covariate_{name}' for name, _ in covariates],
+        'headers': (
+            additional_fields + BASE_FIELDS +
+            response_type_variable_list + [
+                f'Covariate_{name}' for name, _ in covariates]),
     }
 
     # Render the template with variables

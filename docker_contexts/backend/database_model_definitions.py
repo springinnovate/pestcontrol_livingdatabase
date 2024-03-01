@@ -17,14 +17,29 @@ COVARIATE_ID = 'covariate'
 DOI_ID = 'doi'
 RESERVED_NAMES = [COVARIATE_ID]
 
+RESPONSE_TYPES = [
+    'abudance',
+    'production',
+]
+
+COORDINATE_PRECISION_FIELD = 'Desired coordinate precision'
+COORDINATE_PRECISION_FULL_PRECISION_VALUE = 'full precision'
+COORDINATE_PRECISION = [
+    COORDINATE_PRECISION_FULL_PRECISION_VALUE,
+    'round to whole number',
+    '1 decimal place',
+    '2 decmial places',
+    '3 decimal places',
+]
+
 STUDY_LEVEL_VARIABLES = [
     'Study ID',
     'Data contributor',
     'Data contributor contact info',
     'Paper(s) DOI',
     'Metadata',
-    'Response types',
-    'Privacy',
+    ('Response types', RESPONSE_TYPES),
+    (COORDINATE_PRECISION_FIELD, COORDINATE_PRECISION),
 ]
 
 BASE_FIELDS = [
@@ -48,6 +63,42 @@ BASE_FIELDS = [
     'Crop latin name',
     'Growth stage of crop at sampling',
     ]
+
+
+FIELDS_BY_REPONSE_TYPE = {
+    'abudance': [
+        'Class',
+        'Order',
+        'Family',
+        'Genus ',
+        'Species',
+        'Sub-species',
+        'Morphospecies',
+        'Life stage',
+        ],
+    'production': [
+        'Pest class',
+        'Pest order',
+        'Pest family',
+        'Pest species',
+        'Pest sub-species',
+        'Pest morphospecies',
+        'Pest life stage',
+        'Enemy class',
+        'Enemy order',
+        'Enemy family',
+        'Enemy species',
+        'Enemy sub-species',
+        'Enemy morphospecies',
+        'Enemy lifestage',
+        ],
+}
+
+if len(RESPONSE_TYPES) != len(set(RESPONSE_TYPES).union(set(FIELDS_BY_REPONSE_TYPE))):
+    raise ValueError(
+        'Response types and fields by response types do not have the same '
+        'fields in database_model_definitions.py, open that file and find out '
+        'what is going on.')
 
 
 class Base(DeclarativeBase):
