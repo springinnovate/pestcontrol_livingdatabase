@@ -84,16 +84,21 @@
                 <input type="text" name="{{ study_level_field }}">
             {% else %}
                 <label for="fieldSelect">{{ study_level_field[0] }}</label>
+                {% if study_level_field[0] == coordinate_precision_field %}
+                <select id="coordinate_precision_field" name="{{ study_level_field[0] }}" onchange=showWarning()>
+                {% else %}
                 <select name="{{ study_level_field[0] }}">
+                {% endif %}
                     {% for option in study_level_field[1] %}
                         <option value="{{ option }}">{{ option }}</option>
                     {% endfor %}
                 </select>
             {% endif %}
-            <div id="coarsenCoordinates">
-            </div>
         </div>
         {% endfor %}
+        <div id="warningMessage" style="display: none; color: red;">
+            Warning: `SiteID` must be defined in your table for in for any coordinate precision less than full.
+        </div>
         <div class="section-header">Covariate Variables</div>
         <div id="templateBuilder">
             <!-- Empty initially, rows will be added by JavaScript -->
@@ -131,6 +136,19 @@ function addRow() {
     `;
     templateBuilder.appendChild(newRow);
     covariateCounter++; // Increment the counter
+}
+
+function showWarning() {
+    var selectedValue = document.getElementById('coordinate_precision_field').value;
+    var warningDiv = document.getElementById('warningMessage');
+
+    if (selectedValue === "{{ coordinate_precision_full_precision_value }}") {
+        // Hide the warning if the special option is selected
+        warningDiv.style.display = 'none';
+    } else {
+        // Show the warning for any other option
+        warningDiv.style.display = 'block';
+    }
 }
 
 </script>

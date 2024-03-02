@@ -58,7 +58,9 @@ def home():
 def template():
     return render_template(
         'template_builder.html',
-        study_level_fields=STUDY_LEVEL_VARIABLES)
+        study_level_fields=STUDY_LEVEL_VARIABLES,
+        coordinate_precision_field=COORDINATE_PRECISION_FIELD,
+        coordinate_precision_full_precision_value=COORDINATE_PRECISION_FULL_PRECISION_VALUE)
 
 
 @app.route('/build_template', methods=['POST'])
