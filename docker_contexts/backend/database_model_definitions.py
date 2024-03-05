@@ -18,7 +18,8 @@ DOI_ID = 'doi'
 RESERVED_NAMES = [COVARIATE_ID]
 
 RESPONSE_TYPES = [
-    'abudance',
+    'abundance',
+    'activity',
     'production',
 ]
 
@@ -66,7 +67,7 @@ BASE_FIELDS = [
 
 
 FIELDS_BY_REPONSE_TYPE = {
-    'abudance': [
+    'abundance': [
         'Class',
         'Order',
         'Family',
@@ -76,7 +77,7 @@ FIELDS_BY_REPONSE_TYPE = {
         'Morphospecies',
         'Life stage',
         ],
-    'production': [
+    'activity': [
         'Pest class',
         'Pest order',
         'Pest family',
@@ -92,6 +93,7 @@ FIELDS_BY_REPONSE_TYPE = {
         'Enemy morphospecies',
         'Enemy lifestage',
         ],
+    'production': [],
 }
 
 if len(RESPONSE_TYPES) != len(set(RESPONSE_TYPES).union(set(FIELDS_BY_REPONSE_TYPE))):
