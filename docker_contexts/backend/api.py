@@ -460,7 +460,6 @@ def _sample_pheno(
     ]
 
     epoch_date = datetime.strptime('1970-01-01', "%Y-%m-%d")
-    #modis_phen = ee.Image(MODIS_DATASET_NAME)
 
     sample_future_list = []
     if cmd_args['process_phenological_vars']:
