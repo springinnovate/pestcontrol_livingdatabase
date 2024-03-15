@@ -220,9 +220,6 @@ def main():
     parser.add_argument('--authenticate', action='store_true', help='Pass this flag if you need to reauthenticate with GEE')
     parser.add_argument('--dataset_table_path', required=True, help='path to data table')
     parser.add_argument('--dataset_name_field', required=True, help='name of the GEE dataset field in the dataaset table path')
-    parser.add_argument('--scale_field', required=True, help='name of the scale of sampling field in the data table')
-    parser.add_argument('--aggregate_function_field', required=True, help='name of the aggregating function field in the data table')
-    parser.add_argument('--julian_range_field', required=True, help='name of field for julian day range')
     parser.add_argument('--valid_year_field', required=True, help='field for list of valid years in [y1,y2,...] format')
     parser.add_argument('--n_dataset_rows', type=int, help='limit csv read to this many rows')
     parser.add_argument(
