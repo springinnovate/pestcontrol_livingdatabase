@@ -49,6 +49,7 @@ def get_dataset_info(dataset_row, dataset_name_field, variable_name_field):
         info = dataset.getInfo()  # This is the blocking call we want to run in parallel.
         return (info, dataset_name, variable_name)
 
+
 def find_closest(sorted_list, num):
     # Find the point where 'num' would be inserted to keep the list sorted
     index = bisect.bisect_left(sorted_list, num)
@@ -158,12 +159,6 @@ def main():
     """Entry point."""
     parser = argparse.ArgumentParser(description='sample points on GEE data')
     parser.add_argument('--authenticate', action='store_true', help='Pass this flag if you need to reauthenticate with GEE')
-    parser.add_argument(
-        '--point_table_path', help='path to point sample locations',
-        required=True)
-    parser.add_argument('--year_field', required=True, help='field name in point table path for year')
-    parser.add_argument('--long_field', required=True, help='field name in point table path for longitude')
-    parser.add_argument('--lat_field', required=True, help='field name in point table path for latitude')
     parser.add_argument('--dataset_table_path', required=True, help='path to data table')
     parser.add_argument('--dataset_name_field', required=True, help='name of the GEE dataset field in the dataaset table path')
     parser.add_argument('--variable_name_field', required=True, help='name of the GEE variable name field in the dataaset table path')
@@ -171,8 +166,14 @@ def main():
     parser.add_argument('--aggregate_function_field', required=True, help='name of the aggregating function field in the data table')
     parser.add_argument('--julian_range_field', required=True, help='name of field for julian day range')
     parser.add_argument('--valid_year_field', required=True, help='field for list of valid years in [y1,y2,...] format')
-    parser.add_argument('--n_point_rows', type=int, help='limit csv read to this many rows')
     parser.add_argument('--n_dataset_rows', type=int, help='limit csv read to this many rows')
+    parser.add_argument(
+        '--point_table_path', help='path to point sample locations',
+        required=True)
+    parser.add_argument('--year_field', required=True, help='field name in point table path for year')
+    parser.add_argument('--long_field', required=True, help='field name in point table path for longitude')
+    parser.add_argument('--lat_field', required=True, help='field name in point table path for latitude')
+    parser.add_argument('--n_point_rows', type=int, help='limit csv read to this many rows')
     # 2) the natural habitat eo characteristics in and out of polygon
     # 3) proportion of area outside of polygon
 
