@@ -6,6 +6,7 @@ import os
 import collections
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import as_completed
+import threading
 
 import ee
 import pandas
@@ -22,8 +23,30 @@ LIBS_TO_SILENCE = ['urllib3.connectionpool', 'googleapiclient.discovery', 'googl
 for lib_name in LIBS_TO_SILENCE:
     logging.getLogger(lib_name).setLevel(logging.WARN)
 
-PRECIP_SECTION = 'precip'
 
+DATASET_ID = 'Dataset ID'
+BAND_NAME = 'Band Name'
+SP_TM_AGG_FUNC = 'Spatiotemporal Aggregation Function'
+TRANSFORM_FUNC = 'Pixel Value Transform'
+AGGREGATION_RADIUS = 'Aggregation Radius (m)'
+
+EXPECTED_DATATABLE_COLUMNS = [
+    DATASET_ID,
+    BAND_NAME,
+    SP_TM_AGG_FUNC,
+    TRANSFORM_FUNC,
+    AGGREGATION_RADIUS,
+]
+
+LAT_FIELD = 'Latitude'
+LNG_FIELD = 'Longitude'
+YEAR_FIELD = 'Year'
+
+EXPECTED_POINTTABLE_COLUMNS = [
+    LAT_FIELD,
+    LNG_FIELD,
+    YEAR_FIELD
+]
 
 # Define a function to expand year ranges into individual years
 def expand_year_range(year_field):
@@ -155,13 +178,48 @@ def chunk_points(point_list, chunk_size):
         yield point_list[i:i + chunk_size]
 
 
+def initalize_gee(authenicate_flag):
+    if authenicate_flag:
+        ee.Authenticate()
+    ee.Initialize()
+
+
+def validate_data_table(dataset_table, data_table_attributes):
+    expected_columns = [
+        data_table_attributes.dataset_name_field,
+        data_table_attributes.variable_name_field,
+        data_table_attributes.aggregate_function_field,
+        data_table_attributes.scale_field,
+        data_table_attributes.julian_range_field,
+    ]
+    missing_columns = set(
+        expected_columns).difference(set(dataset_table.columns))
+    if missing_columns:
+        raise ValueError(
+            'expected the following columns in the data table that were ' +
+            'missing:\n' + '\n\t'.join(missing_columns) +
+            '\nexisting columns:' + '\n\t'.join(dataset_table.columns))
+    for _, dataset_row in dataset_table.iterrows():
+        valid_year_list = dataset_row[data_table_attributes.valid_year_field]
+        if isinstance(valid_year_list, str):
+            valid_year_list = eval(valid_year_list)
+        else:
+            valid_year_list = None
+        key = (
+            f'{dataset_row[data_table_attributes.dataset_name_field]}_'
+            f'{dataset_row[data_table_attributes.variable_name_field]}_'
+            f'{dataset_row[data_table_attributes.aggregate_function_field]}_'
+            f'{dataset_row[data_table_attributes.scale_field]}_'
+            f'{dataset_row[data_table_attributes.julian_range_field]}')
+
+
 def main():
     """Entry point."""
     parser = argparse.ArgumentParser(description='sample points on GEE data')
+    parser.add_argument
     parser.add_argument('--authenticate', action='store_true', help='Pass this flag if you need to reauthenticate with GEE')
     parser.add_argument('--dataset_table_path', required=True, help='path to data table')
     parser.add_argument('--dataset_name_field', required=True, help='name of the GEE dataset field in the dataaset table path')
-    parser.add_argument('--variable_name_field', required=True, help='name of the GEE variable name field in the dataaset table path')
     parser.add_argument('--scale_field', required=True, help='name of the scale of sampling field in the data table')
     parser.add_argument('--aggregate_function_field', required=True, help='name of the aggregating function field in the data table')
     parser.add_argument('--julian_range_field', required=True, help='name of field for julian day range')
@@ -179,9 +237,24 @@ def main():
 
     args = parser.parse_args()
 
-    if args.authenticate:
-        ee.Authenticate()
-    ee.Initialize()
+    authenticate_thread = threading.Thread(
+        target=initalize_gee,
+        args=[args.authenticate]
+        )
+    authenticate_thread.daemon = True
+    authenticate_thread.run()
+
+    dataset_table = pandas.read_csv(
+        args.dataset_table_path,
+        skip_blank_lines=True,
+        converters={
+            args.scale_field: lambda x: None if x == '' else float(x),
+        },
+        nrows=args.n_dataset_rows).dropna(how='all')
+    validate_data_table(dataset_table, args)
+    LOGGER.info(f'loaded {args.dataset_table_path}')
+
+    return
 
     point_table = pandas.read_csv(
         args.point_table_path,
@@ -199,16 +272,6 @@ def main():
 
     LOGGER.info(f'loaded {args.point_table_path}')
 
-    dataset_table = pandas.read_csv(
-        args.dataset_table_path,
-        skip_blank_lines=True,
-        converters={
-            args.scale_field: lambda x: None if x == '' else float(x),
-        },
-        nrows=args.n_dataset_rows).dropna(how='all')
-
-    LOGGER.info(f'loaded {args.dataset_table_path}')
-
     # Create a ThreadPoolExecutor
     futures_work_list = []
 
@@ -221,10 +284,10 @@ def main():
             ee.Feature(ee.Geometry.Point([lon, lat], 'EPSG:4326')))
 
     key_set = set()
+    authenticate_thread.join()
     with ThreadPoolExecutor() as executor:
         # Submit tasks to the executor.
         for _, dataset_row in dataset_table.iterrows():
-            # futures.append(executor.submit(get_dataset_info, dataset_row, args.dataset_name_field, args.variable_name_field))
             valid_year_list = dataset_row[args.valid_year_field]
             if isinstance(valid_year_list, str):
                 valid_year_list = eval(valid_year_list)
