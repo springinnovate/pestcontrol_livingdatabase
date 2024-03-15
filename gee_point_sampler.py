@@ -24,6 +24,9 @@ for lib_name in LIBS_TO_SILENCE:
     logging.getLogger(lib_name).setLevel(logging.WARN)
 
 
+DATATABLE_TEMPLATE_PATH = 'template_datatable.csv'
+POINTTABLE_TEMPLATE_PATH = 'template_pointtable.csv'
+
 DATASET_ID = 'Dataset ID'
 BAND_NAME = 'Band Name'
 SP_TM_AGG_FUNC = 'Spatiotemporal Aggregation Function'
@@ -185,15 +188,8 @@ def initalize_gee(authenicate_flag):
 
 
 def validate_data_table(dataset_table, data_table_attributes):
-    expected_columns = [
-        data_table_attributes.dataset_name_field,
-        data_table_attributes.variable_name_field,
-        data_table_attributes.aggregate_function_field,
-        data_table_attributes.scale_field,
-        data_table_attributes.julian_range_field,
-    ]
     missing_columns = set(
-        expected_columns).difference(set(dataset_table.columns))
+        EXPECTED_DATATABLE_COLUMNS).difference(set(dataset_table.columns))
     if missing_columns:
         raise ValueError(
             'expected the following columns in the data table that were ' +
@@ -213,27 +209,45 @@ def validate_data_table(dataset_table, data_table_attributes):
             f'{dataset_row[data_table_attributes.julian_range_field]}')
 
 
+def generate_templates():
+    for template_path, columns in [
+            (DATATABLE_TEMPLATE_PATH, EXPECTED_DATATABLE_COLUMNS),
+            (POINTTABLE_TEMPLATE_PATH, EXPECTED_POINTTABLE_COLUMNS)]:
+        if os.path.exists(template_path):
+            LOGGER.warn(
+                f'{template_path} already exists, not overwriting')
+        with open(template_path, 'w') as datatable:
+            datatable.write(','.join(columns))
+
 def main():
     """Entry point."""
     parser = argparse.ArgumentParser(description='sample points on GEE data')
     parser.add_argument
-    parser.add_argument('--authenticate', action='store_true', help='Pass this flag if you need to reauthenticate with GEE')
-    parser.add_argument('--dataset_table_path', required=True, help='path to data table')
-    parser.add_argument('--dataset_name_field', required=True, help='name of the GEE dataset field in the dataaset table path')
-    parser.add_argument('--valid_year_field', required=True, help='field for list of valid years in [y1,y2,...] format')
-    parser.add_argument('--n_dataset_rows', type=int, help='limit csv read to this many rows')
+    parser.add_argument(
+        '--generate_templates', help=(
+            'Generate template tables and then quit no matter what '
+            'other arguments are passed.'))
+    parser.add_argument(
+        '--authenticate', action='store_true',
+        help='Pass this flag if you need to reauthenticate with GEE')
+    parser.add_argument(
+        '--dataset_table_path', required=True, help='path to data table')
     parser.add_argument(
         '--point_table_path', help='path to point sample locations',
         required=True)
-    parser.add_argument('--year_field', required=True, help='field name in point table path for year')
-    parser.add_argument('--long_field', required=True, help='field name in point table path for longitude')
-    parser.add_argument('--lat_field', required=True, help='field name in point table path for latitude')
-    parser.add_argument('--n_point_rows', type=int, help='limit csv read to this many rows')
+    parser.add_argument(
+        '--n_dataset_rows', type=int, help=(
+        'limit csv read to this many rows'))
+    parser.add_argument(
+        '--n_point_rows', type=int, help=(
+        'limit csv read to this many rows'))
     # 2) the natural habitat eo characteristics in and out of polygon
     # 3) proportion of area outside of polygon
 
     args = parser.parse_args()
-
+    if args.generate_templates:
+        generate_templates()
+        return
     authenticate_thread = threading.Thread(
         target=initalize_gee,
         args=[args.authenticate]
@@ -244,9 +258,9 @@ def main():
     dataset_table = pandas.read_csv(
         args.dataset_table_path,
         skip_blank_lines=True,
-        converters={
-            args.scale_field: lambda x: None if x == '' else float(x),
-        },
+        # converters={
+        #     args.scale_field: lambda x: None if x == '' else float(x),
+        # },
         nrows=args.n_dataset_rows).dropna(how='all')
     validate_data_table(dataset_table, args)
     LOGGER.info(f'loaded {args.dataset_table_path}')
