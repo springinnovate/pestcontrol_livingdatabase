@@ -10,6 +10,8 @@ import threading
 
 import ee
 import pandas
+from parsimonious.grammar import Grammar
+from parsimonious.nodes import NodeVisitor
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -35,6 +37,86 @@ ALLOWED_ST_FUNCTIONS = [
     'julian',
     'year'
 ]
+
+grammar = Grammar(r"""
+    function = text "(" args (";" " "* function)? ")"
+    args = " "* int ("," " "* int)*
+    text = ~"[A-Z_]+"i
+    int = ~"(\+|-)?[0-9]*"
+    """)
+
+SPATIAL_FN = 'spatial'
+YEARS_FN = 'years'
+JULIAN_FN = 'julian'
+
+MEAN_STAT = 'mean'
+MAX_STAT = 'max'
+MIN_STAT = 'min'
+SD_STAT = 'sd'
+
+
+VALID_FUNCTIONS = [
+    f'{prefix}_{suffix}' for suffix in
+    [MEAN_STAT, MAX_STAT, MIN_STAT, SD_STAT]
+    for prefix in
+    [SPATIAL_FN, YEARS_FN, JULIAN_FN]]
+
+class FunctionProcessor(NodeVisitor):
+    def __init__(self, year, point_list, dataset):
+        super()
+        self.year = year
+        self.point_list = point_list
+        self.dataset = dataset
+
+    def visit_function(self, node, visited_children):
+        # Extract the function name and arguments
+        function_name, _, args = visited_children[0:3]
+        if function_name not in VALID_FUNCTIONS:
+            raise ValueError(
+                f'unexpected function: "{function_name}" '
+                f'must be one of {VALID_FUNCTIONS}')
+        print(f'execute {function_name} with {args}')
+        function, operation = function_name.split('_')
+        if function == JULIAN_FN:
+            julian_range_start, julian_range_end = args
+            start_date = ee.Date.fromYMD(self.year, 1, 1).advance(
+                int(julian_range_start)-1, 'day')
+            end_date = ee.Date.fromYMD(self.year, 1, 1).advance(
+                int(julian_range_end)-1, 'day')
+            self.dataset = self.dataset.filterDate(start_date, end_date)
+        elif function == YEARS_FN:
+            if self.year_offset_start > self.year_offset_end:
+                raise ValueError(
+                    f'year offset start should be <= end, got '
+                    f'{self.year_offset_start} > {self.year_offset_end}')
+            year_offset_start, year_offset_end = args
+            start_date = ee.Date.fromYMD(self.year+year_offset_start, 1, 1)
+            end_date = ee.Date.fromYMD(self.year+year_offset_end, 12, 31)
+            self.dataset = self.dataset.filterDate(start_date, end_date)
+            # we haven't done this before, we want to take the current year and plus minus
+        elif function == SPATIAL_FN:
+            pass
+
+        return (function_name, args)
+
+    def visit_args(self, node, visited_children):
+        # Process and collect arguments
+        first_int = visited_children[1]
+        integers = [first_int]
+        for _, _, arg in visited_children[2]:
+            integers.append(arg)
+        return integers
+
+    def visit_text(self, node, visited_children):
+        # Return the text directly
+        return node.text
+
+    def visit_int(self, node, visited_children):
+        # Convert and return the integer
+        return int(node.text)
+
+    def generic_visit(self, node, visited_children):
+        return visited_children or node
 
 EXPECTED_DATATABLE_COLUMNS = [
     DATASET_ID,
@@ -218,14 +300,16 @@ def generate_templates():
         if os.path.exists(template_path):
             LOGGER.warn(
                 f'{template_path} already exists, not overwriting')
+            continue
         with open(template_path, 'w') as datatable:
             datatable.write(','.join(columns))
+        LOGGER.info(f'wrote template to {template_path}')
 
 def main():
     """Entry point."""
     parser = argparse.ArgumentParser(description='sample points on GEE data')
     parser.add_argument(
-        '--generate_templates', help=(
+        '--generate_templates', action='store_true', help=(
             'Generate template tables and then quit no matter what '
             'other arguments are passed.'))
     parser.add_argument(
