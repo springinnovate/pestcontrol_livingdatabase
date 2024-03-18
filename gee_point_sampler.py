@@ -23,7 +23,6 @@ LIBS_TO_SILENCE = ['urllib3.connectionpool', 'googleapiclient.discovery', 'googl
 for lib_name in LIBS_TO_SILENCE:
     logging.getLogger(lib_name).setLevel(logging.WARN)
 
-
 DATATABLE_TEMPLATE_PATH = 'template_datatable.csv'
 POINTTABLE_TEMPLATE_PATH = 'template_pointtable.csv'
 
@@ -31,14 +30,17 @@ DATASET_ID = 'Dataset ID'
 BAND_NAME = 'Band Name'
 SP_TM_AGG_FUNC = 'Spatiotemporal Aggregation Function'
 TRANSFORM_FUNC = 'Pixel Value Transform'
-AGGREGATION_RADIUS = 'Aggregation Radius (m)'
+
+ALLOWED_ST_FUNCTIONS = [
+    'julian',
+    'year'
+]
 
 EXPECTED_DATATABLE_COLUMNS = [
     DATASET_ID,
     BAND_NAME,
     SP_TM_AGG_FUNC,
     TRANSFORM_FUNC,
-    AGGREGATION_RADIUS,
 ]
 
 LAT_FIELD = 'Latitude'
@@ -222,7 +224,6 @@ def generate_templates():
 def main():
     """Entry point."""
     parser = argparse.ArgumentParser(description='sample points on GEE data')
-    parser.add_argument
     parser.add_argument(
         '--generate_templates', help=(
             'Generate template tables and then quit no matter what '
@@ -236,11 +237,9 @@ def main():
         '--point_table_path', help='path to point sample locations',
         required=True)
     parser.add_argument(
-        '--n_dataset_rows', type=int, help=(
-        'limit csv read to this many rows'))
+        '--n_dataset_rows', type=int, help='limit csv read to this many rows')
     parser.add_argument(
-        '--n_point_rows', type=int, help=(
-        'limit csv read to this many rows'))
+        '--n_point_rows', type=int, help='limit csv read to this many rows')
     # 2) the natural habitat eo characteristics in and out of polygon
     # 3) proportion of area outside of polygon
 
