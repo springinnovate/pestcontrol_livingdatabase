@@ -6,10 +6,12 @@ import os
 import collections
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import as_completed
+import re
 import threading
 
 import ee
 import pandas
+import numpy
 from parsimonious.grammar import Grammar
 from parsimonious.nodes import NodeVisitor
 
@@ -33,20 +35,11 @@ BAND_NAME = 'Band Name'
 SP_TM_AGG_FUNC = 'Spatiotemporal Aggregation Function'
 TRANSFORM_FUNC = 'Pixel Value Transform'
 
-ALLOWED_ST_FUNCTIONS = [
-    'julian',
-    'year'
-]
+SP_TM_AGG_OP = '_internal_sptmaggop'
+PIXEL_FN_OP = '_internal_pixelop'
 
-grammar = Grammar(r"""
-    function = text "(" args (";" " "* function)? ")"
-    args = " "* int ("," " "* int)*
-    text = ~"[A-Z_]+"i
-    int = ~"(\+|-)?[0-9]*"
-    """)
-
-SPATIAL_FN = 'spatial'
 YEARS_FN = 'years'
+SPATIAL_FN = 'spatial'
 JULIAN_FN = 'julian'
 
 MEAN_STAT = 'mean'
@@ -54,6 +47,28 @@ MAX_STAT = 'max'
 MIN_STAT = 'min'
 SD_STAT = 'sd'
 
+SPATIOTEMPORAL_FN_GRAMMAR = Grammar(r"""
+    function = text "(" args (";" function)? ")"
+    args = int ("," int)*
+    text = ~"[A-Z_]+"i
+    int = ~"(\+|-)?[0-9]*"
+    """)
+
+MASK_FN = 'mask'
+MULT_FN = 'mult'
+ADD_FN = 'add'
+PIXEL_TRANSFORM_ALLOWED_FUNCTIONS = [
+    MASK_FN,
+    MULT_FN,
+    ADD_FN,
+]
+
+
+ALLOWED_SPATIOTEMPORAL_FUNCTIONS = [
+    YEARS_FN,
+    JULIAN_FN,
+    SPATIAL_FN,
+]
 
 VALID_FUNCTIONS = [
     f'{prefix}_{suffix}' for suffix in
@@ -61,50 +76,54 @@ VALID_FUNCTIONS = [
     for prefix in
     [SPATIAL_FN, YEARS_FN, JULIAN_FN]]
 
-class FunctionProcessor(NodeVisitor):
-    def __init__(self, year, point_list, dataset):
+
+class SpatioTemporalFunctionProcessor(NodeVisitor):
+    def __init__(self):
         super()
-        self.year = year
-        self.point_list = point_list
-        self.dataset = dataset
+
+        self.order_of_ops = []
+        self.parsed = collections.defaultdict(bool)
 
     def visit_function(self, node, visited_children):
         # Extract the function name and arguments
-        function_name, _, args = visited_children[0:3]
+        function_name, _, args, child_fn = visited_children[0:4]
         if function_name not in VALID_FUNCTIONS:
             raise ValueError(
                 f'unexpected function: "{function_name}" '
                 f'must be one of {VALID_FUNCTIONS}')
-        print(f'execute {function_name} with {args}')
-        function, operation = function_name.split('_')
-        if function == JULIAN_FN:
-            julian_range_start, julian_range_end = args
-            start_date = ee.Date.fromYMD(self.year, 1, 1).advance(
-                int(julian_range_start)-1, 'day')
-            end_date = ee.Date.fromYMD(self.year, 1, 1).advance(
-                int(julian_range_end)-1, 'day')
-            self.dataset = self.dataset.filterDate(start_date, end_date)
-        elif function == YEARS_FN:
-            if self.year_offset_start > self.year_offset_end:
-                raise ValueError(
-                    f'year offset start should be <= end, got '
-                    f'{self.year_offset_start} > {self.year_offset_end}')
-            year_offset_start, year_offset_end = args
-            start_date = ee.Date.fromYMD(self.year+year_offset_start, 1, 1)
-            end_date = ee.Date.fromYMD(self.year+year_offset_end, 12, 31)
-            self.dataset = self.dataset.filterDate(start_date, end_date)
-            # we haven't done this before, we want to take the current year and plus minus
-        elif function == SPATIAL_FN:
-            pass
-
-        return (function_name, args)
+        #print(f'execute {function_name} with {args}')
+        function, stat_operation = function_name.split('_')
+        if self.parsed[function]:
+            raise ValueError(
+                f'{function} already seen once, cannot apply it twice')
+        if function == JULIAN_FN and self.parsed[YEARS_FN]:
+            raise ValueError(
+                f'{node.text} cannot apply a julian aggregation after a year aggregation')
+        if function in [JULIAN_FN, YEARS_FN] and len(args) != 2:
+            raise ValueError(
+                f'in `{node.text}`, `{function}` requires two arguments, got '
+                f'this instead: {args}')
+        if function in [SPATIAL_FN] and len(args) != 1:
+            raise ValueError(
+                f'in `{node.text}`, `{function}` requires one argument, got '
+                f'this instead: {args}')
+        self.parsed[function] = True
+        if isinstance(child_fn, list):
+            function_chain = child_fn[0][1]
+            function_chain.append((function, stat_operation, args))
+            return function_chain
+        else:
+            return [(function, stat_operation, args)]
 
     def visit_args(self, node, visited_children):
         # Process and collect arguments
-        first_int = visited_children[1]
+        first_int = visited_children[0]
         integers = [first_int]
-        for _, _, arg in visited_children[2]:
-            integers.append(arg)
+        # get rid of the commas
+        for possible_arg in visited_children[1]:
+            if len(possible_arg) == 2:
+                # comma and number
+                integers.append(possible_arg[1])
         return integers
 
     def visit_text(self, node, visited_children):
@@ -117,6 +136,7 @@ class FunctionProcessor(NodeVisitor):
 
     def generic_visit(self, node, visited_children):
         return visited_children or node
+
 
 EXPECTED_DATATABLE_COLUMNS = [
     DATASET_ID,
@@ -271,7 +291,7 @@ def initalize_gee(authenicate_flag):
     ee.Initialize()
 
 
-def validate_data_table(dataset_table, data_table_attributes):
+def process_data_table(dataset_table, data_table_attributes):
     missing_columns = set(
         EXPECTED_DATATABLE_COLUMNS).difference(set(dataset_table.columns))
     if missing_columns:
@@ -279,19 +299,27 @@ def validate_data_table(dataset_table, data_table_attributes):
             'expected the following columns in the data table that were ' +
             'missing:\n' + '\n\t'.join(missing_columns) +
             '\nexisting columns:' + '\n\t'.join(dataset_table.columns))
-    for _, dataset_row in dataset_table.iterrows():
-        valid_year_list = dataset_row[data_table_attributes.valid_year_field]
-        if isinstance(valid_year_list, str):
-            valid_year_list = eval(valid_year_list)
-        else:
-            valid_year_list = None
-        key = (
-            f'{dataset_row[data_table_attributes.dataset_name_field]}_'
-            f'{dataset_row[data_table_attributes.variable_name_field]}_'
-            f'{dataset_row[data_table_attributes.aggregate_function_field]}_'
-            f'{dataset_row[data_table_attributes.scale_field]}_'
-            f'{dataset_row[data_table_attributes.julian_range_field]}')
 
+    for row_index, dataset_row in dataset_table.iterrows():
+        key = '_'.join(
+            str(dataset_row[col_id]) for col_id in EXPECTED_DATATABLE_COLUMNS)
+        if isinstance(dataset_row[TRANSFORM_FUNC], str):
+            pixel_fn, pixel_args = re.search(
+                r'([^\[]*)(\[.*\])', dataset_row[TRANSFORM_FUNC]).groups()
+            if pixel_fn not in PIXEL_TRANSFORM_ALLOWED_FUNCTIONS:
+                raise NotImplementedError(
+                    f'{dataset_row[TRANSFORM_FUNC]} is not a valid pixel '
+                    'transform, choose one of these '
+                    '{PIXEL_TRANSFORM_ALLOWED_FUNCTIONS}')
+            dataset_table.at[row_index, PIXEL_FN_OP] = [
+                pixel_fn, eval(pixel_args)]
+        spatiotemporal_fn = dataset_row[SP_TM_AGG_FUNC]
+        spatiotemporal_fn = spatiotemporal_fn.replace(' ', '')
+        grammar_tree = SPATIOTEMPORAL_FN_GRAMMAR.parse(spatiotemporal_fn)
+        lexer = SpatioTemporalFunctionProcessor()
+        output = lexer.visit(grammar_tree)
+        dataset_table.at[row_index, SP_TM_AGG_OP] = output
+    dataset_table.to_csv('test.csv')
 
 def generate_templates():
     for template_path, columns in [
@@ -345,26 +373,27 @@ def main():
         #     args.scale_field: lambda x: None if x == '' else float(x),
         # },
         nrows=args.n_dataset_rows).dropna(how='all')
-    validate_data_table(dataset_table, args)
+    dataset_table[SP_TM_AGG_OP] = None
+    dataset_table[PIXEL_FN_OP] = None
+    dataset_list = process_data_table(dataset_table, args)
     LOGGER.info(f'loaded {args.dataset_table_path}')
-
-    return
 
     point_table = pandas.read_csv(
         args.point_table_path,
         skip_blank_lines=True,
         converters={
-            args.long_field: lambda x: None if x == '' else float(x),
-            args.lat_field: lambda x: None if x == '' else float(x),
+            LNG_FIELD: lambda x: None if x == '' else float(x),
+            LAT_FIELD: lambda x: None if x == '' else float(x),
         },
         nrows=args.n_point_rows).dropna(how='all')
 
     # Explode out the YYYY-YYYY column to individual rows
     point_table = pandas.DataFrame(point_table.apply(
-        expand_year_range(args.year_field), axis=1).sum())
-    point_table[args.year_field] = point_table[args.year_field].astype(int)
+        expand_year_range(YEAR_FIELD), axis=1).sum())
+    point_table[YEAR_FIELD] = point_table[YEAR_FIELD].astype(int)
 
     LOGGER.info(f'loaded {args.point_table_path}')
+    return
 
     # Create a ThreadPoolExecutor
     futures_work_list = []
