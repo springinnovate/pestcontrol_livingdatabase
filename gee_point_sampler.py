@@ -321,7 +321,12 @@ def process_data_table(dataset_table, data_table_attributes):
                 pixel_fn, eval(pixel_args)]
         spatiotemporal_fn = dataset_row[SP_TM_AGG_FUNC]
         spatiotemporal_fn = spatiotemporal_fn.replace(' ', '')
-        grammar_tree = SPATIOTEMPORAL_FN_GRAMMAR.parse(spatiotemporal_fn)
+        try:
+            grammar_tree = SPATIOTEMPORAL_FN_GRAMMAR.parse(spatiotemporal_fn)
+        except:
+            raise ValueError(
+                f'the function "{spatiotemporal_fn}" could not be parsed, check '
+                f'for syntax errors\n error on row {dataset_row}')
         lexer = SpatioTemporalFunctionProcessor()
         output = lexer.visit(grammar_tree)
         dataset_table.at[row_index, SP_TM_AGG_OP] = output
