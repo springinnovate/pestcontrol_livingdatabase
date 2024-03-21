@@ -304,6 +304,12 @@ def process_data_table(dataset_table, data_table_attributes):
         key = '_'.join(
             str(dataset_row[col_id]) for col_id in EXPECTED_DATATABLE_COLUMNS)
         if isinstance(dataset_row[TRANSFORM_FUNC], str):
+            transform_func_re = re.search(
+                r'([^\[]*)(\[.*\])', dataset_row[TRANSFORM_FUNC])
+            if transform_func_re is None:
+                raise ValueError(
+                    f'"{dataset_row[TRANSFORM_FUNC]}" doesn\'t match any '
+                    'Pixel Value Transform function')
             pixel_fn, pixel_args = re.search(
                 r'([^\[]*)(\[.*\])', dataset_row[TRANSFORM_FUNC]).groups()
             if pixel_fn not in PIXEL_TRANSFORM_ALLOWED_FUNCTIONS:

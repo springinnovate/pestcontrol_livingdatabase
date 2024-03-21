@@ -1,4 +1,4 @@
-Dataset ID,Band ID,Spatiotemporal Aggregation Function,Pixel Value Transform,Notes,GEE link,Description,Historical Range,Seasonal Range,Spatial Range,Valid Years
+Dataset ID,Band Name,Spatiotemporal Aggregation Function,Pixel Value Transform,Notes,GEE link,Description,Historical Range,Seasonal Range,Spatial Range,Valid Years
 COPERNICUS/Landcover/100m/Proba-V-C3/Global,crops-coverfraction,spatial_mean(0),,,https://developers.google.com/earth-engine/datasets/catalog/COPERNICUS_Landcover_100m_Proba-V-C3_Global,Proportion of cropland,0 years prior,year,0,[2015]
 COPERNICUS/Landcover/100m/Proba-V-C3/Global,crops-coverfraction,spatial_mean(1000),,,https://developers.google.com/earth-engine/datasets/catalog/COPERNICUS_Landcover_100m_Proba-V-C3_Global,Proportion of cropland,0 years prior,year,1000,[2015]
 COPERNICUS/Landcover/100m/Proba-V-C3/Global,crops-coverfraction,spatial_mean(10000),,,https://developers.google.com/earth-engine/datasets/catalog/COPERNICUS_Landcover_100m_Proba-V-C3_Global,Proportion of cropland,0 years prior,year,10000,[2015]
