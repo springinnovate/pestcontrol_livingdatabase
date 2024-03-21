@@ -374,8 +374,10 @@ def process_gee_dataset(
                     lambda image: image.remap(
                         ee.List(args),
                         ee.List([1]*len(args)), 0)),
-                MULT_FN: lambda: "MULT",
-                ADD_FN: lambda: "ADD",
+                MULT_FN: lambda: dataset.map(
+                    lambda image: image.multiply(ee.Image(args))),
+                ADD_FN: lambda: dataset.map(
+                    lambda image: image.add(ee.Image(args))),
             }.get(pixel_op_fn, lambda: None)()
 
         pixel_op_fn, pixel_op_args = pixel_op_transform
