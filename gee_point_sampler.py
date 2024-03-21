@@ -349,6 +349,7 @@ def process_data_table(dataset_table, data_table_attributes):
         output = lexer.visit(grammar_tree)
         dataset_table.at[row_index, SP_TM_AGG_OP] = output
     dataset_table.to_csv('test.csv')
+    return dataset_table
 
 def generate_templates():
     for template_path, columns in [
@@ -361,6 +362,48 @@ def generate_templates():
         with open(template_path, 'w') as datatable:
             datatable.write(','.join(columns))
         LOGGER.info(f'wrote template to {template_path}')
+
+
+def process_gee_dataset(
+        dataset, point_list, pixel_op_transform, spatiotemporal_commands):
+    """Apply the commands in the `commands` list to generate the appropriate result"""
+    if pixel_op_transform is not None:
+        def pixel_op(pixel_op_fn, args):
+            return {
+                MASK_FN: lambda: dataset.map(
+                    lambda image: image.remap(
+                        ee.List(args),
+                        ee.List([1]*len(args)), 0)),
+                MULT_FN: lambda: "MULT",
+                ADD_FN: lambda: "ADD",
+            }.get(pixel_op_fn, lambda: None)()
+
+        pixel_op_fn, pixel_op_args = pixel_op_transform
+        print(f'processing {pixel_op_fn} on {pixel_op_args}')
+        dataset = pixel_op(pixel_op_fn, pixel_op_args)
+        if dataset is None:
+            raise ValueError(f'"{pixel_op_fn}" is not a valid function in {PIXEL_TRANSFORM_ALLOWED_FUNCTIONS}')
+        print(dataset)
+
+
+        half_side_length = 0.1  # Change this to half of your desired side length
+        center_lng = 6.746
+        center_lat = 46.529
+        coordinates = [
+            [center_lng - half_side_length, center_lat - half_side_length],  # Lower-left corner
+            [center_lng + half_side_length, center_lat - half_side_length],  # Lower-right corner
+            [center_lng + half_side_length, center_lat + half_side_length],  # Upper-right corner
+            [center_lng - half_side_length, center_lat + half_side_length],  # Upper-left corner
+            [center_lng - half_side_length, center_lat - half_side_length]   # Closing the loop
+        ]
+
+        square = ee.Geometry.Polygon([coordinates])
+        export = ee.batch.Export.image.toDrive(image=ee.Image(dataset.first()),
+                                       description='exportedImage',
+                                       scale=30,
+                                       region=square)  # Define the region
+        export.start()
+
 
 def main():
     """Entry point."""
@@ -393,7 +436,7 @@ def main():
         args=[args.authenticate]
         )
     authenticate_thread.daemon = True
-    authenticate_thread.run()
+    authenticate_thread.start()
 
     dataset_table = pandas.read_csv(
         args.dataset_table_path,
@@ -404,11 +447,8 @@ def main():
         nrows=args.n_dataset_rows).dropna(how='all')
     dataset_table[SP_TM_AGG_OP] = None
     dataset_table[PIXEL_FN_OP] = None
-    dataset_list = process_data_table(dataset_table, args)
+    dataset_table = process_data_table(dataset_table, args)
     LOGGER.info(f'loaded {args.dataset_table_path}')
-    print('# TODO :LEFT OFF HERE' )
-    print(dataset_list)
-    return
     point_table = pandas.read_csv(
         args.point_table_path,
         skip_blank_lines=True,
@@ -427,16 +467,27 @@ def main():
     # Create a ThreadPoolExecutor
     futures_work_list = []
 
+    authenticate_thread.join()
+
     point_features_by_year = collections.defaultdict(list)
     for year, lon, lat in zip(
-            point_table[args.year_field],
-            point_table[args.long_field],
-            point_table[args.lat_field]):
+            point_table[YEAR_FIELD],
+            point_table[LNG_FIELD],
+            point_table[LAT_FIELD]):
         point_features_by_year[year].append(
             ee.Feature(ee.Geometry.Point([lon, lat], 'EPSG:4326')))
 
     key_set = set()
-    authenticate_thread.join()
+
+    dataset = ee.ImageCollection('MODIS/061/MCD12Q1');
+    lc2_collection = dataset.select('LC_Type2');
+
+    process_gee_dataset(
+        lc2_collection,
+        point_features_by_year,
+        ('mask', [12, 14]),
+        [('spatial', 'mean', [0])])
+    return
     with ThreadPoolExecutor() as executor:
         # Submit tasks to the executor.
         for _, dataset_row in dataset_table.iterrows():
