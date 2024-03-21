@@ -138,11 +138,12 @@ class SpatioTemporalFunctionProcessor(NodeVisitor):
         return visited_children or node
 
 
+DESCRIPTION_FIELD = 'Description'
 EXPECTED_DATATABLE_COLUMNS = [
-    DATASET_ID,
     BAND_NAME,
     SP_TM_AGG_FUNC,
     TRANSFORM_FUNC,
+    DATASET_ID,
 ]
 
 LAT_FIELD = 'Latitude'
@@ -291,6 +292,23 @@ def initalize_gee(authenicate_flag):
     ee.Initialize()
 
 
+def create_clean_key(dataset_row):
+    key = '_'.join(
+        str(dataset_row[col_id]) for col_id in EXPECTED_DATATABLE_COLUMNS
+        if isinstance(dataset_row[col_id], str) or not numpy.isnan(dataset_row[col_id]))
+    if DESCRIPTION_FIELD in dataset_row:
+        description_val = dataset_row[DESCRIPTION_FIELD]
+        if description_val not in [None, '']:
+            key = f'{description_val} {key}'
+    # Define the regular expression to match all punctuation except '_'
+    punctuation_regex = r'[^\w]'
+
+    # Use re.sub() to replace matched characters with an empty string
+    key = re.sub(punctuation_regex, '_', key)
+    key = re.sub(r'__+', '_', key)
+    return key
+
+
 def process_data_table(dataset_table, data_table_attributes):
     missing_columns = set(
         EXPECTED_DATATABLE_COLUMNS).difference(set(dataset_table.columns))
@@ -301,8 +319,8 @@ def process_data_table(dataset_table, data_table_attributes):
             '\nexisting columns:' + '\n\t'.join(dataset_table.columns))
 
     for row_index, dataset_row in dataset_table.iterrows():
-        key = '_'.join(
-            str(dataset_row[col_id]) for col_id in EXPECTED_DATATABLE_COLUMNS)
+        key = create_clean_key(dataset_row)
+        print(key)
         if isinstance(dataset_row[TRANSFORM_FUNC], str):
             transform_func_re = re.search(
                 r'([^\[]*)(\[.*\])', dataset_row[TRANSFORM_FUNC])
