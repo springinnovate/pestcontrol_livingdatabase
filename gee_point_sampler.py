@@ -388,7 +388,8 @@ def main():
     dataset_table[PIXEL_FN_OP] = None
     dataset_list = process_data_table(dataset_table, args)
     LOGGER.info(f'loaded {args.dataset_table_path}')
-    print('# TODO :LEFT OFF HERE')
+    print('# TODO :LEFT OFF HERE' )
+    print(dataset_list)
     return
     point_table = pandas.read_csv(
         args.point_table_path,
