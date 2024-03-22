@@ -348,7 +348,10 @@ def process_data_table(dataset_table, data_table_attributes):
         lexer = SpatioTemporalFunctionProcessor()
         output = lexer.visit(grammar_tree)
         dataset_table.at[row_index, SP_TM_AGG_OP] = output
-    dataset_table.to_csv('test.csv')
+    try:
+        dataset_table.to_csv('test.csv')
+    except PermissionError:
+        LOGGER.warn(f'test.csv is open, cannot overwrite')
     return dataset_table
 
 def generate_templates():
@@ -363,31 +366,89 @@ def generate_templates():
             datatable.write(','.join(columns))
         LOGGER.info(f'wrote template to {template_path}')
 
+def infer_temporal_resolution(collection):
+    dates = collection.aggregate_array('system:time_start').getInfo()
+    dates = [ee.Date(date).format('YYYY-MM-dd').getInfo() for date in dates]
+    for i in range(1, len(dates)):
+        diff = (ee.Date(dates[i]).difference(ee.Date(dates[i-1]), 'day')).getInfo()
+        if diff > 300: # we saw at least a year's gap, so quit
+            return YEARS_FN
+    return JULIAN_FN
+
 
 def process_gee_dataset(
-        dataset, point_list, pixel_op_transform, spatiotemporal_commands):
+        dataset_id,
+        band_name,
+        point_list_by_year,
+        pixel_op_transform,
+        spatiotemporal_commands):
     """Apply the commands in the `commands` list to generate the appropriate result"""
+    image_collection = ee.ImageCollection(dataset_id)
+    image_collection = image_collection.select(band_name)
+    temporal_resolution = infer_temporal_resolution(image_collection)
+
+    point_years = [int(v) for v in numpy.unique(list(point_list_by_year.keys()))]
     if pixel_op_transform is not None:
         def pixel_op(pixel_op_fn, args):
             return {
-                MASK_FN: lambda: dataset.map(
+                MASK_FN: lambda: image_collection.map(
                     lambda image: image.remap(
                         ee.List(args),
                         ee.List([1]*len(args)), 0)),
-                MULT_FN: lambda: dataset.map(
+                MULT_FN: lambda: image_collection.map(
                     lambda image: image.multiply(ee.Image(args))),
-                ADD_FN: lambda: dataset.map(
+                ADD_FN: lambda: image_collection.map(
                     lambda image: image.add(ee.Image(args))),
             }.get(pixel_op_fn, lambda: None)()
 
         pixel_op_fn, pixel_op_args = pixel_op_transform
         print(f'processing {pixel_op_fn} on {pixel_op_args}')
-        dataset = pixel_op(pixel_op_fn, pixel_op_args)
-        if dataset is None:
-            raise ValueError(f'"{pixel_op_fn}" is not a valid function in {PIXEL_TRANSFORM_ALLOWED_FUNCTIONS}')
-        print(dataset)
+        image_collection = pixel_op(pixel_op_fn, pixel_op_args)
+        if image_collection is None:
+            raise ValueError(
+                f'"{pixel_op_fn}" is not a valid function in '
+                f'{PIXEL_TRANSFORM_ALLOWED_FUNCTIONS} for {dataset_id} - {band_name}')
+        print(image_collection)
 
+    for current_year in point_years:
+        active_collection = image_collection
+        for spatiotemp_flag, op_type, args in spatiotemporal_commands:
+            LOGGER.debug(
+                f'PROCESSING: {spatiotemp_flag} {op_type} {args}')
+            if spatiotemp_flag == JULIAN_FN and temporal_resolution == YEARS_FN:
+                raise ValueError(
+                    f'requesting {spatiotemp_flag} when underlying '
+                    f'dataset is coarser at {temporal_resolution} '
+                    f'for {dataset_id} - {band_name}')
+            if spatiotemp_flag in [JULIAN_FN, YEARS_FN]:
+                if isinstance(active_collection, ee.ImageCollection):
+                    aggregation_functions = {
+                        MEAN_STAT: lambda img_col: img_col.mean(),
+                        MIN_STAT: lambda img_col: img_col.min(),
+                        MAX_STAT: lambda img_col: img_col.max(),
+                    }
+                    if spatiotemp_flag == YEARS_FN:
+                        LOGGER.debug(f'before processing {spatiotemp_flag}: {active_collection.getInfo()}')
+                        LOGGER.debug(f'filtering from year {current_year+args[0]} to {current_year+args[1]}')
+                        active_collection = active_collection.filter(ee.Filter.calendarRange(
+                                current_year+args[0], current_year+args[1], 'year'))
+                        # TODO: left off here, somehow this cuts out ALL the features
+                        LOGGER.debug(f'filtered by year range {spatiotemp_flag}: {active_collection.getInfo()}')
+                        active_collection = ee.ImageCollection(
+                            aggregation_functions[op_type](active_collection).set('year', current_year))
+                        LOGGER.debug(f'brought back into image collection {spatiotemp_flag}: {active_collection.getInfo()}')
+                    elif spatiotemp_flag == JULIAN_FN:
+                        def _op_by_julian_range(_year):
+                            start_date = ee.Date(f'{_year}-01-01').advance(args[0], 'day')
+                            end_date = ee.Date(f'{_year}-01-01').advance(args[1], 'day')
+                            daily_collection = image_collection.filterDate(start_date, end_date)
+                            aggregate_image = aggregation_functions[op_type](daily_collection).set('year', _year)
+                            return aggregate_image
+                        years = ee.List(point_years)  # Define the start and end year
+                        active_collection = ee.ImageCollection.fromImages(years.map(lambda y: _op_by_julian_range(y)))
 
+                elif isinstance(active_collection, ee.FeatureCollection):
+                    pass
         half_side_length = 0.1  # Change this to half of your desired side length
         center_lng = 6.746
         center_lat = 46.529
@@ -399,12 +460,16 @@ def process_gee_dataset(
             [center_lng - half_side_length, center_lat - half_side_length]   # Closing the loop
         ]
 
+        LOGGER.debug(active_collection.getInfo())
+        return
         square = ee.Geometry.Polygon([coordinates])
-        export = ee.batch.Export.image.toDrive(image=ee.Image(dataset.first()),
-                                       description='exportedImage',
+        export = ee.batch.Export.image.toDrive(image=ee.Image(active_collection.first()),
+                                       description=f'{current_year}_{band_name}',
                                        scale=30,
                                        region=square)  # Define the region
         export.start()
+
+    return
 
 
 def main():
@@ -481,14 +546,15 @@ def main():
 
     key_set = set()
 
-    dataset = ee.ImageCollection('MODIS/061/MCD12Q1');
-    lc2_collection = dataset.select('LC_Type2');
+    # Determine the temporal resolution
 
     process_gee_dataset(
-        lc2_collection,
+        'MODIS/061/MCD12Q1',
+        'LC_Type2',
         point_features_by_year,
-        ('mask', [12, 14]),
-        [('spatial', 'mean', [0])])
+        ('mult', -9),
+        [(YEARS_FN, MEAN_STAT, [-1, 0])])
+
     return
     with ThreadPoolExecutor() as executor:
         # Submit tasks to the executor.
