@@ -366,6 +366,7 @@ def generate_templates():
             datatable.write(','.join(columns))
         LOGGER.info(f'wrote template to {template_path}')
 
+
 def infer_temporal_resolution(collection):
     dates = collection.aggregate_array('system:time_start').getInfo()
     dates = [ee.Date(date).format('YYYY-MM-dd').getInfo() for date in dates]
@@ -385,7 +386,8 @@ def process_gee_dataset(
     """Apply the commands in the `commands` list to generate the appropriate result"""
     image_collection = ee.ImageCollection(dataset_id)
     image_collection = image_collection.select(band_name)
-    temporal_resolution = infer_temporal_resolution(image_collection)
+    collection_temporal_resolution = infer_temporal_resolution(
+        image_collection)
 
     point_years = [int(v) for v in numpy.unique(list(point_list_by_year.keys()))]
     if pixel_op_transform is not None:
@@ -420,10 +422,10 @@ def process_gee_dataset(
         for spatiotemp_flag, op_type, args in spatiotemporal_commands:
             LOGGER.debug(
                 f'PROCESSING: {spatiotemp_flag} {op_type} {args}')
-            if spatiotemp_flag == JULIAN_FN and temporal_resolution == YEARS_FN:
+            if spatiotemp_flag == JULIAN_FN and collection_temporal_resolution == YEARS_FN:
                 raise ValueError(
                     f'requesting {spatiotemp_flag} when underlying '
-                    f'dataset is coarser at {temporal_resolution} '
+                    f'dataset is coarser at {collection_temporal_resolution} '
                     f'for {dataset_id} - {band_name}')
             if spatiotemp_flag in [JULIAN_FN, YEARS_FN]:
                 if isinstance(active_collection, ee.ImageCollection):
@@ -455,6 +457,8 @@ def process_gee_dataset(
 
                 elif isinstance(active_collection, ee.FeatureCollection):
                     pass
+            elif spatiotemp_flag == SPATIAL_FN:
+                pass
         half_side_length = 0.1  # Change this to half of your desired side length
         center_lng = 6.746
         center_lat = 46.529
