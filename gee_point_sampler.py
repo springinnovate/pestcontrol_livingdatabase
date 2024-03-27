@@ -394,11 +394,16 @@ def process_gee_dataset(
                 MASK_FN: lambda: image_collection.map(
                     lambda image: image.remap(
                         ee.List(args),
-                        ee.List([1]*len(args)), 0)),
+                        ee.List([1]*len(args)), 0).copyProperties(
+                            image, ['system:time_start'])),
                 MULT_FN: lambda: image_collection.map(
-                    lambda image: image.multiply(ee.Image(args))),
+                    lambda image: image.multiply(
+                        ee.Image(args)).copyProperties(
+                            image, ['system:time_start'])),
                 ADD_FN: lambda: image_collection.map(
-                    lambda image: image.add(ee.Image(args))),
+                    lambda image: image.add(
+                        ee.Image(args)).copyProperties(
+                            image, ['system:time_start'])),
             }.get(pixel_op_fn, lambda: None)()
 
         pixel_op_fn, pixel_op_args = pixel_op_transform
@@ -430,9 +435,10 @@ def process_gee_dataset(
                     if spatiotemp_flag == YEARS_FN:
                         LOGGER.debug(f'before processing {spatiotemp_flag}: {active_collection.getInfo()}')
                         LOGGER.debug(f'filtering from year {current_year+args[0]} to {current_year+args[1]}')
-                        active_collection = active_collection.filter(ee.Filter.calendarRange(
-                                current_year+args[0], current_year+args[1], 'year'))
-                        # TODO: left off here, somehow this cuts out ALL the features
+                        year_filter = ee.Filter.calendarRange(
+                                current_year+args[0], current_year+args[1], 'year')
+                        LOGGER.debug(f' year filter: {year_filter.getInfo()}')
+                        active_collection = active_collection.filter(year_filter)
                         LOGGER.debug(f'filtered by year range {spatiotemp_flag}: {active_collection.getInfo()}')
                         active_collection = ee.ImageCollection(
                             aggregation_functions[op_type](active_collection).set('year', current_year))
@@ -461,13 +467,17 @@ def process_gee_dataset(
         ]
 
         LOGGER.debug(active_collection.getInfo())
-        return
+        image = ee.Image(active_collection.first())
+        LOGGER.debug(image.getInfo())
         square = ee.Geometry.Polygon([coordinates])
-        export = ee.batch.Export.image.toDrive(image=ee.Image(active_collection.first()),
-                                       description=f'{current_year}_{band_name}',
-                                       scale=30,
-                                       region=square)  # Define the region
+        export = ee.batch.Export.image.toDrive(
+            image=image,
+            description=f'{current_year}_{band_name}x',
+            scale=30,
+            region=square)  # Define the region
         export.start()
+        print(export.status())
+        return
 
     return
 
