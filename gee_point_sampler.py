@@ -433,6 +433,7 @@ def process_gee_dataset(
                         MEAN_STAT: lambda img_col: img_col.mean(),
                         MIN_STAT: lambda img_col: img_col.min(),
                         MAX_STAT: lambda img_col: img_col.max(),
+                        SD_STAT: lambda img_col: img_col.reduce(ee.Reducer.stdDev()),
                     }
                     if spatiotemp_flag == YEARS_FN:
                         LOGGER.debug(f'before processing {spatiotemp_flag}: {active_collection.getInfo()}')
@@ -442,8 +443,11 @@ def process_gee_dataset(
                         LOGGER.debug(f' year filter: {year_filter.getInfo()}')
                         active_collection = active_collection.filter(year_filter)
                         LOGGER.debug(f'filtered by year range {spatiotemp_flag}: {active_collection.getInfo()}')
+                        date = ee.Date.fromYMD(current_year, 1, 1)
+                        time_start_millis = date.millis()
                         active_collection = ee.ImageCollection(
-                            aggregation_functions[op_type](active_collection).set('year', current_year))
+                            aggregation_functions[op_type](active_collection).set(
+                                'system:time_start', time_start_millis))
                         LOGGER.debug(f'brought back into image collection {spatiotemp_flag}: {active_collection.getInfo()}')
                     elif spatiotemp_flag == JULIAN_FN:
                         def _op_by_julian_range(_year):
@@ -458,7 +462,32 @@ def process_gee_dataset(
                 elif isinstance(active_collection, ee.FeatureCollection):
                     pass
             elif spatiotemp_flag == SPATIAL_FN:
-                pass
+                reducer = op_type
+                sample_scale = args[0]
+                if isinstance(active_collection, ee.ImageCollection):
+                    point_list = point_list_by_year[current_year]
+
+                    def reduce_image(image):
+                        # Apply reduceRegions to get the statistics for the points
+                        reduced = image.reduceRegions(
+                            collection=point_list,
+                            reducer=reducer,
+                            scale=sample_scale
+                        )
+                        time_start_millis = image.get('system:time_start')
+                        reduced = reduced.map(
+                            lambda feature: feature.set('system:time_start', time_start_millis))
+
+                        return reduced
+
+                    # Map the function over the ImageCollection
+
+                    LOGGER.debug(f'before the point reduction: {active_collection.getInfo()}')
+                    active_collection = active_collection.map(reduce_image).flatten()
+                    LOGGER.debug(f'after the point reduction: {active_collection.getInfo()}')
+                elif isinstance(active_collection, ee.FeatureCollection):
+                    raise ValueError(
+                        f"can't do a spatial aggregation when already points, commands were: {spatiotemporal_commands}")
         half_side_length = 0.1  # Change this to half of your desired side length
         center_lng = 6.746
         center_lat = 46.529
@@ -567,7 +596,7 @@ def main():
         'LC_Type2',
         point_features_by_year,
         ('mult', -9),
-        [(YEARS_FN, MEAN_STAT, [-1, 0])])
+        [(YEARS_FN, SD_STAT, [-1, 0]), (SPATIAL_FN, MEAN_STAT, [1000])])
 
     return
     with ThreadPoolExecutor() as executor:
