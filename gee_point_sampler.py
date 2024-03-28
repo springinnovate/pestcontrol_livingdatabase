@@ -47,6 +47,8 @@ MAX_STAT = 'max'
 MIN_STAT = 'min'
 SD_STAT = 'sd'
 
+OUTPUT_TAG = 'output'
+
 SPATIOTEMPORAL_FN_GRAMMAR = Grammar(r"""
     function = text "(" args (";" function)? ")"
     args = int ("," int)*
@@ -399,9 +401,10 @@ def process_gee_dataset(
         spatiotemporal_commands):
     """Apply the commands in the `commands` list to generate the appropriate result"""
     # make sure that the final opeation is a spatial one if not alreay defined
-    if SPATIAL_FN not in [x[1] for x in spatiotemporal_commands]:
+    if SPATIAL_FN not in [x[0] for x in spatiotemporal_commands]:
         LOGGER.info('spatial reduction not defined, adding one at the end')
         spatiotemporal_commands += [(SPATIAL_FN, MEAN_STAT, [0])]
+    LOGGER.info(f'processing the following commands: {spatiotemporal_commands}')
 
     image_collection = ee.ImageCollection(dataset_id)
     image_collection = image_collection.select(band_name)
@@ -434,20 +437,19 @@ def process_gee_dataset(
             raise ValueError(
                 f'"{pixel_op_fn}" is not a valid function in '
                 f'{PIXEL_TRANSFORM_ALLOWED_FUNCTIONS} for {dataset_id} - {band_name}')
-        print(image_collection)
 
+    collection_per_year = {}
     for current_year in point_years:
         applied_functions = set()
         year_range = get_year_range(current_year, spatiotemporal_commands)
         active_collection = image_collection
         point_list = point_list_by_year[current_year]
         for spatiotemp_flag, op_type, args in spatiotemporal_commands:
-            applied_functions.add(spatiotemp_flag)
             if spatiotemp_flag in applied_functions:
                 raise ValueError(
                     f'already applied a {spatiotemp_flag} in the command list {spatiotemporal_commands}')
-            LOGGER.debug(
-                f'PROCESSING: {spatiotemp_flag} {op_type} {args}')
+            applied_functions.add(spatiotemp_flag)
+            LOGGER.debug(f'PROCESSING: {spatiotemp_flag} {op_type} {args}')
             if spatiotemp_flag == JULIAN_FN and collection_temporal_resolution == YEARS_FN:
                 raise ValueError(
                     f'requesting {spatiotemp_flag} when underlying '
@@ -478,11 +480,19 @@ def process_gee_dataset(
                     active_collection = ee.ImageCollection.fromImages(
                         years.map(lambda y: _op_by_julian_range(y)))
                 elif spatiotemp_flag == SPATIAL_FN:
+
+                    reducer_map = {
+                        MEAN_STAT: ee.Reducer.mean(),
+                        MAX_STAT: ee.Reducer.max(),
+                        MIN_STAT: ee.Reducer.min(),
+                        SD_STAT: ee.Reducer.stdDev(),
+                    }
+
                     sample_scale = args[0]
                     def reduce_image(image):
                         reduced = image.reduceRegions(
                             collection=point_list,
-                            reducer=op_type,
+                            reducer=reducer_map[op_type].setOutputs([OUTPUT_TAG]),
                             scale=sample_scale
                         )
                         # make sure points have the correct time for later
@@ -495,7 +505,7 @@ def process_gee_dataset(
                     LOGGER.debug(f'before the point reduction: {active_collection.getInfo()}')
                     active_collection = active_collection.map(reduce_image).flatten()
                     LOGGER.debug(f'after the point reduction: {active_collection.getInfo()}')
-            if isinstance(active_collection, ee.FeatureCollection):
+            elif isinstance(active_collection, ee.FeatureCollection):
                 aggregation_functions = {
                     MEAN_STAT: lambda img_col: img_col.mean(),
                     MIN_STAT: lambda img_col: img_col.min(),
@@ -512,10 +522,12 @@ def process_gee_dataset(
                 else:
                     raise ValueError(
                         f"can't do a spatial aggregation when already points, commands were: {spatiotemporal_commands}")
+            LOGGER.debug(f'value of current collection: {active_collection.getInfo()}')
+        collection_per_year[current_year] = [
+            f['properties']['output']
+            for f in active_collection.getInfo()['features']]
 
-        return
-
-    return
+    return collection_per_year
 
 
 def _debug_save_image(active_collection, desc):
@@ -619,12 +631,13 @@ def main():
 
     # Determine the temporal resolution
 
-    process_gee_dataset(
+    point_collection_by_year = process_gee_dataset(
         'MODIS/061/MCD12Q1',
         'LC_Type2',
         point_features_by_year,
         ('mult', -9),
-        [(YEARS_FN, SD_STAT, [-1, 0]), (SPATIAL_FN, MEAN_STAT, [1000])])
+        [(YEARS_FN, MAX_STAT, [-1, 0]), (SPATIAL_FN, MEAN_STAT, [1000])])
+    LOGGER.debug(f'result: {point_collection_by_year}')
 
     return
     with ThreadPoolExecutor() as executor:
