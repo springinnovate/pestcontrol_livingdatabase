@@ -73,6 +73,7 @@ ALLOWED_SPATIOTEMPORAL_FUNCTIONS = [
     SPATIAL_FN,
 ]
 
+
 def initalize_global_stat_functions():
     global VALID_FUNCTIONS
     global IMG_COL_AGGREGATION_FUNCTIONS
@@ -188,6 +189,15 @@ EXPECTED_POINTTABLE_COLUMNS = [
     LNG_FIELD,
     YEAR_FIELD
 ]
+
+
+def _scrub_key(key):
+    key = key.replace(' ', '')
+    key = re.sub(r'[,.());\\/]', '_', key)
+    key = re.sub(r'_+', '_', key)
+    key = key.replace('_nan', '')
+    return key
+
 
 # Define a function to expand year ranges into individual years
 def expand_year_range(year_field):
@@ -471,6 +481,7 @@ def process_gee_dataset(
         spatiotemporal_commands):
     """Apply the commands in the `commands` list to generate the appropriate result"""
     # make sure that the final opeation is a spatial one if not alreay defined
+    LOGGER.debug(f'processing {spatiotemporal_commands}')
     if SPATIAL_FN not in [x[0] for x in spatiotemporal_commands]:
         LOGGER.info('spatial reduction not defined, adding one at the end')
         spatiotemporal_commands += [(SPATIAL_FN, MEAN_STAT, [0])]
@@ -521,13 +532,13 @@ def process_gee_dataset(
         point_list = point_list_by_year[current_year]
         for index, (spatiotemp_flag, op_type, args) in enumerate(spatiotemporal_commands):
             # Apply the reducer to get the maximum value.
-            if isinstance(active_collection, ee.ImageCollection):
-                image = ee.Image(active_collection.first())
-                region = ee.Geometry.Rectangle([-100, -50, 100, 50])
-                reduced_value = image.reduceRegion(
-                    reducer=ee.Reducer.min(), geometry=region)
-                LOGGER.debug(f"min val {spatiotemp_flag} {op_type}: {reduced_value.getInfo()}")
-                _debug_save_image(active_collection, f'{index}_{spatiotemp_flag}_{op_type}')
+            # if isinstance(active_collection, ee.ImageCollection):
+            #     image = ee.Image(active_collection.first())
+            #     region = ee.Geometry.Rectangle([-100, -50, 100, 50])
+            #     reduced_value = image.reduceRegion(
+            #         reducer=ee.Reducer.min(), geometry=region)
+            #     LOGGER.debug(f"min val {spatiotemp_flag} {op_type}: {reduced_value.getInfo()}")
+            #     _debug_save_image(active_collection, f'{index}_{spatiotemp_flag}_{op_type}')
 
             if spatiotemp_flag in applied_functions:
                 raise ValueError(
@@ -589,6 +600,8 @@ def process_gee_dataset(
                     active_collection = ee.ImageCollection.fromImages(
                         years.map(lambda y: _op_by_julian_range(y)))
                 elif spatiotemp_flag == SPATIAL_FN:
+                    LOGGER.debug(f'processing spatiotemp_flag in imagecollection {spatiotemp_flag}')
+                    LOGGER.debug(f'before: {active_collection.getInfo()}')
                     sample_scale = args[0]
                     def reduce_image(image):
                         reduced_points = image.reduceRegions(
@@ -604,6 +617,7 @@ def process_gee_dataset(
                         return reduced_points
                     active_collection = active_collection.map(
                         reduce_image).flatten()
+                    LOGGER.debug(f'after: {active_collection.getInfo()}')
             elif isinstance(active_collection, ee.FeatureCollection):
                 if spatiotemp_flag == YEARS_FN:
                     # we group all the points into a single value
@@ -768,23 +782,47 @@ def main():
     point_table[YEAR_FIELD] = point_table[YEAR_FIELD].astype(int)
 
     LOGGER.info(f'loaded {args.point_table_path}')
-    # Create a ThreadPoolExecutor
     futures_work_list = []
-
-    #authenticate_thread.join()
-
     point_features_by_year = collections.defaultdict(list)
     for index, (year, lon, lat) in enumerate(zip(
             point_table[YEAR_FIELD],
             point_table[LNG_FIELD],
             point_table[LAT_FIELD])):
         point_features_by_year[year].append(
-            ee.Feature(ee.Geometry.Point([lon, lat], 'EPSG:4326'), {UNIQUE_ID: index}))
+            ee.Feature(ee.Geometry.Point(
+                [lon, lat], 'EPSG:4326'), {UNIQUE_ID: index}))
 
     key_set = set()
+    for _, dataset_row in dataset_table.iterrows():
+        key = (
+            f'{dataset_row[DATASET_ID]}_'
+            f'{dataset_row[BAND_NAME]}_'
+            f'{dataset_row[SP_TM_AGG_FUNC]}_'
+            f'{dataset_row[TRANSFORM_FUNC]}')
+        print(key)
+        key = _scrub_key(key)
+        point_collection_by_year = process_gee_dataset(
+            dataset_row[DATASET_ID],
+            dataset_row[BAND_NAME],
+            point_features_by_year,
+            dataset_row[PIXEL_FN_OP],
+            dataset_row[SP_TM_AGG_OP])
+        print(key)
+        print(point_collection_by_year)
+        return
+        # futures_work_list.append(
+        #     (key, executor.submit(
+        #         sample_dataset,
+        #         dataset_row[args.dataset_name_field],
+        #         dataset_row[args.variable_name_field],
+        #         dataset_row[args.scale_field],
+        #         dataset_row[args.julian_range_field],
+        #         dataset_row[args.aggregate_function_field],
+        #         valid_year_list,
+        #         point_features_by_year)))
+        # key_set.add(key)
 
-    # Determine the temporal resolution
-
+    return
     point_collection_by_year = process_gee_dataset(
         'ECMWF/ERA5/DAILY',
         'total_precipitation',
