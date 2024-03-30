@@ -1,13 +1,12 @@
 """Sample GEE datasets given pest control CSV."""
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, date
 import argparse
 import bisect
+import collections
 import logging
 import os
-import collections
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import as_completed
 import re
-import threading
 
 import ee
 import pandas
@@ -49,6 +48,7 @@ SD_STAT = 'sd'
 
 OUTPUT_TAG = 'output'
 UNIQUE_ID = 'unique_id'
+LIMIT_VAL = 10
 
 SPATIOTEMPORAL_FN_GRAMMAR = Grammar(r"""
     function = text "(" args (";" function)? ")"
@@ -73,25 +73,41 @@ ALLOWED_SPATIOTEMPORAL_FUNCTIONS = [
     SPATIAL_FN,
 ]
 
-VALID_FUNCTIONS = [
-    f'{prefix}_{suffix}' for suffix in
-    [MEAN_STAT, MAX_STAT, MIN_STAT, SD_STAT]
-    for prefix in
-    [SPATIAL_FN, YEARS_FN, JULIAN_FN]]
+def initalize_global_stat_functions():
+    global VALID_FUNCTIONS
+    global IMG_COL_AGGREGATION_FUNCTIONS
+    global POINT_AGGREGATION_FUNCTIONS
+    global FEATURE_COLLECTION_AGGREGATION_FUNCTIONS
+    VALID_FUNCTIONS = [
+        f'{prefix}_{suffix}' for suffix in
+        [MEAN_STAT, MAX_STAT, MIN_STAT, SD_STAT]
+        for prefix in
+        [SPATIAL_FN, YEARS_FN, JULIAN_FN]]
 
-IMG_COL_AGGREGATION_FUNCTIONS = {
-    MEAN_STAT: lambda img_col: img_col.mean(),
-    MIN_STAT: lambda img_col: img_col.min(),
-    MAX_STAT: lambda img_col: img_col.max(),
-    SD_STAT: lambda img_col: img_col.reduce(ee.Reducer.stdDev()),
-}
+    IMG_COL_AGGREGATION_FUNCTIONS = {
+        MEAN_STAT: lambda img_col: img_col.mean(),
+        MIN_STAT: lambda img_col: img_col.min(),
+        MAX_STAT: lambda img_col: img_col.max(),
+        SD_STAT: lambda img_col: img_col.reduce(ee.Reducer.stdDev()),
+    }
 
-POINT_AGGREGATION_FUNCTIONS = {
-    MEAN_STAT: ee.Reducer.mean().setOutputs([OUTPUT_TAG]),
-    MAX_STAT: ee.Reducer.max().setOutputs([OUTPUT_TAG]),
-    MIN_STAT: ee.Reducer.min().setOutputs([OUTPUT_TAG]),
-    SD_STAT: ee.Reducer.stdDev().setOutputs([OUTPUT_TAG]),
-}
+    POINT_AGGREGATION_FUNCTIONS = {
+        MEAN_STAT: ee.Reducer.mean().setOutputs([OUTPUT_TAG]),
+        MAX_STAT: ee.Reducer.max().setOutputs([OUTPUT_TAG]),
+        MIN_STAT: ee.Reducer.min().setOutputs([OUTPUT_TAG]),
+        SD_STAT: ee.Reducer.stdDev().setOutputs([OUTPUT_TAG]),
+    }
+
+    FEATURE_COLLECTION_AGGREGATION_FUNCTIONS = {
+        MEAN_STAT: lambda feature_collection: feature_collection.aggregate_mean(
+            OUTPUT_TAG),
+        MAX_STAT: lambda feature_collection: feature_collection.aggregate_max(
+            OUTPUT_TAG),
+        MIN_STAT: lambda feature_collection: feature_collection.aggregate_min(
+            OUTPUT_TAG),
+        SD_STAT: lambda feature_collection: feature_collection.aggregate_total_sd(
+            OUTPUT_TAG),
+    }
 
 
 class SpatioTemporalFunctionProcessor(NodeVisitor):
@@ -307,6 +323,7 @@ def initalize_gee(authenicate_flag):
     if authenicate_flag:
         ee.Authenticate()
     ee.Initialize()
+    initalize_global_stat_functions()
 
 
 def create_clean_key(dataset_row):
@@ -371,6 +388,7 @@ def process_data_table(dataset_table, data_table_attributes):
         LOGGER.warning(f'test.csv is open, cannot overwrite')
     return dataset_table
 
+
 def generate_templates():
     for template_path, columns in [
             (DATATABLE_TEMPLATE_PATH, EXPECTED_DATATABLE_COLUMNS),
@@ -385,38 +403,65 @@ def generate_templates():
 
 
 def infer_temporal_resolution(collection):
+    print('getting system time start')
     dates = collection.aggregate_array('system:time_start').getInfo()
-    dates = [ee.Date(date).format('YYYY-MM-dd').getInfo() for date in dates]
+    print(f'getting date info for {len(dates)} dates')
+    dates = [datetime.utcfromtimestamp(date/1000) for date in dates]
     for i in range(1, len(dates)):
-        diff = (ee.Date(dates[i]).difference(ee.Date(dates[i-1]), 'day')).getInfo()
-        if diff > 300: # we saw at least a year's gap, so quit
+        diff = (dates[i] - dates[i-1]).days
+        if diff > 300:  # we saw at least a year's gap, so quit
             return YEARS_FN
     return JULIAN_FN
 
 
-def get_year_range(current_year, spatiotemporal_commands):
+def get_year_julian_range(current_year, spatiotemporal_commands):
     """Returns offset of year in [min, max+1) range"""
-    current_range = (current_year, current_year+1)
+    # Initialize current_year as the first day of this year
+    year_range = (current_year, current_year+1)
+    julian_range = (1, 365)
     for spatiotemp_flag, op_type, args in spatiotemporal_commands:
         print(spatiotemp_flag)
         if spatiotemp_flag == YEARS_FN:
-            print(f'years: {args} {current_range}')
-            current_range = (
-                current_range[0]+args[0],
-                current_range[1]+args[1])
+            year_range = (
+                year_range[0]+args[0],
+                year_range[1]+args[1])
         if spatiotemp_flag == JULIAN_FN:
-            print(current_range)
-            if args[0] < 0:
-                print('is neg')
-                current_range = (
-                    current_range[0]-1,
-                    current_range[1])
-                print(current_range)
-            if args[1] > 365:
-                current_range = (
-                    current_range[0],
-                    current_range[1]+1)
-    return current_range
+            julian_range = tuple(args)
+    return year_range, julian_range
+
+
+def filter_imagecollection_by_date_range(year_range, julian_range, image_collection):
+    # Initialize an empty ImageCollection
+    filtered_collection = ee.ImageCollection([])
+
+    for year in range(year_range[0], year_range[1]):
+        if julian_range[0] < 0:
+            # For -1 to mean December 31 of the previous year, add 1 less than
+            # the Julian day because -1 should add 0 days to December 31
+            start_date = date(year - 1, 12, 31) + timedelta(days=julian_range[0] + 1)
+        else:
+            # Julian day 1 should be January 1st, so subtract 1 from the Julian day
+            start_date = date(year, 1, 1) + timedelta(days=julian_range[0] - 1)
+
+        if julian_range[1] > 365:
+            # Subtract 365 to find the overflow and subtract an additional 1 since
+            # January 1st should represent the 1st Julian day of the next year
+            # but enddate is exclusive so set it off by 1 day
+            end_date = date(year + 1, 1, 1) + timedelta(days=julian_range[1] - 365)
+        else:
+            # If within the same year, just adjust from January 1st
+            end_date = date(year, 1, 1) + timedelta(days=julian_range[1])
+
+        # Convert dates to strings
+        start_date_str = start_date.strftime('%Y-%m-%d')
+        end_date_str = end_date.strftime('%Y-%m-%d')
+
+        # Filter the image collection for the given range and merge with the cumulative collection
+        year_filtered_collection = image_collection.filterDate(start_date_str, end_date_str)
+        print(f'filtering only {start_date_str} to {end_date_str}')
+        filtered_collection = filtered_collection.merge(year_filtered_collection)
+    return filtered_collection
+
 
 def process_gee_dataset(
         dataset_id,
@@ -437,42 +482,53 @@ def process_gee_dataset(
         image_collection)
 
     point_years = [int(v) for v in numpy.unique(list(point_list_by_year.keys()))]
-    if pixel_op_transform is not None:
-        def pixel_op(pixel_op_fn, args):
-            return {
-                MASK_FN: lambda: image_collection.map(
-                    lambda image: image.remap(
-                        ee.List(args),
-                        ee.List([1]*len(args)), 0).copyProperties(
-                            image, ['system:time_start'])),
-                MULT_FN: lambda: image_collection.map(
-                    lambda image: image.multiply(
-                        ee.Image(args)).copyProperties(
-                            image, ['system:time_start'])),
-                ADD_FN: lambda: image_collection.map(
-                    lambda image: image.add(
-                        ee.Image(args)).copyProperties(
-                            image, ['system:time_start'])),
-            }.get(pixel_op_fn, lambda: None)()
-
-        pixel_op_fn, pixel_op_args = pixel_op_transform
-        print(f'processing {pixel_op_fn} on {pixel_op_args}')
-        image_collection = pixel_op(pixel_op_fn, pixel_op_args)
-        if image_collection is None:
-            raise ValueError(
-                f'"{pixel_op_fn}" is not a valid function in '
-                f'{PIXEL_TRANSFORM_ALLOWED_FUNCTIONS} for {dataset_id} - {band_name}')
 
     collection_per_year = {}
     for current_year in point_years:
         applied_functions = set()
         # apply year filter
-        year_range = get_year_range(current_year, spatiotemporal_commands)
-        start_date = ee.Date(f'{year_range[0]}-01-01')
-        end_date = ee.Date(f'{year_range[1]}-01-01')
-        active_collection = image_collection.filterDate(start_date, end_date)
+        year_range, julian_range = get_year_julian_range(
+            current_year, spatiotemporal_commands)
+        print(f'date range {year_range} {julian_range}')
+        active_collection = filter_imagecollection_by_date_range(
+            year_range, julian_range, image_collection)
+        if pixel_op_transform is not None:
+            def pixel_op(pixel_op_fn, args):
+                return {
+                    MASK_FN: lambda: active_collection.map(
+                        lambda image: image.remap(
+                            ee.List(args),
+                            ee.List([1]*len(args)), 0).copyProperties(
+                                image, ['system:time_start'])),
+                    MULT_FN: lambda: active_collection.map(
+                        lambda image: image.multiply(
+                            ee.Image(args)).copyProperties(
+                                image, ['system:time_start'])),
+                    ADD_FN: lambda: active_collection.map(
+                        lambda image: image.add(
+                            ee.Image(args)).copyProperties(
+                                image, ['system:time_start'])),
+                }.get(pixel_op_fn, lambda: None)()
+
+            pixel_op_fn, pixel_op_args = pixel_op_transform
+            LOGGER.debug(f'processing {pixel_op_fn} on {pixel_op_args}')
+            active_collection = pixel_op(pixel_op_fn, pixel_op_args)
+            if active_collection is None:
+                raise ValueError(
+                    f'"{pixel_op_fn}" is not a valid function in '
+                    f'{PIXEL_TRANSFORM_ALLOWED_FUNCTIONS} for {dataset_id} - {band_name}')
+        LOGGER.info(f'processing {current_year} over {year_range}')
         point_list = point_list_by_year[current_year]
-        for spatiotemp_flag, op_type, args in spatiotemporal_commands:
+        for index, (spatiotemp_flag, op_type, args) in enumerate(spatiotemporal_commands):
+            # Apply the reducer to get the maximum value.
+            if isinstance(active_collection, ee.ImageCollection):
+                image = ee.Image(active_collection.first())
+                region = ee.Geometry.Rectangle([-100, -50, 100, 50])
+                reduced_value = image.reduceRegion(
+                    reducer=ee.Reducer.min(), geometry=region)
+                LOGGER.debug(f"min val {spatiotemp_flag} {op_type}: {reduced_value.getInfo()}")
+                _debug_save_image(active_collection, f'{index}_{spatiotemp_flag}_{op_type}')
+
             if spatiotemp_flag in applied_functions:
                 raise ValueError(
                     f'already applied a {spatiotemp_flag} in the command list '
@@ -493,11 +549,8 @@ def process_gee_dataset(
                     f'{spatiotemp_flag} {op_type} {args}')
                 if spatiotemp_flag == YEARS_FN:
                     LOGGER.debug('aggregating to years')
-                    year_filter = ee.Filter.calendarRange(
-                            current_year+args[0], current_year+args[1], 'year')
-                    active_collection = active_collection.filter(year_filter)
-                    # aggregate the stack to the operation and set the
-                    # system:time_start to the current year
+                    # already been filtered to be the right year span, just
+                    # set the target time to be the current year
                     time_start_millis = ee.Date.fromYMD(
                         current_year, 1, 1).millis()
                     active_collection = ee.ImageCollection(
@@ -508,11 +561,21 @@ def process_gee_dataset(
                     LOGGER.debug('aggregating by julian range to years')
 
                     def _op_by_julian_range(_year):
-                        start_date = ee.Date(f'{_year}-01-01').advance(
-                            args[0], 'day')
-                        end_date = ee.Date(f'{_year}-01-01').advance(
-                            args[1], 'day')
-                        daily_collection = image_collection.filterDate(
+                        # aggregate julian range around _year to just
+                        # a single image at _year
+                        start_date = ee.Date.fromYMD(_year, 1, 1)
+                        if args[0] > 0:
+                            # day 1 should be jan 1, so do a -1
+                            start_date = start_date.advance(args[0]-1, 'day')
+                        else:
+                            start_date = start_date.advance(args[0], 'day')
+                        end_date = ee.Date.fromYMD(_year, 1, 1)
+                        if args[1] <= 365:
+                            end_date = end_date.advance(args[1], 'day')
+                        else:
+                            end_date = end_date.advance(args[1]-1, 'day')
+                        #LOGGER.debug(f'{start_date.getInfo()} {end_date.getInfo()}')
+                        daily_collection = active_collection.filterDate(
                             start_date, end_date)
                         time_start_millis = ee.Date.fromYMD(
                             _year, 1, 1).millis()
@@ -522,12 +585,11 @@ def process_gee_dataset(
                         return aggregate_image
                     # Defines as the min/max year that will be aggregated
                     # later for current year
-                    years = ee.List(range(*year_range))
+                    years = ee.List(list(range(*year_range)))
                     active_collection = ee.ImageCollection.fromImages(
                         years.map(lambda y: _op_by_julian_range(y)))
                 elif spatiotemp_flag == SPATIAL_FN:
                     sample_scale = args[0]
-
                     def reduce_image(image):
                         reduced_points = image.reduceRegions(
                             collection=point_list,
@@ -540,56 +602,80 @@ def process_gee_dataset(
                             lambda feature: feature.set(
                                 'system:time_start', time_start_millis))
                         return reduced_points
-
-                    # Map the function over the ImageCollection
-                    LOGGER.debug(
-                        f'before the point reduction: '
-                        f'{active_collection.getInfo()}')
                     active_collection = active_collection.map(
                         reduce_image).flatten()
-                    LOGGER.debug(
-                        f'after the point reduction: '
-                        f'{active_collection.getInfo()}')
             elif isinstance(active_collection, ee.FeatureCollection):
                 if spatiotemp_flag == YEARS_FN:
                     # we group all the points into a single value
-                    pass
+                    def reduce_by_unique_id(unique_id):
+                        unique_collection = active_collection.filter(
+                            ee.Filter.eq(UNIQUE_ID, unique_id))
+                        aggregate_output = \
+                            FEATURE_COLLECTION_AGGREGATION_FUNCTIONS[op_type](
+                                unique_collection)
+                        representative_feature = ee.Feature(
+                            unique_collection.first()).set(
+                                OUTPUT_TAG, aggregate_output)
+                        return representative_feature
+                    # Get a list of unique IDs and years to iterate over.
+                    unique_ids = ee.List(list(range(sum(
+                        [len(point_list)
+                         for point_list in point_list_by_year.values()]))))
+                    LOGGER.debug('before the reduce by year')
+                    active_collection = ee.FeatureCollection(
+                        unique_ids.map(
+                            lambda unique_id: reduce_by_unique_id(
+                                unique_id))).flatten()
                 elif spatiotemp_flag == JULIAN_FN:
                     # we group all the points into groups of years
                     # Function to calculate mean output by unique_id and year.
                     def reduce_by_julian(unique_id, _year):
-                        start_date = ee.Date(f'{_year}-01-01').advance(
-                            args[0], 'day')
-                        end_date = ee.Date(f'{_year}-01-01').advance(
-                            args[1], 'day')
+                        start_date = ee.Date.fromYMD(_year, 1, 1)
+                        if args[0] > 0:
+                            # day 1 should be jan 1, so do a -1
+                            start_date = start_date.advance(args[0]-1, 'day')
+                        else:
+                            start_date = start_date.advance(args[0], 'day')
+                        end_date = ee.Date.fromYMD(_year, 1, 1)
+                        if args[1] < 365:
+                            end_date = end_date.advance(args[1]-1, 'day')
+                        else:
+                            end_date = end_date.advance(args[1], 'day')
+
                         julian_collection = active_collection.filterDate(
                             start_date, end_date).filter(ee.Filter.eq(
                                 UNIQUE_ID, unique_id))
 
-                        mean_output = julian_collection.aggregate_mean('output')
-                        # Create a representative feature with the mean output.
-                        representative_feature = ee.Feature(filtered.first()).set('output', mean_output)
+                        aggregate_output = \
+                            FEATURE_COLLECTION_AGGREGATION_FUNCTIONS[op_type](
+                                julian_collection)
+
+                        representative_feature = ee.Feature(
+                            julian_collection.first()).set(
+                                OUTPUT_TAG, aggregate_output)
                         return representative_feature
 
                     # Get a list of unique IDs and years to iterate over.
-                    unique_ids = ee.List(range(len(sum(
+                    unique_ids = ee.List(list(range(sum(
                         [len(point_list)
                          for point_list in point_list_by_year.values()]))))
-                    years = ee.List(range(*year_range))
-
+                    years = ee.List(list(range(*year_range)))
                     # Use nested mapping to apply the mean function to each unique ID and year combination.
-                    result = unique_ids.map(
-                        lambda unique_id: years.map(
-                            lambda year: reduce_by_julian(unique_id, year)))
+                    LOGGER.debug(f'before the reduce by julian')
+                    active_collection = ee.FeatureCollection(
+                        unique_ids.map(
+                            lambda unique_id: years.map(
+                                lambda year: reduce_by_julian(
+                                    unique_id, year))).flatten())
 
-                    pass
+                    LOGGER.debug(active_collection.getInfo())
+                    LOGGER.debug(f'after the reduce by julian')
                 LOGGER.info(f'processing at featurecollection level for {spatiotemp_flag} {op_type} {args}')
                 if True:
                     pass
                 else:
                     raise ValueError(
                         f"can't do a spatial aggregation when already points, commands were: {spatiotemporal_commands}")
-            LOGGER.debug(f'value of current collection: {active_collection.getInfo()}')
         collection_per_year[current_year] = [
             f['properties']['output']
             for f in active_collection.getInfo()['features']]
@@ -648,12 +734,13 @@ def main():
     if args.generate_templates:
         generate_templates()
         return
-    authenticate_thread = threading.Thread(
-        target=initalize_gee,
-        args=[args.authenticate]
-        )
-    authenticate_thread.daemon = True
-    authenticate_thread.start()
+    initalize_gee(args.authenticate)
+    # authenticate_thread = threading.Thread(
+    #     target=initalize_gee,
+    #     args=[args.authenticate]
+    #     )
+    # authenticate_thread.daemon = True
+    # authenticate_thread.start()
 
     dataset_table = pandas.read_csv(
         args.dataset_table_path,
@@ -684,7 +771,7 @@ def main():
     # Create a ThreadPoolExecutor
     futures_work_list = []
 
-    authenticate_thread.join()
+    #authenticate_thread.join()
 
     point_features_by_year = collections.defaultdict(list)
     for index, (year, lon, lat) in enumerate(zip(
@@ -699,11 +786,15 @@ def main():
     # Determine the temporal resolution
 
     point_collection_by_year = process_gee_dataset(
-        'MODIS/061/MCD12Q1',
-        'LC_Type2',
+        'ECMWF/ERA5/DAILY',
+        'total_precipitation',
         point_features_by_year,
-        ('mult', -9),
-        [(SPATIAL_FN, MEAN_STAT, [1000]), (YEARS_FN, MAX_STAT, [-1, 0])])
+        ('mult', -90000),
+        [
+         (JULIAN_FN, MIN_STAT, [1, 3]),
+         (YEARS_FN, MIN_STAT, [-1, 0]),
+         (SPATIAL_FN, MIN_STAT, [1000]),
+        ])
 
     LOGGER.debug(f'result: {point_collection_by_year}')
 
