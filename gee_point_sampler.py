@@ -8,7 +8,8 @@ import collections
 import logging
 import os
 import re
-import infer_temporal_and_spatial_resolution_and_valid_years
+import sys
+
 import ee
 import pandas
 import numpy
