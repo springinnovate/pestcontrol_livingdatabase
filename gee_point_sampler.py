@@ -209,7 +209,6 @@ def process_batch(batch_features, active_collection, batch_size, op_type, local_
     # Check if 'output' property is present in the first feature of the batch results
     first_feature = ee.Feature(batch_results.first())
     output_present = first_feature.propertyNames().contains('output').getInfo()
-
     return (batch_results, output_present)
 
 
@@ -293,7 +292,6 @@ def process_data_table(dataset_table, data_table_attributes):
 
     for row_index, dataset_row in dataset_table.iterrows():
         key = create_clean_key(dataset_row)
-        LOGGER.debug(key)
         if isinstance(dataset_row[TRANSFORM_FUNC], str):
             transform_func_re = re.search(
                 r'([^\[]*)(\[.*\])', dataset_row[TRANSFORM_FUNC])
@@ -325,6 +323,7 @@ def process_data_table(dataset_table, data_table_attributes):
         dataset_table.to_csv('test.csv')
     except PermissionError:
         LOGGER.warning(f'test.csv is open, cannot overwrite')
+    LOGGER.info(f'loaded {len(dataset_table)} datasets')
     return dataset_table
 
 
@@ -348,18 +347,14 @@ INFER_RESOLUTION_MEMO_LOCK = Lock()
 def infer_temporal_and_spatial_resolution_and_valid_years(collection):
     with INFER_RESOLUTION_MEMO_LOCK:
         if collection not in INFER_RESOLUTION_MEMO_CACHE:
-            LOGGER.debug('getting system time start')
             date_collection = collection.aggregate_array('system:time_start')
             year_strings = date_collection.map(
                 lambda timestamp: ee.Date(timestamp).format('YYYY'))
             unique_years = set(
                 int(x) for x in ee.List(year_strings).distinct().getInfo())
-            LOGGER.debug(f'************** UNIQUE YESARS {unique_years}')
-            LOGGER.debug('getting date info')
             date_list = [
                 datetime.utcfromtimestamp(date/1000)
                 for date in date_collection.getInfo()]
-            LOGGER.debug(f'getting date info for {len(date_list)} dates')
             scale = collection.first().projection().nominalScale().getInfo()
             for i in range(1, len(date_list)):
                 diff = (date_list[i] - date_list[i-1]).days
@@ -452,11 +447,11 @@ def process_gee_dataset(
         spatiotemporal_commands):
     """Apply the commands in the `commands` list to generate the appropriate result"""
     # make sure that the final opeation is a spatial one if not alreay defined
-    LOGGER.debug(f'processing {spatiotemporal_commands}')
+    LOGGER.info(
+        f'processing the following commands:\n'
+        f'\t{dataset_id} - {band_name} -- {spatiotemporal_commands}')
     if SPATIAL_FN not in [x[0] for x in spatiotemporal_commands]:
-        LOGGER.info('spatial reduction not defined, adding one at the end')
         spatiotemporal_commands += [(SPATIAL_FN, MEAN_STAT, [0])]
-    LOGGER.info(f'processing the following commands: {spatiotemporal_commands}')
 
     image_collection = load_collection_or_image(dataset_id)
     image_collection = image_collection.select(band_name)
@@ -469,14 +464,10 @@ def process_gee_dataset(
 
     collection_per_year = ee.Dictionary()
     for current_year in point_years:
-        LOGGER.debug(
-                f'processing {current_year} in {dataset_id} - {band_name} '
-                f'{nominal_scale} resolution')
         applied_functions = set()
         # apply year filter
         year_range, julian_range = get_year_julian_range(
             current_year, spatiotemporal_commands)
-        LOGGER.debug(f'date range {year_range} {julian_range}')
         if any(year not in valid_year_set for year in year_range):
             LOGGER.debug(
                 f'{valid_year_set} does not cover queried year range '
@@ -507,7 +498,6 @@ def process_gee_dataset(
                 }.get(pixel_op_fn, lambda: None)()
 
             pixel_op_fn, pixel_op_args = pixel_op_transform
-            LOGGER.debug(f'processing {pixel_op_fn} on {pixel_op_args}')
             active_collection = pixel_op(pixel_op_fn, pixel_op_args)
             if active_collection is None:
                 raise ValueError(
@@ -517,13 +507,14 @@ def process_gee_dataset(
         n_points = len(point_list_by_year[current_year])
         point_list = ee.FeatureCollection(point_list_by_year[current_year])
         for index, (spatiotemp_flag, op_type, args) in enumerate(spatiotemporal_commands):
-
+            LOGGER.debug(
+                f'processing {current_year} in {dataset_id} - {band_name}\n'
+                f'\t{spatiotemp_flag} - {op_type} -- {args}')
             if spatiotemp_flag in applied_functions:
                 raise ValueError(
                     f'already applied a {spatiotemp_flag} in the command list '
                     f'{spatiotemporal_commands}')
             applied_functions.add(spatiotemp_flag)
-            LOGGER.debug(f'PROCESSING: {spatiotemp_flag} {op_type} {args}')
             if (spatiotemp_flag == JULIAN_FN and
                     collection_temporal_resolution == YEARS_FN):
                 raise ValueError(
@@ -533,11 +524,7 @@ def process_gee_dataset(
 
             # process the collection on this spatiotemporal function
             if isinstance(active_collection, ee.ImageCollection):
-                LOGGER.info(
-                    f'processing at imagecollection level for '
-                    f'{spatiotemp_flag} {op_type} {args}')
                 if spatiotemp_flag == YEARS_FN:
-                    LOGGER.debug('aggregating to years')
                     # already been filtered to be the right year span, just
                     # set the target time to be the current year
                     time_start_millis = ee.Date.fromYMD(
@@ -547,8 +534,6 @@ def process_gee_dataset(
                             active_collection).set(
                             'system:time_start', time_start_millis))
                 elif spatiotemp_flag == JULIAN_FN:
-                    LOGGER.debug('aggregating by julian range to years')
-
                     def _op_by_julian_range(_year):
                         # aggregate julian range around _year to just
                         # a single image at _year
@@ -577,7 +562,6 @@ def process_gee_dataset(
                     active_collection = ee.ImageCollection.fromImages(
                         years.map(lambda y: _op_by_julian_range(y)))
                 elif spatiotemp_flag == SPATIAL_FN:
-                    LOGGER.debug(f'processing spatiotemp_flag in imagecollection {spatiotemp_flag} {args}')
                     if args[0] > 0:
                         buffered_point_list = point_list.map(
                             lambda feature: feature.buffer(args[0]))
@@ -587,8 +571,6 @@ def process_gee_dataset(
                     local_scale = (
                         nominal_scale if nominal_scale < args[0] and args[0] > 0
                         else DEFAULT_SCALE)
-
-                    LOGGER.debug(f'querying this many points: {n_points}')
 
                     batch_size = n_points
                     i = 0
@@ -615,7 +597,6 @@ def process_gee_dataset(
                                     "Minimum batch size reached with "
                                     "missing 'output' property.")
                     active_collection = results
-                    #LOGGER.debug(f'this is what we got: {active_collection.getInfo()}')
             elif isinstance(active_collection, ee.FeatureCollection):
                 if spatiotemp_flag == YEARS_FN:
                     # we group all the points into a single value
@@ -633,7 +614,6 @@ def process_gee_dataset(
                     unique_ids = ee.List(list(range(sum(
                         [len(point_list)
                          for point_list in point_list_by_year.values()]))))
-                    LOGGER.debug('before the reduce by year')
                     active_collection = ee.FeatureCollection(
                         unique_ids.map(
                             lambda unique_id: reduce_by_unique_id(
@@ -673,21 +653,11 @@ def process_gee_dataset(
                          for point_list in point_list_by_year.values()]))))
                     years = ee.List(list(range(*year_range)))
                     # Use nested mapping to apply the mean function to each unique ID and year combination.
-                    LOGGER.debug(f'before the reduce by julian')
                     active_collection = ee.FeatureCollection(
                         unique_ids.map(
                             lambda unique_id: years.map(
                                 lambda year: reduce_by_julian(
                                     unique_id, year))).flatten())
-
-                    LOGGER.debug('after the reduce by julian')
-                LOGGER.info(f'processing at featurecollection level for {spatiotemp_flag} {op_type} {args}')
-                if True:
-                    pass
-                else:
-                    raise ValueError(
-                        f"can't do a spatial aggregation when already points, commands were: {spatiotemporal_commands}")
-        #processed_collection = active_collection.getInfo()
 
         def accumulate_by_year(active_collection):
             def extract_properties(feature):
@@ -709,7 +679,6 @@ def process_gee_dataset(
             raise
 
     collection_per_year_info = collection_per_year.getInfo()
-    LOGGER.debug(f'THIS IS THE COLLECITON PER YEAR INFO: {collection_per_year_info}')
     # Convert the dictionary to your desired format
     result_list = []
     for year, data in collection_per_year_info.items():
@@ -802,6 +771,7 @@ def main():
 
     point_features_by_year = collections.defaultdict(list)
     point_unique_id_per_year = collections.defaultdict(list)
+    n_points = 0
     for index, (year, lon, lat) in enumerate(zip(
             point_table[YEAR_FIELD],
             point_table[LNG_FIELD],
@@ -810,6 +780,7 @@ def main():
             ee.Feature(ee.Geometry.Point(
                 [lon, lat], 'EPSG:4326'), {UNIQUE_ID: index}))
         point_unique_id_per_year[year].append(index)
+        n_points += 1
 
     def process_dataset_row(dataset_index, dataset_row):
         key = (
@@ -817,7 +788,6 @@ def main():
             f'{dataset_row[BAND_NAME]}_'
             f'{dataset_row[SP_TM_AGG_FUNC]}_'
             f'{dataset_row[TRANSFORM_FUNC]}')
-        LOGGER.debug(f'processing this dataset: {key} {dataset_index} of {len(dataset_table)}')
         key = _scrub_key(key)
         point_collection_by_year = process_gee_dataset(
             dataset_row[DATASET_ID],
@@ -827,21 +797,21 @@ def main():
             dataset_row[PIXEL_FN_OP],
             dataset_row[SP_TM_AGG_OP])
 
-        LOGGER.debug(
-            f'THIS IS WHAT CAME BACK {point_collection_by_year}')
         result_by_index = {}
         for point_index, point_result in point_collection_by_year:
             result_by_index[point_index] = point_result
         result_by_order = [
-            result_by_index[index] for index in sorted(result_by_index)]
+            'n/a' if index not in result_by_index
+            else result_by_index[index] for index in range(n_points)]
 
         return key, result_by_order
 
     with ThreadPoolExecutor(max_workers=30) as executor:
         # Submitting tasks to the executor
         futures = {
-            executor.submit(process_dataset_row, dataset_index, dataset_row): \
-            dataset_index for dataset_index, dataset_row in dataset_table.iterrows()}
+            executor.submit(
+                process_dataset_row, dataset_index, dataset_row): dataset_index
+            for dataset_index, dataset_row in dataset_table.iterrows()}
 
         # Retrieving results as they complete
         for future in as_completed(futures):
@@ -852,8 +822,7 @@ def main():
                 point_table[key] = result_by_order
             except Exception as exc:
                 LOGGER.exception(f'{dataset_index} generated an exception: {exc}')
-                sys.exit(1)
-
+                point_table[key] = [str(exc.me)] * len(n_points)
 
     # result_by_index = {}
     # for dataset_index, dataset_row in dataset_table.iterrows():

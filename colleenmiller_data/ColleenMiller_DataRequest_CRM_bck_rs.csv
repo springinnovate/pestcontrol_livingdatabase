@@ -182,5 +182,5 @@ MODIS/006/MOD15A2H,Lai_500m,"julian_sd(1, 365)",,,https://developers.google.com/
 MODIS/006/MOD15A2H,Lai_500m,"spatial_mean(1000;julian_sd(1, 365))",,,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MOD15A2H#bands,Leaf Area Index std dev,0 years prior,1-365,1000,
 MODIS/061/MOD10A1,NDSI_Snow_Cover,"julian_mean(1, 365)",,,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MOD10A1,snow cover,0 years prior,1-365,0,
 MODIS/061/MOD10A1,NDSI_Snow_Cover,"spatial_mean(10000;julian_mean(1, 365))",,,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MOD10A1,snow cover,0 years prior,1-365,10000,
-NOAA/DMSP-OLS/NIGHTTIME_LIGHTS,stable_lights,"spatial_mean(1000;julian_mean(1, 365))",,,https://developers.google.com/earth-engine/datasets/catalog/NOAA_DMSP-OLS_NIGHTTIME_LIGHTS,Stable artificial light measure,0 years prior,1-365,1000,
-NOAA/DMSP-OLS/NIGHTTIME_LIGHTS,stable_lights,"spatial_mean(10000;julian_mean(1, 365))",,,https://developers.google.com/earth-engine/datasets/catalog/NOAA_DMSP-OLS_NIGHTTIME_LIGHTS,Stable artificial light measure,0 years prior,1-365,10000,
+NOAA/DMSP-OLS/NIGHTTIME_LIGHTS,stable_lights,spatial_mean(1000),,,https://developers.google.com/earth-engine/datasets/catalog/NOAA_DMSP-OLS_NIGHTTIME_LIGHTS,Stable artificial light measure,0 years prior,1-365,1000,
+NOAA/DMSP-OLS/NIGHTTIME_LIGHTS,stable_lights,spatial_mean(10000),,,https://developers.google.com/earth-engine/datasets/catalog/NOAA_DMSP-OLS_NIGHTTIME_LIGHTS,Stable artificial light measure,0 years prior,1-365,10000,
