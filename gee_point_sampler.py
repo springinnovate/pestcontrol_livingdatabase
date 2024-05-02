@@ -18,6 +18,7 @@ from parsimonious.nodes import NodeVisitor
 
 logging.basicConfig(
     level=logging.DEBUG,
+    stream=sys.stdout,
     format=(
         '%(asctime)s (%(relativeCreated)d) %(levelname)s %(name)s'
         ' [%(funcName)s:%(lineno)d] %(message)s'))
@@ -562,6 +563,7 @@ def process_gee_dataset(
                     active_collection = ee.ImageCollection.fromImages(
                         years.map(lambda y: _op_by_julian_range(y)))
                 elif spatiotemp_flag == SPATIAL_FN:
+                    LOGGER.debug(f'**** IN SPATIAL_FN: {point_list.getInfo()} {active_collection.getInfo()}')
                     if args[0] > 0:
                         buffered_point_list = point_list.map(
                             lambda feature: feature.buffer(args[0]))
@@ -597,6 +599,7 @@ def process_gee_dataset(
                                     "Minimum batch size reached with "
                                     "missing 'output' property.")
                     active_collection = results
+                    LOGGER.debug(f'xxxx IN SPATIAL_FN: {active_collection.getInfo()}')
             elif isinstance(active_collection, ee.FeatureCollection):
                 if spatiotemp_flag == YEARS_FN:
                     # we group all the points into a single value
@@ -614,10 +617,12 @@ def process_gee_dataset(
                     unique_ids = ee.List(list(range(sum(
                         [len(point_list)
                          for point_list in point_list_by_year.values()]))))
+                    LOGGER.debug(f'**** IN YEARS_FN: {unique_ids.getInfo()} {active_collection.getInfo()}')
                     active_collection = ee.FeatureCollection(
                         unique_ids.map(
                             lambda unique_id: reduce_by_unique_id(
                                 unique_id))).flatten()
+                    LOGGER.debug(f'**** HEY THIS IS THE FIRST PLACE IT CRASHES and it is because of flatten, CHASE DOWN requcce by unique id IN YEARS_FN: {active_collection.getInfo()}')
                 elif spatiotemp_flag == JULIAN_FN:
                     # we group all the points into groups of years
                     # Function to calculate mean output by unique_id and year.
@@ -658,6 +663,7 @@ def process_gee_dataset(
                             lambda unique_id: years.map(
                                 lambda year: reduce_by_julian(
                                     unique_id, year))).flatten())
+            LOGGER.debug(f'************* active_collection after {spatiotemp_flag} {args} {active_collection.getInfo()}')
 
         def accumulate_by_year(active_collection):
             def extract_properties(feature):
