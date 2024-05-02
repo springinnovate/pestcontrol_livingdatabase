@@ -822,7 +822,7 @@ def main():
                 point_table[key] = result_by_order
             except Exception as exc:
                 LOGGER.exception(f'{dataset_index} generated an exception: {exc}')
-                point_table[key] = [str(exc.me)] * len(n_points)
+                point_table[key] = [str(exc)] * n_points
 
     # result_by_index = {}
     # for dataset_index, dataset_row in dataset_table.iterrows():
