@@ -1,1 +1,1 @@
-CALL python gee_point_sampler.py --point_table_path ./colleenmiller_data/yearcoordsesync.csv --dataset_table_path "./colleenmiller_data/t.csv" %*
+CALL python gee_point_sampler.py --point_table_path ./colleenmiller_data/yearcoordsesync.csv --dataset_table_path "./colleenmiller_data/ColleenMiller_DataRequest_CRM_4-24_modisspectral.csv" %*
