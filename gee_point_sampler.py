@@ -58,7 +58,8 @@ LIMIT_VAL = 10
 
 DEFAULT_SCALE = 30
 
-MAX_WORKERS = 10
+MAX_WORKERS = 1
+BATCH_SIZE = 100
 
 SPATIOTEMPORAL_FN_GRAMMAR = Grammar(r"""
     function = text "(" args (";" function)? ")"
@@ -435,7 +436,6 @@ def filter_imagecollection_by_date_range(year_range, julian_range, image_collect
 
         # Filter the image collection for the given range and merge with the cumulative collection
         year_filtered_collection = image_collection.filterDate(start_date_str, end_date_str)
-        LOGGER.debug(f'filtering only {start_date_str} to {end_date_str}')
         filtered_collection = filtered_collection.merge(year_filtered_collection)
     return filtered_collection
 
@@ -491,6 +491,7 @@ def process_gee_dataset(
         # apply year filter
         year_range, julian_range = get_year_julian_range(
             current_year, spatiotemporal_commands)
+
         if valid_year_set and any(
                 year not in valid_year_set for year in year_range):
             LOGGER.debug(
@@ -530,13 +531,10 @@ def process_gee_dataset(
                 raise ValueError(
                     f'"{pixel_op_fn}" is not a valid function in '
                     f'{PIXEL_TRANSFORM_ALLOWED_FUNCTIONS} for {dataset_id} - {band_name}')
-        LOGGER.info(f'processing {current_year} over {year_range}')
         n_points = len(point_list_by_year[current_year])
+        LOGGER.info(f'processing {n_points} points on {dataset_id} {band_name} {pixel_op_transform} {spatiotemporal_commands} {current_year} over {year_range}')
         for index, (spatiotemp_flag, op_type, args) in enumerate(spatiotemporal_commands):
             point_list = ee.FeatureCollection(point_list_by_year[current_year])
-            LOGGER.debug(
-                f'processing {current_year} in {dataset_id} - {band_name}\n'
-                f'\t{spatiotemp_flag} - {op_type} -- {args}')
             if spatiotemp_flag in applied_functions:
                 raise ValueError(
                     f'already applied a {spatiotemp_flag} in the command list '
@@ -551,7 +549,6 @@ def process_gee_dataset(
 
             # process the collection on this spatiotemporal function
             if isinstance(active_collection, ee.ImageCollection):
-                LOGGER.debug('image colleciton***********')
                 if spatiotemp_flag == YEARS_FN:
                     # already been filtered to be the right year span, just
                     # set the target time to be the current year
@@ -605,9 +602,8 @@ def process_gee_dataset(
                         nominal_scale if nominal_scale < args[0] and args[0] > 0
                         else DEFAULT_SCALE)
 
-                    batch_size = n_points
+                    batch_size = BATCH_SIZE
                     i = 0
-                    LOGGER.debug(f'{spatiotemp_flag} {args[0]}*********** ')
                     results = ee.FeatureCollection([])
                     while i < n_points:
                         batch = buffered_point_list.toList(batch_size, i)
@@ -617,6 +613,7 @@ def process_gee_dataset(
                             op_type, local_scale)
                         if output_present:
                             # If 'output' is present, proceed with the next batch
+                            LOGGER.info(f'output present ....')
                             results = results.merge(batch_results)
                             i += batch_size
                         else:
@@ -653,7 +650,7 @@ def process_gee_dataset(
                         n_samples, start_day, end_day = args
                     else:
                         start_day, end_day = args
-                    LOGGER.debug(f'******* in JULIAN {spatiotemp_flag} {start_day} {end_day}')
+
                     def reduce_by_julian(unique_id, _year):
                         start_date = ee.Date.fromYMD(_year, 1, 1)
                         if args[0] > 0:
@@ -863,6 +860,7 @@ def main():
             try:
                 key, result_by_order = future.result()
                 point_table[key] = result_by_order
+                LOGGER.info(f'{key} just finished!!')
             except Exception as exc:
                 LOGGER.exception(f'{dataset_index} generated an exception: {exc}')
                 point_table[key] = [str(exc)] * n_points
