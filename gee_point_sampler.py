@@ -863,7 +863,7 @@ def main():
                     else:
                         n_attempts +=1
                         LOGGER.exception(f'trying attempt number {n_attempts+1} of {MAX_ATTEMPTS} ON process_gee_dataset')
-            LOGGER.debug(f'completed BATCH {batch_index+1} of {args.batch_size}')
+            LOGGER.debug(f'completed BATCH {batch_index+1} of {len(point_batch_list)}')
             for point_index, point_result in point_collection_by_year:
                 result_by_index[point_index] = point_result
         result_by_order = [
