@@ -522,6 +522,8 @@ def process_gee_dataset(
         LOGGER.info(f'processing {current_year} over {year_range}')
         n_points = len(point_list_by_year[current_year])
         for index, (spatiotemp_flag, op_type, args) in enumerate(spatiotemporal_commands):
+            if op_type in N_LIMIT_OPS:
+                raise RuntimeError(f'{op_type} not implemented')
             point_list = ee.FeatureCollection(point_list_by_year[current_year])
             LOGGER.debug(
                 f'processing {current_year} in {dataset_id} - {band_name}\n'
@@ -574,7 +576,6 @@ def process_gee_dataset(
                             start_date, end_date)
                         time_start_millis = ee.Date.fromYMD(
                             _year, 1, 1).millis()
-                        if op_type in []
                         aggregate_image = IMG_COL_AGGREGATION_FUNCTIONS[op_type](
                             daily_collection).set(
                             'system:time_start', time_start_millis)
