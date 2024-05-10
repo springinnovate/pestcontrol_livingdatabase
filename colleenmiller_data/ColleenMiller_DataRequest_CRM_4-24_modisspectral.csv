@@ -1,0 +1,82 @@
+Dataset ID,Band Name,Spatiotemporal Aggregation Function,Pixel Value Transform,Notes,GEE link,Description,Historical Range,Seasonal Range,Spatial Range,Valid Years,Decay
+MODIS/061/MCD12Q2,Dormancy_1,"years_mean(-30, 0; spatial_mean(1000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Dormancy Day of Year,30 years prior,year,1000,,NA
+MODIS/061/MCD12Q2,Dormancy_1,"years_mean(-30, 0; spatial_mean(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Dormancy Day of Year,30 years prior,year,10000,,NA
+MODIS/061/MCD12Q2,Dormancy_1,"years_mean(-30, 0; spatial_sd(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Dormancy Day of Year,30 years prior,year,10000,,NA
+MODIS/061/MCD12Q2,EVI_Amplitude_1,"years_mean(-30, 0; spatial_mean(1000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,EVI Amplitude (Max greenness),30 years prior,year,1000,,NA
+MODIS/061/MCD12Q2,EVI_Amplitude_1,"years_mean(-30, 0; spatial_mean(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,EVI Amplitude (Max greenness),30 years prior,year,10000,,NA
+MODIS/061/MCD12Q2,EVI_Amplitude_2,"years_mean(-30, 0; spatial_sd(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,,,year,,,
+MODIS/061/MCD12Q2,EVI_Area_1,"years_mean(-30, 0; spatial_mean(1000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,EVI Area (Total productivity),30 years prior,year,1000,,NA
+MODIS/061/MCD12Q2,EVI_Area_1,"years_mean(-30, 0; spatial_mean(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,EVI Area (Total productivity),30 years prior,year,10000,,NA
+MODIS/061/MCD12Q2,EVI_Area_2,"years_mean(-30, 0; spatial_sd(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,,,year,,,
+MODIS/061/MCD12Q2,Greenup_1,"years_mean(-30, 0; spatial_mean(1000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Greenup Day of Year,30 years prior,year,1000,,NA
+MODIS/061/MCD12Q2,Greenup_1,"years_mean(-30, 0; spatial_mean(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Greenup Day of Year,30 years prior,year,10000,,NA
+MODIS/061/MCD12Q2,Greenup_2,"years_mean(-30, 0; spatial_sd(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,,,year,,,
+MODIS/061/MCD12Q2,Maturity_1,"years_mean(-30, 0; spatial_mean(1000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Maturity Day of Year,30 years prior,year,1000,,NA
+MODIS/061/MCD12Q2,Maturity_1,"years_mean(-30, 0; spatial_mean(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Maturity Day of Year,30 years prior,year,10000,,NA
+MODIS/061/MCD12Q2,Maturity_2,"years_mean(-30, 0; spatial_sd(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,,,year,,,
+MODIS/061/MCD12Q2,MidGreendown_1,"years_mean(-30, 0; spatial_mean(1000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MidGreendown Day of Year,30 years prior,year,1000,,NA
+MODIS/061/MCD12Q2,MidGreendown_1,"years_mean(-30, 0; spatial_mean(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MidGreendown Day of Year,30 years prior,year,10000,,NA
+MODIS/061/MCD12Q2,MidGreendown_2,"years_mean(-30, 0; spatial_sd(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,,,year,,,
+MODIS/061/MCD12Q2,MidGreenup_1,"years_mean(-30, 0; spatial_mean(1000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MidGreenup Day of Year,30 years prior,year,1000,,NA
+MODIS/061/MCD12Q2,MidGreenup_1,"years_mean(-30, 0; spatial_mean(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MidGreenup Day of Year,30 years prior,year,10000,,NA
+MODIS/061/MCD12Q2,MidGreenup_2,"years_mean(-30, 0; spatial_sd(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,,,year,,,
+MODIS/061/MCD12Q2,Peak_1,"years_mean(-30, 0; spatial_mean(1000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Peak Day of Year,30 years prior,year,1000,,NA
+MODIS/061/MCD12Q2,Peak_1,"years_mean(-30, 0; spatial_mean(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Peak Day of Year,30 years prior,year,10000,,NA
+MODIS/061/MCD12Q2,Peak_2,"years_mean(-30, 0; spatial_sd(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,,,year,,,
+MODIS/061/MCD12Q2,Senescence_1,"years_mean(-30, 0; spatial_mean(1000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Senescence Day of Year,30 years prior,year,1000,,NA
+MODIS/061/MCD12Q2,Senescence_1,"years_mean(-30, 0; spatial_mean(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Senescence Day of Year,30 years prior,year,10000,,NA
+MODIS/061/MCD12Q2,Senescence_2,"years_mean(-30, 0; spatial_sd(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,,,year,,,
+MODIS/061/MCD12Q2,Dormancy_1,"years_mean(-10, 0; spatial_mean(1000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Dormancy Day of Year,10 years prior,year,1000,,NA
+MODIS/061/MCD12Q2,Dormancy_1,"years_mean(-10, 0; spatial_mean(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Dormancy Day of Year,10 years prior,year,10000,,NA
+MODIS/061/MCD12Q2,Dormancy_2,"years_mean(-10, 0; spatial_sd(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,,,year,,,
+MODIS/061/MCD12Q2,EVI_Amplitude_1,"years_mean(-10, 0; spatial_mean(1000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,EVI Amplitude (Max greenness),10 years prior,year,1000,,NA
+MODIS/061/MCD12Q2,EVI_Amplitude_1,"years_mean(-10, 0; spatial_mean(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,EVI Amplitude (Max greenness),10 years prior,year,10000,,NA
+MODIS/061/MCD12Q2,EVI_Amplitude_2,"years_mean(-10, 0; spatial_sd(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,,,year,,,
+MODIS/061/MCD12Q2,EVI_Area_1,"years_mean(-10, 0; spatial_mean(1000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,EVI Area (Total productivity),10 years prior,year,1000,,NA
+MODIS/061/MCD12Q2,EVI_Area_1,"years_mean(-10, 0; spatial_mean(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,EVI Area (Total productivity),10 years prior,year,10000,,NA
+MODIS/061/MCD12Q2,EVI_Area_2,"years_mean(-10, 0; spatial_sd(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,,,year,,,
+MODIS/061/MCD12Q2,Greenup_1,"years_mean(-10, 0; spatial_mean(1000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Greenup Day of Year,10 years prior,year,1000,,NA
+MODIS/061/MCD12Q2,Greenup_1,"years_mean(-10, 0; spatial_mean(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Greenup Day of Year,10 years prior,year,10000,,NA
+MODIS/061/MCD12Q2,Greenup_2,"years_mean(-10, 0; spatial_sd(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,,,year,,,
+MODIS/061/MCD12Q2,Maturity_1,"years_mean(-10, 0; spatial_mean(1000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Maturity Day of Year,10 years prior,year,1000,,NA
+MODIS/061/MCD12Q2,Maturity_1,"years_mean(-10, 0; spatial_mean(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Maturity Day of Year,10 years prior,year,10000,,NA
+MODIS/061/MCD12Q2,Maturity_2,"years_mean(-10, 0; spatial_sd(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,,,year,,,
+MODIS/061/MCD12Q2,MidGreendown_1,"years_mean(-10, 0; spatial_mean(1000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MidGreendown Day of Year,10 years prior,year,1000,,NA
+MODIS/061/MCD12Q2,MidGreendown_1,"years_mean(-10, 0; spatial_mean(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MidGreendown Day of Year,10 years prior,year,10000,,NA
+MODIS/061/MCD12Q2,MidGreendown_2,"years_mean(-10, 0; spatial_sd(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,,,year,,,
+MODIS/061/MCD12Q2,MidGreenup_1,"years_mean(-10, 0; spatial_mean(1000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MidGreenup Day of Year,10 years prior,year,1000,,NA
+MODIS/061/MCD12Q2,MidGreenup_1,"years_mean(-10, 0; spatial_mean(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MidGreenup Day of Year,10 years prior,year,10000,,NA
+MODIS/061/MCD12Q2,MidGreenup_2,"years_mean(-10, 0; spatial_sd(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,,,year,,,
+MODIS/061/MCD12Q2,Peak_1,"years_mean(-10, 0; spatial_mean(1000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Peak Day of Year,10 years prior,year,1000,,NA
+MODIS/061/MCD12Q2,Peak_1,"years_mean(-10, 0; spatial_mean(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Peak Day of Year,10 years prior,year,10000,,NA
+MODIS/061/MCD12Q2,Peak_2,"years_mean(-10, 0; spatial_sd(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,,,year,,,
+MODIS/061/MCD12Q2,Senescence_1,"years_mean(-10, 0; spatial_mean(1000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Senescence Day of Year,10 years prior,year,1000,,NA
+MODIS/061/MCD12Q2,Senescence_1,"years_mean(-10, 0; spatial_mean(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Senescence Day of Year,10 years prior,year,10000,,NA
+MODIS/061/MCD12Q2,Senescence_2,"years_mean(-10, 0; spatial_sd(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,,,year,,,
+MODIS/061/MCD12Q2,Dormancy_1,"years_mean(-5, 0; spatial_mean(1000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Dormancy Day of Year,5 years prior,year,1000,,NA
+MODIS/061/MCD12Q2,Dormancy_1,"years_mean(-5, 0; spatial_mean(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Dormancy Day of Year,5 years prior,year,10000,,NA
+MODIS/061/MCD12Q2,Dormancy_2,"years_mean(-5, 0; spatial_sd(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,,,year,,,
+MODIS/061/MCD12Q2,EVI_Amplitude_1,"years_mean(-5, 0; spatial_mean(1000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,EVI Amplitude (Max greenness),5 years prior,year,1000,,NA
+MODIS/061/MCD12Q2,EVI_Amplitude_1,"years_mean(-5, 0; spatial_mean(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,EVI Amplitude (Max greenness),5 years prior,year,10000,,NA
+MODIS/061/MCD12Q2,EVI_Amplitude_2,"years_mean(-5, 0; spatial_sd(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,,,year,,,
+MODIS/061/MCD12Q2,EVI_Area_1,"years_mean(-5, 0; spatial_mean(1000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,EVI Area (Total productivity),5 years prior,year,1000,,NA
+MODIS/061/MCD12Q2,EVI_Area_1,"years_mean(-5, 0; spatial_mean(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,EVI Area (Total productivity),5 years prior,year,10000,,NA
+MODIS/061/MCD12Q2,EVI_Area_2,"years_mean(-5, 0; spatial_sd(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,,,year,,,
+MODIS/061/MCD12Q2,Greenup_1,"years_mean(-5, 0; spatial_mean(1000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Greenup Day of Year,5 years prior,year,1000,,NA
+MODIS/061/MCD12Q2,Greenup_1,"years_mean(-5, 0; spatial_mean(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Greenup Day of Year,5 years prior,year,10000,,NA
+MODIS/061/MCD12Q2,Greenup_2,"years_mean(-5, 0; spatial_sd(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,,,year,,,
+MODIS/061/MCD12Q2,Maturity_1,"years_mean(-5, 0; spatial_mean(1000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Maturity Day of Year,5 years prior,year,1000,,NA
+MODIS/061/MCD12Q2,Maturity_1,"years_mean(-5, 0; spatial_mean(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Maturity Day of Year,5 years prior,year,10000,,NA
+MODIS/061/MCD12Q2,Maturity_2,"years_mean(-5, 0; spatial_sd(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,,,year,,,
+MODIS/061/MCD12Q2,MidGreendown_1,"years_mean(-5, 0; spatial_mean(1000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MidGreendown Day of Year,5 years prior,year,1000,,NA
+MODIS/061/MCD12Q2,MidGreendown_1,"years_mean(-5, 0; spatial_mean(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MidGreendown Day of Year,5 years prior,year,10000,,NA
+MODIS/061/MCD12Q2,MidGreendown_2,"years_mean(-5, 0; spatial_sd(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,,,year,,,
+MODIS/061/MCD12Q2,MidGreenup_1,"years_mean(-5, 0; spatial_mean(1000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MidGreenup Day of Year,5 years prior,year,1000,,NA
+MODIS/061/MCD12Q2,MidGreenup_1,"years_mean(-5, 0; spatial_mean(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,MidGreenup Day of Year,5 years prior,year,10000,,NA
+MODIS/061/MCD12Q2,MidGreenup_2,"years_mean(-5, 0; spatial_sd(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,,,year,,,
+MODIS/061/MCD12Q2,Peak_1,"years_mean(-5, 0; spatial_mean(1000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Peak Day of Year,5 years prior,year,1000,,NA
+MODIS/061/MCD12Q2,Peak_1,"years_mean(-5, 0; spatial_mean(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Peak Day of Year,5 years prior,year,10000,,NA
+MODIS/061/MCD12Q2,Peak_2,"years_mean(-5, 0; spatial_sd(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,,,year,,,
+MODIS/061/MCD12Q2,Senescence_1,"years_mean(-5, 0; spatial_mean(1000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Senescence Day of Year,5 years prior,year,1000,,NA
+MODIS/061/MCD12Q2,Senescence_1,"years_mean(-5, 0; spatial_mean(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Senescence Day of Year,5 years prior,year,10000,,NA
+MODIS/061/MCD12Q2,Senescence_2,"years_mean(-5, 0; spatial_sd(10000))",,,,,,,,,

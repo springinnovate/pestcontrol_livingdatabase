@@ -31,6 +31,7 @@ for lib_name in LIBS_TO_SILENCE:
 DATATABLE_TEMPLATE_PATH = 'template_datatable.csv'
 POINTTABLE_TEMPLATE_PATH = 'template_pointtable.csv'
 
+IGNORE_FLAGS = ['na', 'n/a', 'none']
 DATASET_ID = 'Dataset ID'
 BAND_NAME = 'Band Name'
 SP_TM_AGG_FUNC = 'Spatiotemporal Aggregation Function'
@@ -292,7 +293,8 @@ def process_data_table(dataset_table, data_table_attributes):
 
     for row_index, dataset_row in dataset_table.iterrows():
         key = create_clean_key(dataset_row)
-        if isinstance(dataset_row[TRANSFORM_FUNC], str):
+        if isinstance(dataset_row[TRANSFORM_FUNC], str) and \
+                dataset_row[TRANSFORM_FUNC].lower() not in IGNORE_FLAGS:
             transform_func_re = re.search(
                 r'([^\[]*)(\[.*\])', dataset_row[TRANSFORM_FUNC])
             if transform_func_re is None:
@@ -468,7 +470,8 @@ def process_gee_dataset(
         # apply year filter
         year_range, julian_range = get_year_julian_range(
             current_year, spatiotemporal_commands)
-        if any(year not in valid_year_set for year in year_range):
+        if valid_year_set and any(
+                year not in valid_year_set for year in year_range):
             LOGGER.debug(
                 f'{valid_year_set} does not cover queried year range '
                 f'of {year_range} in {dataset_id} - {band_name}')
@@ -477,8 +480,11 @@ def process_gee_dataset(
                  f'{valid_year_set} does not cover queried year range of {year_range}')
                 for unique_id in point_unique_id_per_year[current_year]]))
             continue
-        active_collection = filter_imagecollection_by_date_range(
-            year_range, julian_range, image_collection)
+        if valid_year_set:
+            active_collection = filter_imagecollection_by_date_range(
+                year_range, julian_range, image_collection)
+        else:
+            active_collection = image_collection
         if pixel_op_transform is not None:
             def pixel_op(pixel_op_fn, args):
                 return {
@@ -524,6 +530,7 @@ def process_gee_dataset(
 
             # process the collection on this spatiotemporal function
             if isinstance(active_collection, ee.ImageCollection):
+                LOGGER.debug('image colleciton***********')
                 if spatiotemp_flag == YEARS_FN:
                     # already been filtered to be the right year span, just
                     # set the target time to be the current year
@@ -533,6 +540,11 @@ def process_gee_dataset(
                         IMG_COL_AGGREGATION_FUNCTIONS[op_type](
                             active_collection).set(
                             'system:time_start', time_start_millis))
+                    try:
+                        LOGGER.debug(f'*********** active_collection: {active_collection.getInfo()}')
+                    except:
+                        LOGGER.exception('it did not work')
+                        return
                 elif spatiotemp_flag == JULIAN_FN:
                     def _op_by_julian_range(_year):
                         # aggregate julian range around _year to just
@@ -574,6 +586,7 @@ def process_gee_dataset(
 
                     batch_size = n_points
                     i = 0
+                    LOGGER.debug(f'{spatiotemp_flag} {args[0]}*********** ')
                     results = ee.FeatureCollection([])
                     while i < n_points:
                         batch = buffered_point_list.toList(batch_size, i)
@@ -589,9 +602,6 @@ def process_gee_dataset(
                             # If 'output' is missing, halve the batch size and retry
                             if batch_size > 1:
                                 batch_size = max(1, batch_size // 2)
-                                LOGGER.warning(
-                                    f'***********************************batch process failed, reducing '
-                                    f'batch_size by half to {batch_size}')
                             else:
                                 raise RuntimeError(
                                     "Minimum batch size reached with "
@@ -614,10 +624,11 @@ def process_gee_dataset(
                     unique_ids = ee.List(list(range(sum(
                         [len(point_list)
                          for point_list in point_list_by_year.values()]))))
-                    active_collection = ee.FeatureCollection(
-                        unique_ids.map(
-                            lambda unique_id: reduce_by_unique_id(
-                                unique_id))).flatten()
+                    # wrap in feature colleciton just incase underlying isn't
+                    # a feature collection
+                    flat_feature_list = unique_ids.map(
+                        lambda unique_id: reduce_by_unique_id(unique_id))
+                    active_collection = ee.FeatureCollection(flat_feature_list) #.flatten()
                 elif spatiotemp_flag == JULIAN_FN:
                     # we group all the points into groups of years
                     # Function to calculate mean output by unique_id and year.
@@ -667,15 +678,19 @@ def process_gee_dataset(
                 })
 
             processed_features = active_collection.map(extract_properties)
-            return processed_features.reduceColumns(
+            result = processed_features.reduceColumns(
                 ee.Reducer.toList(2), [UNIQUE_ID, OUTPUT_TAG]).get('list')
+            return result
 
         try:
+            LOGGER.debug(f'************ active collection: {active_collection.getInfo()}')
             collection_per_year = collection_per_year.set(
                 str(current_year), accumulate_by_year(active_collection))
+            LOGGER.debug(f'****************** {collection_per_year.getInfo()}')
         except Exception:
             LOGGER.exception(
                 f'something bad happened on this collectoin: {active_collection}')
+            sys.exit()
             raise
 
     collection_per_year_info = collection_per_year.getInfo()
@@ -822,33 +837,13 @@ def main():
                 point_table[key] = result_by_order
             except Exception as exc:
                 LOGGER.exception(f'{dataset_index} generated an exception: {exc}')
-                point_table[key] = [str(exc.me)] * len(n_points)
+                point_table[key] = [str(exc)] * n_points
 
-    # result_by_index = {}
-    # for dataset_index, dataset_row in dataset_table.iterrows():
-    #     key = (
-    #         f'{dataset_row[DATASET_ID]}_'
-    #         f'{dataset_row[BAND_NAME]}_'
-    #         f'{dataset_row[SP_TM_AGG_FUNC]}_'
-    #         f'{dataset_row[TRANSFORM_FUNC]}')
-    #     LOGGER.debug(f'processing this dataset: {key} {dataset_index} of {len(dataset_table)}')
-    #     key = _scrub_key(key)
-    #     point_collection_by_year = process_gee_dataset(
-    #         dataset_row[DATASET_ID],
-    #         dataset_row[BAND_NAME],
-    #         point_features_by_year,
-    #         point_unique_id_per_year,
-    #         dataset_row[PIXEL_FN_OP],
-    #         dataset_row[SP_TM_AGG_OP])
-    #     for year in point_unique_id_per_year.keys():
-    #         for point_index, point_result in (
-    #                 point_collection_by_year[year]):
-    #             result_by_index[point_index] = point_result
-    #     result_by_order = [
-    #         result_by_index[index] for index in sorted(result_by_index)]
-    #     point_table[key] = result_by_order
-
-    point_table.to_csv('sampled_points.csv', index=False)
+    target_point_table_path = (
+        f'{os.path.basename(os.path.splitext(args.dataset_table_path)[0])}_'
+        f'{os.path.basename(os.path.splitext(args.point_table_path)[0])}')
+    point_table.to_csv(
+        f'sampled_points_of_{target_point_table_path}.csv', index=False)
 
 
 if __name__ == '__main__':
