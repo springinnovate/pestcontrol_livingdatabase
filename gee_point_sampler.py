@@ -611,7 +611,6 @@ def process_gee_dataset(
                             op_type, local_scale)
                         if output_present:
                             # If 'output' is present, proceed with the next batch
-                            LOGGER.info(f'output present ....')
                             results = results.merge(batch_results)
                             i += batch_size
                         else:
@@ -852,9 +851,8 @@ def main():
                 point_unique_id_per_year,
                 dataset_row[PIXEL_FN_OP],
                 dataset_row[SP_TM_AGG_OP])
-            LOGGER.debug(f'BATCH INDEX RESULT: {batch_index} {point_features_by_year}')
+            LOGGER.debug(f'completed BATCH {batch_index+1} of {args.batch_size}')
             for point_index, point_result in point_collection_by_year:
-                LOGGER.debug(f'index debugging {point_index} {batch_index}')
                 result_by_index[point_index] = point_result
         result_by_order = [
             'n/a' if index not in result_by_index
