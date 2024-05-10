@@ -58,7 +58,7 @@ LIMIT_VAL = 10
 
 DEFAULT_SCALE = 30
 
-MAX_WORKERS = 5
+MAX_WORKERS = 1
 
 SPATIOTEMPORAL_FN_GRAMMAR = Grammar(r"""
     function = text "(" args (";" function)? ")"
