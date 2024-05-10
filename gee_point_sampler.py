@@ -58,7 +58,7 @@ LIMIT_VAL = 10
 
 DEFAULT_SCALE = 30
 
-MAX_WORKERS = 1
+MAX_WORKERS = 10
 
 SPATIOTEMPORAL_FN_GRAMMAR = Grammar(r"""
     function = text "(" args (";" function)? ")"
@@ -228,7 +228,8 @@ def process_batch(batch_features, active_collection, batch_size, op_type, local_
     batch_results = active_collection.map(reduce_image).flatten()
     # Check if 'output' property is present in the first feature of the batch results
     first_feature = ee.Feature(batch_results.first())
-    output_present = first_feature.propertyNames().contains('output').getInfo()
+    #output_present = first_feature.propertyNames().contains('output').getInfo()
+    output_present = True
     return (batch_results, output_present)
 
 
@@ -280,7 +281,7 @@ def chunk_points(point_list, chunk_size):
 def initalize_gee(authenicate_flag):
     if authenicate_flag:
         ee.Authenticate()
-    ee.Initialize()
+    ee.Initialize(opt_url='https://earthengine-highvolume.googleapis.com')
     initalize_global_stat_functions()
 
 
