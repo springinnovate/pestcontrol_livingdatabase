@@ -47,6 +47,8 @@ JULIAN_FN = 'julian'
 MEAN_STAT = 'mean'
 MAX_STAT = 'max'
 MIN_STAT = 'min'
+MIN_N_STAT = 'nmin'
+MAX_N_STAT = 'nmax'
 SD_STAT = 'sd'
 
 OUTPUT_TAG = 'output'
@@ -86,7 +88,7 @@ def initalize_global_stat_functions():
     global FEATURE_COLLECTION_AGGREGATION_FUNCTIONS
     VALID_FUNCTIONS = [
         f'{prefix}_{suffix}' for suffix in
-        [MEAN_STAT, MAX_STAT, MIN_STAT, SD_STAT]
+        [MEAN_STAT, MAX_STAT, MIN_STAT, SD_STAT, MIN_N_STAT, MAX_N_STAT]
         for prefix in
         [SPATIAL_FN, YEARS_FN, JULIAN_FN]]
 
@@ -138,10 +140,15 @@ class SpatioTemporalFunctionProcessor(NodeVisitor):
         if function == JULIAN_FN and self.parsed[YEARS_FN]:
             raise ValueError(
                 f'{node.text} cannot apply a julian aggregation after a year aggregation')
-        if function in [JULIAN_FN, YEARS_FN] and len(args) != 2:
-            raise ValueError(
-                f'in `{node.text}`, `{function}` requires two arguments, got '
-                f'this instead: {args}')
+        if function in [JULIAN_FN, YEARS_FN]:
+            if (stat_operation not in [MIN_N_STAT, MAX_N_STAT]) and (len(args) != 2):
+                raise ValueError(
+                    f'in `{node.text}`, `{function}` requires two arguments, got '
+                    f'this instead: {args}')
+            elif (stat_operation in [MIN_N_STAT, MAX_N_STAT]) and (len(args) != 3):
+                raise ValueError(
+                    f'in `{node.text}`, `{function}` requires three arguments, got '
+                    f'this instead: {args}')
         if function in [SPATIAL_FN] and len(args) != 1:
             raise ValueError(
                 f'in `{node.text}`, `{function}` requires one argument, got '
@@ -725,7 +732,7 @@ def main():
         '--point_table_path', help='path to point sample locations',
         required=True)
     parser.add_argument(
-        '--n_dataset_rows', type=int, help='limit csv read to this many rows')
+        '--n_dataset_rows', nargs='+', type=int, help='limit csv read to this many rows')
     parser.add_argument(
         '--n_point_rows', type=int, help='limit csv read to this many rows')
     # 2) the natural habitat eo characteristics in and out of polygon
@@ -740,7 +747,19 @@ def main():
     dataset_table = pandas.read_csv(
         args.dataset_table_path,
         skip_blank_lines=True,
-        nrows=args.n_dataset_rows).dropna(how='all')
+    ).dropna(how='all')
+
+    if args.n_dataset_rows is None:
+        dataset_row_range = range(0, len(dataset_table))
+    elif len(args.n_dataset_rows) == 1:
+        dataset_row_range = range(0, args.n_dataset_rows)
+    elif len(args.n_dataset_rows) == 2:
+        dataset_row_range = range(args.n_dataset_rows[0], args.n_dataset_rows[1])
+
+    # dataset_table = pandas.read_csv(
+    #     args.dataset_table_path,
+    #     skip_blank_lines=True,
+    #     nrows=args.n_dataset_rows).dropna(how='all')
     dataset_table[SP_TM_AGG_OP] = None
     dataset_table[PIXEL_FN_OP] = None
     dataset_table = process_data_table(dataset_table, args)
@@ -798,12 +817,13 @@ def main():
 
         return key, result_by_order
 
-    with ThreadPoolExecutor(max_workers=30) as executor:
+    with ThreadPoolExecutor(max_workers=10) as executor:
         # Submitting tasks to the executor
         futures = {
             executor.submit(
                 process_dataset_row, dataset_index, dataset_row): dataset_index
-            for dataset_index, dataset_row in dataset_table.iterrows()}
+            for dataset_index, dataset_row in dataset_table.iterrows()
+            if dataset_index in dataset_row_range}
 
         # Retrieving results as they complete
         for future in as_completed(futures):
@@ -841,6 +861,7 @@ def main():
     #     point_table[key] = result_by_order
 
     point_table.to_csv('sampled_points.csv', index=False)
+    LOGGER.info('all done!')
 
 
 if __name__ == '__main__':
