@@ -29,6 +29,10 @@ LIBS_TO_SILENCE = ['urllib3.connectionpool', 'googleapiclient.discovery', 'googl
 for lib_name in LIBS_TO_SILENCE:
     logging.getLogger(lib_name).setLevel(logging.WARN)
 
+MAX_WORKERS = 10
+BATCH_SIZE = 100
+DEFAULT_SCALE = 30
+
 DATATABLE_TEMPLATE_PATH = 'template_datatable.csv'
 POINTTABLE_TEMPLATE_PATH = 'template_pointtable.csv'
 
@@ -54,12 +58,6 @@ SD_STAT = 'sd'
 
 OUTPUT_TAG = 'output'
 UNIQUE_ID = 'unique_id'
-LIMIT_VAL = 10
-
-DEFAULT_SCALE = 30
-
-MAX_WORKERS = 10
-BATCH_SIZE = 100
 
 SPATIOTEMPORAL_FN_GRAMMAR = Grammar(r"""
     function = text "(" args (";" function)? ")"
@@ -768,6 +766,12 @@ def main():
         '--n_dataset_rows', nargs='+', type=int, help='limit csv read to this many rows')
     parser.add_argument(
         '--n_point_rows', type=int, help='limit csv read to this many rows')
+    parser.add_argument(
+        '--batch_size', type=int, default=BATCH_SIZE,
+        help=f'how many points to process per batch, defaults to {BATCH_SIZE}')
+    parser.add_argument(
+        '--max_workers', type=int, default=MAX_WORKERS,
+        help=f'how many datasets to process in parallel, defaults to {MAX_WORKERS}')
     # 2) the natural habitat eo characteristics in and out of polygon
     # 3) proportion of area outside of polygon
 
@@ -809,18 +813,27 @@ def main():
 
     LOGGER.info(f'loaded {args.point_table_path}')
 
-    point_features_by_year = collections.defaultdict(list)
+    point_batch_list = []
     point_unique_id_per_year = collections.defaultdict(list)
     n_points = 0
+    # initialize for first step
+    batch_index = -1
+    current_batch_size = args.batch_size
     for index, (year, lon, lat) in enumerate(zip(
             point_table[YEAR_FIELD],
             point_table[LNG_FIELD],
             point_table[LAT_FIELD])):
-        point_features_by_year[year].append(
+        if current_batch_size == args.batch_size:
+            batch_index += 1
+            point_batch_list.append(collections.defaultdict(list))
+            current_batch_size = 0
+
+        point_batch_list[batch_index][year].append(
             ee.Feature(ee.Geometry.Point(
                 [lon, lat], 'EPSG:4326'), {UNIQUE_ID: index}))
         point_unique_id_per_year[year].append(index)
         n_points += 1
+        current_batch_size += 1
 
     def process_dataset_row(dataset_index, dataset_row):
         key = (
@@ -829,24 +842,27 @@ def main():
             f'{dataset_row[SP_TM_AGG_FUNC]}_'
             f'{dataset_row[TRANSFORM_FUNC]}')
         key = _scrub_key(key)
-        point_collection_by_year = process_gee_dataset(
-            dataset_row[DATASET_ID],
-            dataset_row[BAND_NAME],
-            point_features_by_year,
-            point_unique_id_per_year,
-            dataset_row[PIXEL_FN_OP],
-            dataset_row[SP_TM_AGG_OP])
-
         result_by_index = {}
-        for point_index, point_result in point_collection_by_year:
-            result_by_index[point_index] = point_result
+        for batch_index, point_features_by_year in enumerate(point_batch_list):
+            LOGGER.debug(f'BATCH INDEX {batch_index}')
+            point_collection_by_year = process_gee_dataset(
+                dataset_row[DATASET_ID],
+                dataset_row[BAND_NAME],
+                point_features_by_year,
+                point_unique_id_per_year,
+                dataset_row[PIXEL_FN_OP],
+                dataset_row[SP_TM_AGG_OP])
+            LOGGER.debug(f'BATCH INDEX RESULT: {batch_index} {point_features_by_year}')
+            for point_index, point_result in point_collection_by_year:
+                LOGGER.debug(f'index debugging {point_index} {batch_index}')
+                result_by_index[point_index] = point_result
         result_by_order = [
             'n/a' if index not in result_by_index
             else result_by_index[index] for index in range(n_points)]
 
         return key, result_by_order
 
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+    with ThreadPoolExecutor(max_workers=args.max_workers) as executor:
         # Submitting tasks to the executor
         futures = {
             executor.submit(
@@ -855,7 +871,7 @@ def main():
             if dataset_index in dataset_row_range}
 
         # Retrieving results as they complete
-        for future in as_completed(futures):
+        for future in futures:
             dataset_index = futures[future]
             try:
                 key, result_by_order = future.result()
