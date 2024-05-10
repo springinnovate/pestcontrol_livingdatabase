@@ -81,6 +81,11 @@ ALLOWED_SPATIOTEMPORAL_FUNCTIONS = [
     SPATIAL_FN,
 ]
 
+N_LIMIT_OPS = [
+    MIN_N_STAT,
+    MAX_N_STAT,
+]
+
 
 def initalize_global_stat_functions():
     global VALID_FUNCTIONS
@@ -569,6 +574,7 @@ def process_gee_dataset(
                             start_date, end_date)
                         time_start_millis = ee.Date.fromYMD(
                             _year, 1, 1).millis()
+                        if op_type in []
                         aggregate_image = IMG_COL_AGGREGATION_FUNCTIONS[op_type](
                             daily_collection).set(
                             'system:time_start', time_start_millis)
@@ -614,33 +620,25 @@ def process_gee_dataset(
                     active_collection = results
             elif isinstance(active_collection, ee.FeatureCollection):
                 if spatiotemp_flag == YEARS_FN:
-                    # we group all the points into a single value
+                    # we group all the points into a single value for the year?
                     def reduce_by_unique_id(unique_id):
                         unique_collection = active_collection.filter(
                             ee.Filter.eq(UNIQUE_ID, unique_id))
-                        aggregate_output = \
-                            FEATURE_COLLECTION_AGGREGATION_FUNCTIONS[op_type](
-                                unique_collection)
+                        if op_type in N_LIMIT_OPS:
+                            pass
+                        else:
+                            aggregate_output = \
+                                FEATURE_COLLECTION_AGGREGATION_FUNCTIONS[op_type](
+                                    unique_collection)
                         representative_feature = ee.Feature(
                             unique_collection.first()).set(
                                 OUTPUT_TAG, aggregate_output)
                         return representative_feature
                     # Get a list of unique IDs and years to iterate over.
-<<<<<<< HEAD
-                    unique_ids = ee.List(list(range(sum(
-                        [len(point_list)
-                         for point_list in point_list_by_year.values()]))))
-                    # wrap in feature colleciton just incase underlying isn't
-                    # a feature collection
-                    flat_feature_list = unique_ids.map(
-                        lambda unique_id: reduce_by_unique_id(unique_id))
-                    active_collection = ee.FeatureCollection(flat_feature_list) #.flatten()
-=======
                     active_collection = ee.FeatureCollection(
                         ee.List(point_unique_id_per_year[current_year]).map(
                             lambda unique_id: reduce_by_unique_id(
                                 unique_id)))
->>>>>>> 4d2c0ff8ca7994016205c957c61c3690593b1c54
                 elif spatiotemp_flag == JULIAN_FN:
                     # we group all the points into groups of years
                     # Function to calculate mean output by unique_id and year.
@@ -691,16 +689,9 @@ def process_gee_dataset(
             return result
 
         try:
-<<<<<<< HEAD
-            LOGGER.debug(f'************ active collection: {active_collection.getInfo()}')
-            collection_per_year = collection_per_year.set(
-                str(current_year), accumulate_by_year(active_collection))
-            LOGGER.debug(f'****************** {collection_per_year.getInfo()}')
-=======
             accumulated_active_collection = accumulate_by_year(active_collection)
             collection_per_year = collection_per_year.set(
                 str(current_year), accumulated_active_collection)
->>>>>>> 4d2c0ff8ca7994016205c957c61c3690593b1c54
         except Exception:
             LOGGER.exception(
                 f'something bad happened on this collectoin: {active_collection}')
@@ -782,14 +773,10 @@ def main():
     if args.n_dataset_rows is None:
         dataset_row_range = range(0, len(dataset_table))
     elif len(args.n_dataset_rows) == 1:
-        dataset_row_range = range(0, args.n_dataset_rows)
+        dataset_row_range = range(0, args.n_dataset_rows[0])
     elif len(args.n_dataset_rows) == 2:
         dataset_row_range = range(args.n_dataset_rows[0], args.n_dataset_rows[1])
 
-    # dataset_table = pandas.read_csv(
-    #     args.dataset_table_path,
-    #     skip_blank_lines=True,
-    #     nrows=args.n_dataset_rows).dropna(how='all')
     dataset_table[SP_TM_AGG_OP] = None
     dataset_table[PIXEL_FN_OP] = None
     dataset_table = process_data_table(dataset_table, args)
@@ -866,40 +853,12 @@ def main():
                 LOGGER.exception(f'{dataset_index} generated an exception: {exc}')
                 point_table[key] = [str(exc)] * n_points
 
-<<<<<<< HEAD
     target_point_table_path = (
         f'{os.path.basename(os.path.splitext(args.dataset_table_path)[0])}_'
         f'{os.path.basename(os.path.splitext(args.point_table_path)[0])}')
     point_table.to_csv(
         f'sampled_points_of_{target_point_table_path}.csv', index=False)
-=======
-    # result_by_index = {}
-    # for dataset_index, dataset_row in dataset_table.iterrows():
-    #     key = (
-    #         f'{dataset_row[DATASET_ID]}_'
-    #         f'{dataset_row[BAND_NAME]}_'
-    #         f'{dataset_row[SP_TM_AGG_FUNC]}_'
-    #         f'{dataset_row[TRANSFORM_FUNC]}')
-    #     LOGGER.debug(f'processing this dataset: {key} {dataset_index} of {len(dataset_table)}')
-    #     key = _scrub_key(key)
-    #     point_collection_by_year = process_gee_dataset(
-    #         dataset_row[DATASET_ID],
-    #         dataset_row[BAND_NAME],
-    #         point_features_by_year,
-    #         point_unique_id_per_year,
-    #         dataset_row[PIXEL_FN_OP],
-    #         dataset_row[SP_TM_AGG_OP])
-    #     for year in point_unique_id_per_year.keys():
-    #         for point_index, point_result in (
-    #                 point_collection_by_year[year]):
-    #             result_by_index[point_index] = point_result
-    #     result_by_order = [
-    #         result_by_index[index] for index in sorted(result_by_index)]
-    #     point_table[key] = result_by_order
-
-    point_table.to_csv('sampled_points.csv', index=False)
-    LOGGER.info('all done!')
->>>>>>> 4d2c0ff8ca7994016205c957c61c3690593b1c54
+    LOGGER.info(f'all done to {target_point_table_path}!')
 
 
 if __name__ == '__main__':
