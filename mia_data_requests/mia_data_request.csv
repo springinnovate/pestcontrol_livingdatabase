@@ -1,6 +1,6 @@
 Dataset ID,Band Name,Spatiotemporal Aggregation Function,Pixel Value Transform,Notes,GEE link,Description,Historical Range,Seasonal Range,Spatial Range,Valid Years,Decay
 ECMWF/ERA5/DAILY,mean_2m_air_temperature,"julian_mean(1, 365; spatial_mean(1000))",NA,Mean temp across the entire year 1-365,,1000 m average,,,,,
 ECMWF/ERA5/DAILY,mean_2m_air_temperature,"julian_mean(171, 265; spatial_mean(1000))",NA,mean temp across summer 171 265,,1000 m average,,,,,
-ECMWF/ERA5/DAILY,maximum_2m_air_temperature,"julian_max(171, 256; spatial_mean(1000))",NA,max temp across the 5 hottest days of summer 171 265,,1000 m average,,,,,
-ECMWF/ERA5/DAILY,minimum_2m_air_temperature,"julian_min(0, 79; spatial_mean(1000))",NA,min temp across the 5 coldest days of summer 0-79 (0 is previous dec 31st),,1000 m average,,,,,
+ECMWF/ERA5/DAILY,maximum_2m_air_temperature,"julian_mean_n_max(5, 171, 256; spatial_mean(1000))",NA,max temp across the 5 hottest days of summer 171 265,,1000 m average,,,,,
+ECMWF/ERA5/DAILY,minimum_2m_air_temperature,"julian_mean_n_min(5, 0, 79; spatial_mean(1000))",NA,min temp across the 5 coldest days of summer 0-79 (0 is previous dec 31st),,1000 m average,,,,,
 ECMWF/ERA5/DAILY,mean_2m_air_temperature,"julian_mean(0, 79; spatial_mean(1000))",NA,mean temp during winter 0-79,,,,,,,
