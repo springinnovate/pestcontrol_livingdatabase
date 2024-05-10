@@ -1,1 +1,7 @@
-CALL python gee_point_sampler.py --point_table_path ./colleenmiller_data/yearcoordsesync.csv --dataset_table_path "colleenmiller_data/t.csv" %*
+REM CALL python gee_point_sampler.py --point_table_path ./colleenmiller_data/yearcoordsesync.csv --dataset_table_path "./colleenmiller_data/ColleenMiller_DataRequest_CRM_4-24_modisspectral.csv" %*
+
+python gee_point_sampler.py --point_table_path mia_data_requests/citrus_lat_longs.csv --dataset_table_path mia_data_requests/mia_data_request.csv
+REM python gee_point_sampler.py --point_table_path mia_data_requests/cotton_lat_longs.csv --dataset_table_path mia_data_requests/mia_data_request.csv
+REM python gee_point_sampler.py --point_table_path mia_data_requests/rice_lat_longs.csv --dataset_table_path mia_data_requests/mia_data_request.csv
+REM python gee_point_sampler.py --point_table_path mia_data_requests/vineyards_lat_longs.csv --dataset_table_path mia_data_requests/mia_data_request.csv
+REM python gee_point_sampler.py --point_table_path mia_data_requests/wheat_lat_longs.csv --dataset_table_path mia_data_requests/mia_data_request.csv
