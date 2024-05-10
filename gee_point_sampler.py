@@ -32,7 +32,7 @@ for lib_name in LIBS_TO_SILENCE:
 MAX_WORKERS = 10
 BATCH_SIZE = 100
 DEFAULT_SCALE = 30
-
+MAX_ATTEMPTS = 5
 DATATABLE_TEMPLATE_PATH = 'template_datatable.csv'
 POINTTABLE_TEMPLATE_PATH = 'template_pointtable.csv'
 
@@ -813,7 +813,7 @@ def main():
     LOGGER.info(f'loaded {args.point_table_path}')
 
     point_batch_list = []
-    point_unique_id_per_year = collections.defaultdict(list)
+    point_unique_id_per_year_list = []
     n_points = 0
     # initialize for first step
     batch_index = -1
@@ -825,12 +825,13 @@ def main():
         if current_batch_size == args.batch_size:
             batch_index += 1
             point_batch_list.append(collections.defaultdict(list))
+            point_unique_id_per_year_list.append(collections.defaultdict(list))
             current_batch_size = 0
 
         point_batch_list[batch_index][year].append(
             ee.Feature(ee.Geometry.Point(
                 [lon, lat], 'EPSG:4326'), {UNIQUE_ID: index}))
-        point_unique_id_per_year[year].append(index)
+        point_unique_id_per_year_list[batch_index][year].append(index)
         n_points += 1
         current_batch_size += 1
 
@@ -842,15 +843,26 @@ def main():
             f'{dataset_row[TRANSFORM_FUNC]}')
         key = _scrub_key(key)
         result_by_index = {}
-        for batch_index, point_features_by_year in enumerate(point_batch_list):
+        for batch_index, (point_features_by_year, point_unique_id_per_year) in enumerate(zip(point_batch_list, point_unique_id_per_year_list)):
             LOGGER.debug(f'BATCH INDEX {batch_index}')
-            point_collection_by_year = process_gee_dataset(
-                dataset_row[DATASET_ID],
-                dataset_row[BAND_NAME],
-                point_features_by_year,
-                point_unique_id_per_year,
-                dataset_row[PIXEL_FN_OP],
-                dataset_row[SP_TM_AGG_OP])
+            n_attempts = 0
+            while True:
+                try:
+                    point_collection_by_year = process_gee_dataset(
+                        dataset_row[DATASET_ID],
+                        dataset_row[BAND_NAME],
+                        point_features_by_year,
+                        point_unique_id_per_year,
+                        dataset_row[PIXEL_FN_OP],
+                        dataset_row[SP_TM_AGG_OP])
+                    break
+                except Exception:
+                    if n_attempts == MAX_ATTEMPTS:
+                        LOGGER.exception('ERROR ON process_gee_dataset')
+                        raise
+                    else:
+                        n_attempts +=1
+                        LOGGER.exception(f'trying attempt number {n_attempts+1} of {MAX_ATTEMPTS} ON process_gee_dataset')
             LOGGER.debug(f'completed BATCH {batch_index+1} of {args.batch_size}')
             for point_index, point_result in point_collection_by_year:
                 result_by_index[point_index] = point_result
