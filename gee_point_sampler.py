@@ -468,7 +468,8 @@ def process_gee_dataset(
         point_list_by_year,
         point_unique_id_per_year,
         pixel_op_transform,
-        spatiotemporal_commands):
+        spatiotemporal_commands,
+        target_point_table_path):
     """Apply the commands in the `commands` list to generate the appropriate result"""
     # make sure that the final opeation is a spatial one if not alreay defined
     LOGGER.info(
@@ -530,7 +531,7 @@ def process_gee_dataset(
                     f'"{pixel_op_fn}" is not a valid function in '
                     f'{PIXEL_TRANSFORM_ALLOWED_FUNCTIONS} for {dataset_id} - {band_name}')
         n_points = len(point_list_by_year[current_year])
-        LOGGER.info(f'processing {n_points} points on {dataset_id} {band_name} {pixel_op_transform} {spatiotemporal_commands} {current_year} over {year_range}')
+        LOGGER.info(f'processing {n_points} points on {dataset_id} {band_name} {pixel_op_transform} {spatiotemporal_commands} {current_year} over {year_range} on {os.path.basename(target_point_table_path)}')
         for index, (spatiotemp_flag, op_type, args) in enumerate(spatiotemporal_commands):
             point_list = ee.FeatureCollection(point_list_by_year[current_year])
             if spatiotemp_flag in applied_functions:
@@ -811,6 +812,9 @@ def main():
     point_table[YEAR_FIELD] = point_table[YEAR_FIELD].astype(int)
 
     LOGGER.info(f'loaded {args.point_table_path}')
+    target_point_table_path = (
+        f'{os.path.basename(os.path.splitext(args.dataset_table_path)[0])}_'
+        f'{os.path.basename(os.path.splitext(args.point_table_path)[0])}')
 
     point_batch_list = []
     point_unique_id_per_year_list = []
@@ -854,7 +858,8 @@ def main():
                         point_features_by_year,
                         point_unique_id_per_year,
                         dataset_row[PIXEL_FN_OP],
-                        dataset_row[SP_TM_AGG_OP])
+                        dataset_row[SP_TM_AGG_OP],
+                        target_point_table_path)
                     break
                 except Exception:
                     if n_attempts == MAX_ATTEMPTS:
@@ -891,9 +896,6 @@ def main():
                 LOGGER.exception(f'{dataset_index} generated an exception: {exc}')
                 point_table[key] = [str(exc)] * n_points
 
-    target_point_table_path = (
-        f'{os.path.basename(os.path.splitext(args.dataset_table_path)[0])}_'
-        f'{os.path.basename(os.path.splitext(args.point_table_path)[0])}')
     point_table.to_csv(
         f'sampled_points_of_{target_point_table_path}.csv', index=False)
     LOGGER.info(f'all done to {target_point_table_path}!')
