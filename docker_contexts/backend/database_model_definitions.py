@@ -121,7 +121,7 @@ class Study(Base):
     data_contributor: Mapped[Optional[str]]
     data_contributor_contact_info: Mapped[Optional[str]]
     study_metadata: Mapped[Optional[str]]
-    response_types: Mapped[Optional[str]]
+    response_types: Mapped[Optional[List[str]]]
     paper_dois = relationship(
         "DOI", secondary=StudyDOIAssociation, back_populates="studies")
     samples: Mapped[List["Sample"]] = relationship("Sample", back_populates="study")
@@ -151,7 +151,7 @@ class Sample(Base):
     sampling_effort: Mapped[Optional[str]]
     observation: Mapped[str]
     observer_id: Mapped[Optional[str]]
-    response_variable: Mapped[str]
+    response_type: Mapped[str]
     units: Mapped[Optional[str]]
     sampling_method: Mapped[str]
     sampler_type: Mapped[Optional[str]]

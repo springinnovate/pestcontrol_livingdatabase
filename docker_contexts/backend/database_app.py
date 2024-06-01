@@ -130,7 +130,6 @@ def process_query():
     values = request.form.getlist('value')
 
     session = SessionLocal()
-    # Example: Fetch all records from ExampleModel
     samples = session.query(Sample).all()
 
     # Example of how you might process these queries
