@@ -1,0 +1,6 @@
+Study Level Variables (do not edit):
+system info,{{ header }}
+{% for study_key, study_value in study_level_variables %}{{ study_key }},{{study_value}}
+{% endfor %}
+Sample Table (fill this table in):
+{% for header in headers %}{{ header }}{% if not loop.last %},{% endif %}{% endfor %}

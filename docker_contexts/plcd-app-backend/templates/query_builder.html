@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dynamic Query Builder</title>
+</head>
+<body>
+
+<form id="queryForm" action="/process_query" method="post">
+    <div id="queryBuilder">
+        <!-- Query row template -->
+        <div class="queryRow">
+            <label for="fieldSelect">Choose a field:</label>
+            <select name="field" id="fieldSelect">
+                <!-- Use Jinja2 to loop through the fields and create an option for each one -->
+                {% for field in fields %}
+                    <option value="{{ field }}">{{ field }}</option>
+                {% endfor %}
+            </select>
+            <select name="operation">
+                <option value="=">=</option>
+                <option value=">">&gt;</option>
+                <option value="<">&lt;</option>
+                <!-- Add more operations as needed -->
+            </select>
+            <input type="text" name="value">
+            <button type="button" onclick="removeRow(this)">Remove</button>
+        </div>
+    </div>
+    <button type="button" onclick="addRow()">Add Condition</button>
+    <input type="submit">
+</form>
+
+<script>
+function addRow() {
+    const queryBuilder = document.getElementById("queryBuilder");
+    const newRow = queryBuilder.firstElementChild.cloneNode(true);
+    newRow.querySelector("input[type=text]").value = ""; // Clear the input value
+    queryBuilder.appendChild(newRow);
+}
+
+function removeRow(button) {
+    if (document.getElementsByClassName("queryRow").length > 1) {
+        button.parentNode.remove();
+    } else {
+        alert("You must have at least one condition.");
+    }
+}
+</script>
+
+</body>
+</html>

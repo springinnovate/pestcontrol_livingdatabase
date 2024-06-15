@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Living Database Template Builder</title>
+</head>
+<style>
+    body {
+        font-family: Arial, sans-serif;
+    }
+    #templateForm {
+        width: 80%;
+        margin: 20px auto;
+        padding: 20px;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+    }
+    .builderRow, .covariateRow, .covariateEntry, .covariateCategory {
+        margin-bottom: 10px;
+    }
+    label {
+        display: inline-block;
+        width: 180px;
+        text-align: right;
+        margin-right: 10px;
+    }
+    input[type="text"],
+    select {
+        width: 60%;
+        padding: 8px;
+        margin: 4px 0;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        box-sizing: border-box;
+    }
+    button {
+        margin-left: 190px;
+        padding: 8px 16px;
+        background-color: #007bff;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+    button:hover {
+        background-color: #0056b3;
+    }
+    input[type="submit"] {
+        padding: 8px 16px;
+        background-color: #28a745;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        margin-left: 190px;
+    }
+    input[type="submit"]:hover {
+        background-color: #218838;
+    }
+    .section-header {
+        margin-top: 20px;
+        padding-top: 10px;
+        border-top: 2px solid #ccc;
+        font-size: 20px;
+        font-weight: bold;
+        color: #333;
+    }
+
+    .builderRow {
+        margin-bottom: 10px;
+        display: block;
+    }
+</style>
+<body>
+
+<form id="templateForm" action="/build_template" method="post">
+    <div id="templateBuilder">
+        <div class="section-header">Study Level Variables</div>
+        {% for study_level_field in study_level_fields %}
+        <div class="builderRow">
+            {% if study_level_field is string %}
+                <label for="fieldSelect">{{ study_level_field }}</label>
+                <input type="text" name="{{ study_level_field }}">
+            {% else %}
+                <label for="fieldSelect">{{ study_level_field[0] }}</label>
+                {% if study_level_field[0] == coordinate_precision_field %}
+                <select id="coordinate_precision_field" name="{{ study_level_field[0] }}" onchange=showWarning()>
+                {% else %}
+                <select name="{{ study_level_field[0] }}">
+                {% endif %}
+                    {% for option in study_level_field[1] %}
+                        <option value="{{ option }}">{{ option }}</option>
+                    {% endfor %}
+                </select>
+            {% endif %}
+        </div>
+        {% endfor %}
+        <div id="warningMessage" style="display: none; color: red;">
+            Warning: `SiteID` must be defined in your table for in for any coordinate precision less than full.
+        </div>
+        <div class="section-header">Covariate Variables</div>
+        <div id="templateBuilder">
+            <!-- Empty initially, rows will be added by JavaScript -->
+        </div>
+    </div>
+    <label for="numCovariates">Number of Covariates to add:</label>
+    <input type="number" id="numCovariates" name="numCovariates" value="1" min="1" style="width: 50px;">
+    <button type="button" onclick="addMultipleRows()">Add Covariates</button>
+    <div class="section-header"></div>
+    <div style="text-align: center; margin-top: 20px;">
+        <input type="submit" value="Generate Template" style="margin-top: 20px;">
+    </div>
+</form>
+
+<script>
+var covariateCounter = 0; // Initialize a counter to make unique names
+function removeRow(button) {
+    button.parentNode.remove();
+    covariateCounter -= 1;
+}
+
+function addMultipleRows() {
+    const numberOfCovariates = document.getElementById('numCovariates').value;
+    for (let i = 0; i < numberOfCovariates; i++) {
+        addRow();
+    }
+}
+
+function addRow() {
+    const templateBuilder = document.getElementById("templateBuilder");
+    const newRow = document.createElement("div"); // Create a new div for the covariate row
+    newRow.className = "covariateRow";
+    newRow.innerHTML = `
+        <div class="covariateEntry">
+            <label>Covariate Name</label>
+            <input type="text" name="covariate_name_${covariateCounter}">
+        </div>
+        <div class="covariateCategory">
+            <label>Covariate Category</label>
+            <input type="text" name="covariate_category_${covariateCounter}">
+        </div>
+        <button type="button" onclick="removeRow(this)">Remove</button>
+    `;
+    templateBuilder.appendChild(newRow);
+    covariateCounter++; // Increment the counter
+}
+
+function showWarning() {
+    var selectedValue = document.getElementById('coordinate_precision_field').value;
+    var warningDiv = document.getElementById('warningMessage');
+
+    if (selectedValue === "{{ coordinate_precision_full_precision_value }}") {
+        // Hide the warning if the special option is selected
+        warningDiv.style.display = 'none';
+    } else {
+        // Show the warning for any other option
+        warningDiv.style.display = 'block';
+    }
+}
+
+</script>
+
+</body>
+</html>

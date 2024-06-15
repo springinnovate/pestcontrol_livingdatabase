@@ -698,7 +698,7 @@ function App() {
   return (
     <div className="App">
       <div>
-        <h1>Living Database - Phenological Sampling App</h1>
+        <h1>SESYNC Query App</h1>
         <p>
           {serverStatus && serverStatus}
         </p>
