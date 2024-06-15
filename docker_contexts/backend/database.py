@@ -3,7 +3,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from database_model_definitions import Base  # Import the Base from models.py
 
-DATABASE_URI = 'sqlite:///living_database.db'
+DATABASE_URI = 'sqlite:///pest_control_database.db'
 engine = create_engine(DATABASE_URI, echo=False)
 
 SessionLocal = sessionmaker(bind=engine)
