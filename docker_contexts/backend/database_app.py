@@ -5,7 +5,7 @@ from database import SessionLocal
 from database_model_definitions import BASE_FIELDS
 from database_model_definitions import Study, Sample, Covariate
 from database_model_definitions import STUDY_LEVEL_VARIABLES
-from database_model_definitions import RESPONSE_TYPES
+from database_model_definitions import FILTERABLE_FIELDS
 from database_model_definitions import FIELDS_BY_REPONSE_TYPE
 from database_model_definitions import COORDINATE_PRECISION_FIELD
 from database_model_definitions import COORDINATE_PRECISION_FULL_PRECISION_VALUE
@@ -137,6 +137,12 @@ def process_query():
         print(f"query: {field} {operation} {value}")
         # Build your query based on the input
     return "Query processed"
+
+
+@app.route('/searchable_fields', methods=['GET'])
+def searchable_fields():
+    return FILTERABLE_FIELDS
+
 
 
 if __name__ == '__main__':

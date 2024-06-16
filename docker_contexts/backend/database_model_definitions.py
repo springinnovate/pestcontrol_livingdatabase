@@ -10,7 +10,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy import ForeignKey
 from typing import List
 from typing import Optional
-from sqlalchemy import Table, Column, Integer
+from sqlalchemy import Table, Column, Integer, JSON
 
 
 COVARIATE_ID = 'covariate'
@@ -43,28 +43,65 @@ STUDY_LEVEL_VARIABLES = [
     (COORDINATE_PRECISION_FIELD, COORDINATE_PRECISION),
 ]
 
+MANAGER = 'Manager'
+YEAR = 'Year',
+MONTH = 'Month',
+DAY = 'Day',
+TIME = 'Time',
+REPLICATE = 'Replicate',
+SAMPLING_EFFORT = 'Sampling effort',
+OBSERVATION = 'Observation',
+OBSERVER_ID = 'Observer ID',
+RESPONSE_VARIABLE = 'Response variable',
+UNITS = 'Units',
+SAMPLING_METHOD = 'Sampling method',
+SAMPLER_TYPE = 'Sampler type',
+FUNCTIONAL_TYPE = 'Functional type',
+CROP_COMMERCIAL_NAME = 'Crop commercial name',
+CROP_LATIN_NAME = 'Crop latin name',
+GROWTH_STAGE_OF_CROP_AT_SAMPLING = 'Growth stage of crop at sampling',
+
 BASE_FIELDS = [
     'Latitude',
     'Longitude',
-    'Manager',
-    'Year',
-    'Month',
-    'Day',
-    'Time',
-    'Replicate',
-    'Sampling effort',
-    'Observation',
-    'Observer ID',
-    'Response variable',
-    'Units',
-    'Sampling method',
-    'Sampler type',
-    'Functional type',
-    'Crop commercial name',
-    'Crop latin name',
-    'Growth stage of crop at sampling',
+    MANAGER,
+    YEAR,
+    MONTH,
+    DAY,
+    TIME,
+    REPLICATE,
+    SAMPLING_EFFORT,
+    OBSERVATION,
+    OBSERVER_ID,
+    RESPONSE_VARIABLE,
+    UNITS,
+    SAMPLING_METHOD,
+    SAMPLER_TYPE,
+    FUNCTIONAL_TYPE,
+    CROP_COMMERCIAL_NAME,
+    CROP_LATIN_NAME,
+    GROWTH_STAGE_OF_CROP_AT_SAMPLING,
     ]
 
+FILTERABLE_FIELDS = [
+    MANAGER,
+    YEAR,
+    MONTH,
+    DAY,
+    TIME,
+    REPLICATE,
+    SAMPLING_EFFORT,
+    OBSERVATION,
+    OBSERVER_ID,
+    RESPONSE_VARIABLE,
+    UNITS,
+    SAMPLING_METHOD,
+    SAMPLER_TYPE,
+    FUNCTIONAL_TYPE,
+    CROP_COMMERCIAL_NAME,
+    CROP_LATIN_NAME,
+    GROWTH_STAGE_OF_CROP_AT_SAMPLING,
+]
 
 FIELDS_BY_REPONSE_TYPE = {
     'abundance': [
@@ -121,7 +158,7 @@ class Study(Base):
     data_contributor: Mapped[Optional[str]]
     data_contributor_contact_info: Mapped[Optional[str]]
     study_metadata: Mapped[Optional[str]]
-    response_types: Mapped[Optional[List[str]]]
+    response_types: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
     paper_dois = relationship(
         "DOI", secondary=StudyDOIAssociation, back_populates="studies")
     samples: Mapped[List["Sample"]] = relationship("Sample", back_populates="study")

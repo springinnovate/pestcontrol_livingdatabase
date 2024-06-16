@@ -33,13 +33,13 @@ def main():
     init_db()
     session = SessionLocal()
     parser = argparse.ArgumentParser(description='parse table')
-    parser.add_argument('sample_table_path', help='Path to sample table')
-    parser.add_argument('column_mapping_table_path', help='Path to table that maps rows')
+    parser.add_argument('table_path', help='Path to table of samples')
     args = parser.parse_args()
 
-    sample_table = pandas.read_csv(args.sample_table_path)
-    column_mapping_table = pandas.read_csv(args.column_mapping_table_path)
+    table = pandas.read_csv(args.table_path)
 
+    print(table.columns)
+    return
     inspector = inspect(Study)
     print(inspector.columns.id_key)
     study_columns = [
