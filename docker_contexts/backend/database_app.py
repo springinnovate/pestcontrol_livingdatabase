@@ -128,8 +128,15 @@ def process_query():
     fields = request.form.getlist('field')
     operations = request.form.getlist('operation')
     values = request.form.getlist('value')
-
+    print(app.config['SQLALCHEMY_DATABASE_URI'])
     session = SessionLocal()
+    engine = session.get_bind()
+    print(f"Database URL: {engine.url}")
+    inspector = inspect(session.bind)
+    tables = inspector.get_table_names()
+    print("Tables in the database:", tables)
+
+
     samples = session.query(Sample).all()
 
     # Example of how you might process these queries
