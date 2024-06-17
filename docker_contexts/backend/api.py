@@ -23,6 +23,8 @@ import ee
 import numpy
 import pandas as pd
 
+from database_model_definitions import FILTERABLE_FIELDS
+
 app = Flask(__name__)
 
 logging.basicConfig(
@@ -97,16 +99,6 @@ def _process_table(
         table, datasets_to_process, year_field, long_field, lat_field,
         buffer_size, cmd_args):
     pts_by_year = {}
-    # for year in table[year_field].unique():
-    #     year = int(year)  # somehow this was a float sometimes
-    #     pts_by_year[year] = ee.FeatureCollection([
-    #         ee.Feature(
-    #             ee.Geometry.Point(row[long_field], row[lat_field]).
-    #             buffer(buffer_size),
-    #             row.to_dict())
-    #         for index, row in table[
-    #             table[year_field] == year].iterrows()])
-
     n_points_per_batch = 4000
     for year in table[year_field].unique():
         year = int(year)  # Convert year to int
@@ -301,6 +293,11 @@ def create_app(config=None):
     @app.route('/api/available_datasets')
     def get_available_datasets():
         return get_datasets()
+
+    @app.route('/api/searchable_fields', methods=['GET'])
+    def searchable_fields():
+        LOGGER.debug(FILTERABLE_FIELDS)
+        return {'filterable_fields': FILTERABLE_FIELDS}
 
     def index():
         return get_datasets()

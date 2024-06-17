@@ -1,28 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-import FileSaver from 'file-saver';
 import './App.css';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { MapContainer, TileLayer, CircleMarker, useMap, GeoJSON  } from 'react-leaflet';
-import GeoRasterLayer from 'georaster-layer-for-leaflet';
-import parse_georaster from 'georaster';
-import chroma from 'chroma-js';
-import JSZip from 'jszip';
-import Papa from 'papaparse';
-
-function formatList(list) {
-  if (!Array.isArray(list)) {
-    return list.toString();
-  }
-
-  return list.map(item => {
-    if (Array.isArray(item)) {
-      return `(${item.join(', ')})`;
-    }
-    return item;
-  }).join(', ');
-}
 
 const Dropdown = ({ id, values }) => (
   <select id={id}>
@@ -34,7 +14,7 @@ const Dropdown = ({ id, values }) => (
   </select>
 );
 
-const DropdownContainer = ({ seedData }) => {
+const FilterComponent = ({ seedData }) => {
   useEffect(() => {
     // Any additional effects can be handled here
   }, [seedData]);
@@ -59,16 +39,10 @@ const seedData = [
   }
 ];
 
-function MapComponent({ mapCenter, markers, geoJsonStrList, rasterIds, rasterToRender }) {
+function MapComponent({ mapCenter, markers }) {
   let opacity = 1;
-  let color = ['#ffffff', '#ff0000'];
   let bounds = [];
-  if (geoJsonStrList.length > 0) {
-    geoJsonStrList.forEach((geoJsonStr) => {
-      const geoJsonLayer = L.geoJson(geoJsonStr); // L is the leaflet instance
-      bounds.push(geoJsonLayer.getBounds());
-    });
-  } else if (markers.length > 0) {
+  if (markers.length > 0) {
     let boundObj = calculateBoundingBoxAndPoints(markers, 0, 1)[0];
     bounds.push([
       [boundObj.minLat-1,
@@ -92,13 +66,6 @@ function MapComponent({ mapCenter, markers, geoJsonStrList, rasterIds, rasterToR
           attribution='&copy; <a target="_blank" rel="noopener noreferrer" href="http://osm.org/copyright">OpenStreetMap</a> contributors'
         />
         <MapControl bounds={bounds} />
-        {rasterToRender &&
-          <RasterLayers
-            raster_id={rasterToRender.raster_id}
-            raster={rasterToRender.raster}
-            opacity={opacity}
-            color={color} />}
-        <BufferRegions key={Date.now()} geoJsonStrList={geoJsonStrList} opacity={opacity} />
         <LocationMarkers markers={markers} />
       </MapContainer>
     </div>
@@ -159,37 +126,13 @@ function InfoPanel({info}) {
   };
 }
 
-function renderBoundingBox(boundingBox) {
-  return (
-    <React.Fragment>
-      (Latitudes: {(boundingBox.minLat).toFixed(1)} to {(boundingBox.maxLat).toFixed(1)}, Longitudes: {(boundingBox.minLong).toFixed(1)} to {(boundingBox.maxLong).toFixed(1)})
-    </React.Fragment>);
-};
-
-function doBoundingBoxesOverlap(bbox1, bbox2) {
-  try {
-    return (
-      bbox1.minLong <= bbox2.maxLong && bbox1.maxLong >= bbox2.minLong &&
-      bbox1.minLat <= bbox2.maxLat && bbox1.maxLat >= bbox2.minLat);
-  } catch (error) {
-    return false;
-  };
-}
-
 
 function App() {
   const [serverStatus, setServerStatus] = useState();
-  const [availableDatasets, setAvailableDatasets] = useState({'server error, please reload': null});
-  const [dataInfo, setDataInfo] = useState(null);
   const [mapCenter, setMapCenter] = useState(null);
   const [markers, setMarkers] = useState([]);
-  const [geoJsonStrList, setGeoJsonStrList] = useState([]);
-  const [rasterIds, setRasterIds] = useState([]); // New state for raster URLs
-  const [csvData, setCsvData] = useState(null);
-  const [csvFilename, setCsvFilename] = useState(null);
   const [taskId, setTaskId] = useState(null);
-  const [rasterToRender, setRasterToRender] = useState();
-  const [fileUploaded, setFileUploaded] = useState();
+  const [dropdownData, setDropdownData] = useState([]);
 
   useEffect(() => {
     fetch('/api/time').then(
@@ -200,12 +143,24 @@ function App() {
         setServerStatus('ERROR: backend server down, refresh this page and try again'));
   }, []);
 
-
   useEffect(() => {
-    fetch('/api/available_datasets').then(res => res.json()).then(data => {
-      setAvailableDatasets(data);
-    });
+    fetch('/api/searchable_fields')
+      .then(response => response.json())
+      .then(data => {
+        // Assuming 'filterable_fields' is the key in the response
+        const fields = data.filterable_fields;
 
+        // Prepare dropdown data based on the fetched fields
+        const seedData = fields.map((field, index) => ({
+          id: field,
+          values: ['todo']
+        }));
+
+        setDropdownData(seedData);
+      })
+      .catch(error => {
+        console.error('Error fetching filterable fields:', error);
+      });
   }, []);
 
   return (
@@ -215,41 +170,64 @@ function App() {
         <p>
           {serverStatus && serverStatus}
         </p>
-        { !fileUploaded && <SampleDataFetcher /> }
       </div>
       <div>
-      <DropdownContainer seedData={seedData} />;
+        {dropdownData.map(dropdown => (
+          <div key={dropdown.id}>
+            <label htmlFor={dropdown.id}>{dropdown.id}</label>
+            <select id={dropdown.id}>
+              {dropdown.values.map((value, index) => (
+                <option key={index} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+          </div>
+        ))}
       </div>
-      <TableSubmitForm
-        availableDatasets={availableDatasets}
-        setDataInfo={setDataInfo}
-        setMapCenter={setMapCenter}
-        setMarkers={setMarkers}
-        setGeoJsonStrList={setGeoJsonStrList}
-        setRasterIds={setRasterIds}
-        setCsvData={setCsvData}
-        setCsvFilename={setCsvFilename}
-        setTaskId={setTaskId}
-        setFileUploaded={setFileUploaded}
-        />
-      <InfoPanel info={dataInfo}/>
-      <br/>
-      <DownloadManager
-        csvData={csvData}
-        csvFilename={csvFilename}
-        rasterIds={rasterIds}
-        taskId={taskId}
-        setRasterToRender={setRasterToRender}
-        />
+      <div>
+      <FilterComponent seedData={seedData} />;
+      </div>
       <MapComponent
         mapCenter={mapCenter}
         markers={markers}
-        geoJsonStrList={geoJsonStrList}
-        rasterIds={rasterIds}
-        rasterToRender={rasterToRender}
         />
     </div>
   );
 }
+
+function calculateBoundingBoxAndPoints(rawData, latField, longField) {
+  let bbox = {
+      minLat: 90,
+      maxLat: -90,
+      minLong: 360,
+      maxLong: -180,
+  };
+  var latLngPointArray = [];
+  for (let point of rawData) {
+    let lat = parseFloat(point[latField]);
+    let long = parseFloat(point[longField]);
+    if (isNaN(lat) || isNaN(long)) {
+      continue;
+    }
+    if (lat < -90 || lat > 90 || long < -180 || long > 180) {
+      continue;
+    }
+    latLngPointArray.push([lat, long]);
+    if (lat < bbox.minLat) {
+      bbox.minLat = lat;
+    } else if (lat > bbox.maxLat) {
+      bbox.maxLat = lat;
+    }
+
+    if (long < bbox.minLong) {
+      bbox.minLong = long;
+    } else if (long > bbox.maxLong) {
+      bbox.maxLong = long;
+    }
+  }
+  return [bbox, latLngPointArray];
+}
+
 
 export default App;

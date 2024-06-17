@@ -25,7 +25,7 @@ app.config['SQLALCHEMY_DATABASE_URI'] = config['alembic']['sqlalchemy.url']
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 
-@app.route('/')
+@app.route('/api/')
 def index():
     session = SessionLocal()
     # Example: Fetch all records from ExampleModel
@@ -33,7 +33,7 @@ def index():
     return 'Number of samples: ' + str(len(samples))
 
 
-@app.route('/home')
+@app.route('/api/home')
 def home():
     inspector = inspect(Study)
     print(inspector.columns.id_key)
@@ -54,7 +54,7 @@ def home():
         fields=study_columns+sample_columns+covariate_columns)
 
 
-@app.route('/template')
+@app.route('/api/template')
 def template():
     return render_template(
         'template_builder.html',
@@ -63,7 +63,7 @@ def template():
         coordinate_precision_full_precision_value=COORDINATE_PRECISION_FULL_PRECISION_VALUE)
 
 
-@app.route('/build_template', methods=['POST'])
+@app.route('/api/build_template', methods=['POST'])
 def build_template():
     # Loop through the request.form dictionary
     study_level_var_list = []
@@ -123,7 +123,7 @@ def build_template():
     return response
 
 
-@app.route('/process_query', methods=['POST'])
+@app.route('/api/process_query', methods=['POST'])
 def process_query():
     fields = request.form.getlist('field')
     operations = request.form.getlist('operation')
@@ -139,11 +139,9 @@ def process_query():
     return "Query processed"
 
 
-@app.route('/searchable_fields', methods=['GET'])
+@app.route('/api/searchable_fields', methods=['GET'])
 def searchable_fields():
     return FILTERABLE_FIELDS
-
-
 
 if __name__ == '__main__':
     app.run(debug=True)

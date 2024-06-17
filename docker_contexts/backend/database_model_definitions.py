@@ -44,22 +44,22 @@ STUDY_LEVEL_VARIABLES = [
 ]
 
 MANAGER = 'Manager'
-YEAR = 'Year',
-MONTH = 'Month',
-DAY = 'Day',
-TIME = 'Time',
-REPLICATE = 'Replicate',
-SAMPLING_EFFORT = 'Sampling effort',
-OBSERVATION = 'Observation',
-OBSERVER_ID = 'Observer ID',
-RESPONSE_VARIABLE = 'Response variable',
-UNITS = 'Units',
-SAMPLING_METHOD = 'Sampling method',
-SAMPLER_TYPE = 'Sampler type',
-FUNCTIONAL_TYPE = 'Functional type',
-CROP_COMMERCIAL_NAME = 'Crop commercial name',
-CROP_LATIN_NAME = 'Crop latin name',
-GROWTH_STAGE_OF_CROP_AT_SAMPLING = 'Growth stage of crop at sampling',
+YEAR = 'Year'
+MONTH = 'Month'
+DAY = 'Day'
+TIME = 'Time'
+REPLICATE = 'Replicate'
+SAMPLING_EFFORT = 'Sampling effort'
+OBSERVATION = 'Observation'
+OBSERVER_ID = 'Observer ID'
+RESPONSE_VARIABLE = 'Response variable'
+UNITS = 'Units'
+SAMPLING_METHOD = 'Sampling method'
+SAMPLER_TYPE = 'Sampler type'
+FUNCTIONAL_TYPE = 'Functional type'
+CROP_COMMERCIAL_NAME = 'Crop commercial name'
+CROP_LATIN_NAME = 'Crop latin name'
+GROWTH_STAGE_OF_CROP_AT_SAMPLING = 'Growth stage of crop at sampling'
 
 BASE_FIELDS = [
     'Latitude',
@@ -86,9 +86,6 @@ BASE_FIELDS = [
 FILTERABLE_FIELDS = [
     MANAGER,
     YEAR,
-    MONTH,
-    DAY,
-    TIME,
     REPLICATE,
     SAMPLING_EFFORT,
     OBSERVATION,
