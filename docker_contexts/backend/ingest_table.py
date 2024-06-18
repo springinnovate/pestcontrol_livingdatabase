@@ -29,6 +29,7 @@ def fetch_or_create_doi(session, doi_value):
         print("Using existing DOI:", new_doi.doi)
     return new_doi
 
+
 def main():
     init_db()
     session = SessionLocal()
@@ -36,10 +37,19 @@ def main():
     parser.add_argument('table_path', help='Path to table of samples')
     args = parser.parse_args()
 
-    table = pandas.read_csv(args.table_path)
+    table = pandas.read_csv(args.table_path, low_memory=False)
 
-    print(table.columns)
+    # loop through rows
+    for index, row in table.iterrows():
+        # one row is a sample
+        for column in table.columns:
+            if column.lower().startswith(COVARIATE_ID):
+                covariate_var = '_'.join(column.split('_')[1:])
+                print(f'{COVARIATE_ID} {covariate_var} {row[column]}')
+            else:
+                print(f'{index} {column}:{row[column]}')
     return
+    print(table.columns)
     inspector = inspect(Study)
     print(inspector.columns.id_key)
     study_columns = [
@@ -53,6 +63,10 @@ def main():
     covariate_columns = [
         (column.name, column.nullable) for column in inspector.columns
         if not column.primary_key]
+
+    print(study_columns)
+    print(sample_columns)
+    print(covariate_columns)
 
     table_to_database_column_map = {}
     database_to_table_map = {}

@@ -19,7 +19,7 @@ def main():
     parser.add_argument('sample_table_path', help='Path to sample table')
     args = parser.parse_args()
 
-    df = pandas.read_csv(args.sample_table_path)
+    df = pandas.read_csv(args.sample_table_path, low_memory=False)
     print(df.columns)
 
     inspector = inspect(Study)
