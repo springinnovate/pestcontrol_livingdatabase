@@ -6,7 +6,7 @@ from itertools import zip_longest
 
 from concurrent.futures import ProcessPoolExecutor
 from database import SessionLocal, init_db
-from database_model_definitions import Study, DOI, Sample, Covariate, COVARIATE_ID, DOI_ID, STUDY_ID
+from database_model_definitions import Study, DOI, Sample, Covariate, COVARIATE_ID, DOI_ID, STUDY_ID, StudyDOIAssociation
 from sqlalchemy import inspect
 from sqlalchemy import and_
 import numpy
@@ -15,14 +15,20 @@ import pandas
 TABLE_MAPPING_PATH = 'table_mapping.csv'
 
 def fetch_or_create_study(session, study_id, doi, metadata):
-    existing_study = session.query(Study).join(DOI).filter(and_(
-        DOI.doi == doi.doi,
-        Study.study_id == study_id)).first()
-    if existing_study is None:
-        new_study = Study(
+    study = session.query(Study).join(StudyDOIAssociation).join(DOI).filter(
+        and_(
+            DOI.id_key == doi.id_key,
+            Study.study_id == study_id
+        )
+    ).first()
+    if study is None:
+        study = Study(
             study_id=study_id,
             paper_dois=[doi],
             study_metadata=metadata)
+        session.add(study)
+    else:
+        print(study)
 
     return study
 def fetch_or_create_doi(session, doi_value):
@@ -64,8 +70,10 @@ def main():
     for index, row in metadata_table.iterrows():
         study_id_to_doi_map[row['study_id']] = row['doi']
         doi = fetch_or_create_doi(session, row[DOI_ID])
-        fetch_or_create_study(
+        study = fetch_or_create_study(
             session, row['study_id'], doi, row['_combined'])
+        session.commit()
+    return
     print(study_id_to_doi_map)
 
     # loop through rows
