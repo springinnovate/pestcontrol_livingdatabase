@@ -33,8 +33,10 @@ COORDINATE_PRECISION = [
     '3 decimal places',
 ]
 
+STUDY_ID = 'Study_ID'
+
 STUDY_LEVEL_VARIABLES = [
-    'Study ID',
+    STUDY_ID,
     'Data contributor',
     'Data contributor contact info',
     'Paper(s) DOI',
@@ -152,10 +154,7 @@ class Study(Base):
     __tablename__ = 'study'
     id_key: Mapped[int] = mapped_column(primary_key=True)
     study_id: Mapped[str]
-    data_contributor: Mapped[Optional[str]]
-    data_contributor_contact_info: Mapped[Optional[str]]
     study_metadata: Mapped[Optional[str]]
-    response_types: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
     paper_dois = relationship(
         "DOI", secondary=StudyDOIAssociation, back_populates="studies")
     samples: Mapped[List["Sample"]] = relationship("Sample", back_populates="study")

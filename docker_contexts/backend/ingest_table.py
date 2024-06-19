@@ -6,14 +6,25 @@ from itertools import zip_longest
 
 from concurrent.futures import ProcessPoolExecutor
 from database import SessionLocal, init_db
-from database_model_definitions import Study, DOI, Sample, Covariate, COVARIATE_ID, DOI_ID
+from database_model_definitions import Study, DOI, Sample, Covariate, COVARIATE_ID, DOI_ID, STUDY_ID
 from sqlalchemy import inspect
+from sqlalchemy import and_
 import numpy
 import pandas
 
 TABLE_MAPPING_PATH = 'table_mapping.csv'
 
+def fetch_or_create_study(session, study_id, doi, metadata):
+    existing_study = session.query(Study).join(DOI).filter(and_(
+        DOI.doi == doi.doi,
+        Study.study_id == study_id)).first()
+    if existing_study is None:
+        new_study = Study(
+            study_id=study_id,
+            paper_dois=[doi],
+            study_metadata=metadata)
 
+    return study
 def fetch_or_create_doi(session, doi_value):
     # Attempt to find an existing DOI with the given value
     existing_doi = session.query(DOI).filter(DOI.doi == doi_value).first()
@@ -34,23 +45,48 @@ def main():
     init_db()
     session = SessionLocal()
     parser = argparse.ArgumentParser(description='parse table')
-    parser.add_argument('table_path', help='Path to table of samples')
+    parser.add_argument('metadata_table_path', help='Path to metadata table for studies in samples')
+    parser.add_argument('sample_table_path', help='Path to table of samples on each row')
     args = parser.parse_args()
 
-    table = pandas.read_csv(args.table_path, low_memory=False)
+    metadata_table = pandas.read_csv(args.metadata_table_path, low_memory=False)
+    metadata_table.columns = map(str.lower, metadata_table.columns)
+    metadata_table = metadata_table.dropna(subset=['study_id', 'doi'])
+    def combine_columns(row):
+        combined = []
+        for col in row.index:
+            if col not in ['Study_ID', 'DOI']:
+                combined.append(f"{col}: {row[col]}")
+        return "\n\n".join(combined)
+    metadata_table['_combined'] = metadata_table.apply(combine_columns, axis=1)
+
+    study_id_to_doi_map = dict()
+    for index, row in metadata_table.iterrows():
+        study_id_to_doi_map[row['study_id']] = row['doi']
+        doi = fetch_or_create_doi(session, row[DOI_ID])
+        fetch_or_create_study(
+            session, row['study_id'], doi, row['_combined'])
+    print(study_id_to_doi_map)
 
     # loop through rows
-    for index, row in table.iterrows():
+    sample_table = pandas.read_csv(args.sample_table_path, low_memory=False)
+    sample_table.columns = map(str.lower, sample_table.columns)
+    for index, row in sample_table.iterrows():
         # one row is a sample
-        for column in table.columns:
+        for column in sample_table.columns:
+            if column == STUDY_ID:
+                study_id = row[STUDY_ID]
+                print(f'{study_id}: {study_id_to_doi_map[study_id]}')
             if column.lower().startswith(COVARIATE_ID):
                 covariate_var = '_'.join(column.split('_')[1:])
                 print(f'{COVARIATE_ID} {covariate_var} {row[column]}')
             else:
                 print(f'{index} {column}:{row[column]}')
+
     return
     print(table.columns)
     inspector = inspect(Study)
+
     print(inspector.columns.id_key)
     study_columns = [
         (column.name, column.nullable) for column in inspector.columns
