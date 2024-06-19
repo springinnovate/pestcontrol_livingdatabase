@@ -72,9 +72,6 @@ def main():
         doi = fetch_or_create_doi(session, row[DOI_ID])
         study = fetch_or_create_study(
             session, row['study_id'], doi, row['_combined'])
-        session.commit()
-    return
-    print(study_id_to_doi_map)
 
     # loop through rows
     sample_table = pandas.read_csv(args.sample_table_path, low_memory=False)
