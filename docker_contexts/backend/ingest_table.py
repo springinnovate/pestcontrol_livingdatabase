@@ -76,8 +76,7 @@ def main():
     # loop through rows
     sample_table = pandas.read_csv(
         args.sample_table_path,
-        low_memory=False,
-        nrows=100)
+        low_memory=False)
     sample_table = sample_table.loc[:, sample_table.columns.str.strip() != '']
     sample_table.columns = map(str.lower, sample_table.columns)
     for index, row in sample_table.iterrows():
@@ -92,8 +91,6 @@ def main():
             if column == STUDY_ID:
                 continue
             if column in sample_fields:
-                if column == 'latitude':
-                    print(column)
                 setattr(sample, column, row[column])
             elif column.startswith(COVARIATE_ID):
                 covariate_val = row[column]
