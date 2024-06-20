@@ -74,32 +74,48 @@ def main():
         study_id_to_study_map[row[STUDY_ID]] = study
 
     # loop through rows
-    sample_table = pandas.read_csv(args.sample_table_path, low_memory=False)
+    sample_table = pandas.read_csv(
+        args.sample_table_path,
+        low_memory=False,
+        nrows=100)
+    sample_table = sample_table.loc[:, sample_table.columns.str.strip() != '']
     sample_table.columns = map(str.lower, sample_table.columns)
     for index, row in sample_table.iterrows():
+        print(index)
         # one row is a sample
         extra_columns = []
         study = study_id_to_study_map[row[STUDY_ID]]
         sample = Sample(study=study)
         sample_fields = set(dir(sample))
+        covariate_list = []
         for column in sample_table.columns:
             if column == STUDY_ID:
                 continue
             if column in sample_fields:
-                setattr(study, column, row[column])
-                print(f'setting {column} to {row[column]}')
+                if column == 'latitude':
+                    print(column)
+                setattr(sample, column, row[column])
             elif column.startswith(COVARIATE_ID):
-                continue
-            #     covariate_name = column.split('_')[1:]
-            #     covariate = Covariate(
-            #         sample_id=sample.sample_id,
-            #         covariate_name=covariate_name,
-            #         covariate_value=row[column])
+                covariate_val = row[column]
+                if isinstance(covariate_val, str):
+                    if not covariate_val:
+                        continue
+                elif numpy.isnan(row[column]):
+                    continue
+                covariate_name = '_'.join(column.split('_')[1:])
+                covariate = Covariate(
+                    sample=sample,
+                    covariate_name=covariate_name,
+                    covariate_value=row[column])
+                covariate_list.append(covariate)
             else:
                 # Track the extra column
                 extra_columns.append(column)
         if extra_columns:
             raise ValueError(f'unknown extra columns: {extra_columns}')
+        sample.covariates = covariate_list
+        session.add(sample)
+    session.commit()
     return
     print(table.columns)
     inspector = inspect(Study)
