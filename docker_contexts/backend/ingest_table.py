@@ -66,28 +66,40 @@ def main():
         return "\n\n".join(combined)
     metadata_table['_combined'] = metadata_table.apply(combine_columns, axis=1)
 
-    study_id_to_doi_map = dict()
+    study_id_to_study_map = dict()
     for index, row in metadata_table.iterrows():
-        study_id_to_doi_map[row['study_id']] = row['doi']
         doi = fetch_or_create_doi(session, row[DOI_ID])
         study = fetch_or_create_study(
-            session, row['study_id'], doi, row['_combined'])
+            session, row[STUDY_ID], doi, row['_combined'])
+        study_id_to_study_map[row[STUDY_ID]] = study
 
     # loop through rows
     sample_table = pandas.read_csv(args.sample_table_path, low_memory=False)
     sample_table.columns = map(str.lower, sample_table.columns)
     for index, row in sample_table.iterrows():
         # one row is a sample
+        extra_columns = []
+        study = study_id_to_study_map[row[STUDY_ID]]
+        sample = Sample(study=study)
+        sample_fields = set(dir(sample))
         for column in sample_table.columns:
             if column == STUDY_ID:
-                study_id = row[STUDY_ID]
-                print(f'{study_id}: {study_id_to_doi_map[study_id]}')
-            if column.lower().startswith(COVARIATE_ID):
-                covariate_var = '_'.join(column.split('_')[1:])
-                print(f'{COVARIATE_ID} {covariate_var} {row[column]}')
+                continue
+            if column in sample_fields:
+                setattr(study, column, row[column])
+                print(f'setting {column} to {row[column]}')
+            elif column.startswith(COVARIATE_ID):
+                continue
+            #     covariate_name = column.split('_')[1:]
+            #     covariate = Covariate(
+            #         sample_id=sample.sample_id,
+            #         covariate_name=covariate_name,
+            #         covariate_value=row[column])
             else:
-                print(f'{index} {column}:{row[column]}')
-
+                # Track the extra column
+                extra_columns.append(column)
+        if extra_columns:
+            raise ValueError(f'unknown extra columns: {extra_columns}')
     return
     print(table.columns)
     inspector = inspect(Study)

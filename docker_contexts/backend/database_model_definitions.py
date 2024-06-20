@@ -33,7 +33,7 @@ COORDINATE_PRECISION = [
     '3 decimal places',
 ]
 
-STUDY_ID = 'Study_ID'
+STUDY_ID = 'study_id'
 
 STUDY_LEVEL_VARIABLES = [
     STUDY_ID,
@@ -45,23 +45,23 @@ STUDY_LEVEL_VARIABLES = [
     (COORDINATE_PRECISION_FIELD, COORDINATE_PRECISION),
 ]
 
-MANAGER = 'Manager'
-YEAR = 'Year'
-MONTH = 'Month'
-DAY = 'Day'
-TIME = 'Time'
-REPLICATE = 'Replicate'
-SAMPLING_EFFORT = 'Sampling effort'
-OBSERVATION = 'Observation'
-OBSERVER_ID = 'Observer ID'
-RESPONSE_VARIABLE = 'Response variable'
-UNITS = 'Units'
-SAMPLING_METHOD = 'Sampling method'
-SAMPLER_TYPE = 'Sampler type'
-FUNCTIONAL_TYPE = 'Functional type'
-CROP_COMMERCIAL_NAME = 'Crop commercial name'
-CROP_LATIN_NAME = 'Crop latin name'
-GROWTH_STAGE_OF_CROP_AT_SAMPLING = 'Growth stage of crop at sampling'
+MANAGER = 'manager'
+YEAR = 'year'
+MONTH = 'month'
+DAY = 'day'
+TIME = 'time'
+REPLICATE = 'replicate'
+SAMPLING_EFFORT = 'sampling_effort'
+OBSERVATION = 'observation'
+OBSERVER_ID = 'observer_id'
+RESPONSE_VARIABLE = 'response_variable'
+UNITS = 'units'
+SAMPLING_METHOD = 'sampling_method'
+SAMPLER_TYPE = 'sampler_type'
+FUNCTIONAL_TYPE = 'functional_type'
+CROP_COMMERCIAL_NAME = 'crop_commercial_name'
+CROP_LATIN_NAME = 'crop_latin_name'
+GROWTH_STAGE_OF_CROP_AT_SAMPLING = 'growth_stage_of_crop_at_sampling'
 
 BASE_FIELDS = [
     'Latitude',
@@ -145,7 +145,7 @@ class Base(DeclarativeBase):
 
 StudyDOIAssociation = Table(
     'study_doi_association', Base.metadata,
-    Column('study_id', Integer, ForeignKey('study.id_key'), primary_key=True),
+    Column(STUDY_ID, Integer, ForeignKey('study.id_key'), primary_key=True),
     Column('doi_id', Integer, ForeignKey('doi.id_key'), primary_key=True)
 )
 
@@ -185,18 +185,19 @@ class Sample(Base):
     observation: Mapped[str]
     observer_id: Mapped[Optional[str]]
     response_type: Mapped[str]
+    response_variable: Mapped[str]
     units: Mapped[Optional[str]]
     sampling_method: Mapped[str]
     sampler_type: Mapped[Optional[str]]
     functional_type: Mapped[str]
-    crop_commercial_name: Mapped[str]
+    crop_commericial_name: Mapped[str]
     crop_latin_name: Mapped[str]
     abundance_class: Mapped[Optional[str]]
     order: Mapped[Optional[str]]
     family: Mapped[Optional[str]]
     genus: Mapped[Optional[str]]
     species: Mapped[Optional[str]]
-    sub_species: Mapped[Optional[str]]
+    subspecies: Mapped[Optional[str]]
     morphospecies: Mapped[Optional[str]]
     life_stage: Mapped[Optional[str]]
     pest_class: Mapped[Optional[str]]
