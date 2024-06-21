@@ -190,7 +190,7 @@ class Sample(Base):
     sampling_method: Mapped[str]
     sampler_type: Mapped[Optional[str]]
     functional_type: Mapped[str]
-    crop_commericial_name: Mapped[str]
+    crop_commercial_name: Mapped[str]
     crop_latin_name: Mapped[str]
     abundance_class: Mapped[Optional[str]]
     order: Mapped[Optional[str]]

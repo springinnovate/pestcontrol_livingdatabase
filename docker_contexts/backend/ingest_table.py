@@ -107,6 +107,8 @@ def main():
                 covariate_list.append(covariate)
             else:
                 # Track the extra column
+                print(f'oh no i found {column}')
+                print(sample_fields)
                 extra_columns.append(column)
         if extra_columns:
             raise ValueError(f'unknown extra columns: {extra_columns}')
@@ -114,6 +116,7 @@ def main():
         session.add(sample)
     session.commit()
     session.close()
+
 
 if __name__ == '__main__':
     main()
