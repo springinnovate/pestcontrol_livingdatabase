@@ -173,25 +173,25 @@ class Sample(Base):
     id_key: Mapped[int] = mapped_column(primary_key=True)
     study_id: Mapped[int] = mapped_column(ForeignKey('study.id_key'))
     study: Mapped[Study] = relationship("Study", back_populates="samples")
-    latitude: Mapped[float]
-    longitude: Mapped[float]
+    latitude: Mapped[Optional[float]]
+    longitude: Mapped[Optional[float]]
     manager: Mapped[Optional[str]]
-    year: Mapped[int]
+    year: Mapped[Optional[int]]
     month: Mapped[Optional[int]]
     day: Mapped[Optional[int]]
     time: Mapped[Optional[str]]
     replicate: Mapped[Optional[str]]
     sampling_effort: Mapped[Optional[str]]
-    observation: Mapped[str]
+    observation: Mapped[Optional[str]]
     observer_id: Mapped[Optional[str]]
     response_type: Mapped[Optional[str]]
-    response_variable: Mapped[str]
+    response_variable: Mapped[Optional[str]]
     units: Mapped[Optional[str]]
-    sampling_method: Mapped[str]
+    sampling_method: Mapped[Optional[str]]
     sampler_type: Mapped[Optional[str]]
-    functional_type: Mapped[str]
-    crop_commercial_name: Mapped[str]
-    crop_latin_name: Mapped[str]
+    functional_type: Mapped[Optional[str]]
+    crop_commercial_name: Mapped[Optional[str]]
+    crop_latin_name: Mapped[Optional[str]]
     abundance_class: Mapped[Optional[str]]
     order: Mapped[Optional[str]]
     family: Mapped[Optional[str]]
@@ -224,6 +224,6 @@ class Covariate(Base):
     id_key: Mapped[int] = mapped_column(primary_key=True)
     sample_id: Mapped[int] = mapped_column(ForeignKey('sample.id_key'))
     covariate_category: Mapped[Optional[str]]
-    covariate_name: Mapped[str]
-    covariate_value: Mapped[str]
+    covariate_name: Mapped[Optional[str]]
+    covariate_value: Mapped[Optional[str]]
     sample: Mapped["Sample"] = relationship(back_populates="covariates")

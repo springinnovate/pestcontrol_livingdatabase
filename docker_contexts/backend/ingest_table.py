@@ -79,6 +79,8 @@ def main():
         low_memory=False)
     sample_table = sample_table.loc[:, sample_table.columns.str.strip() != '']
     sample_table.columns = map(str.lower, sample_table.columns)
+
+    covariate_data = []
     for index, row in sample_table.iterrows():
         print(f'{100*index/len(sample_table.index):.2f}%')
         study_id = row[STUDY_ID]
@@ -88,26 +90,22 @@ def main():
         extra_columns = []
         study = study_id_to_study_map[study_id]
         sample = Sample(study=study)
+        session.add(sample)
+        session.flush()
         sample_fields = set(dir(sample))
-        covariate_list = []
-        for column in sample_table.columns:
+        for column, value in row.items():
             if column == STUDY_ID:
                 continue
             if column in sample_fields:
                 setattr(sample, column, row[column])
             elif column.startswith(COVARIATE_ID):
-                covariate_val = row[column]
-                if isinstance(covariate_val, str):
-                    if not covariate_val:
-                        continue
-                elif numpy.isnan(row[column]):
-                    continue
-                covariate_name = '_'.join(column.split('_')[1:])
-                covariate = Covariate(
-                    sample=sample,
-                    covariate_name=covariate_name,
-                    covariate_value=row[column])
-                covariate_list.append(covariate)
+                if pandas.notna(value) and value != '':
+                    covariate_name = '_'.join(column.split('_')[1:])
+                    covariate_data.append({
+                        'sample_id': sample.id_key,
+                        'covariate_name': covariate_name,
+                        'covariate_value': value
+                    })
             else:
                 # Track the extra column
                 print(f'oh no i found {column}')
@@ -115,8 +113,9 @@ def main():
                 extra_columns.append(column)
         if extra_columns:
             raise ValueError(f'unknown extra columns: {extra_columns}')
-        sample.covariates = covariate_list
-        session.add(sample)
+    print('about to do bulk insert mappings')
+    session.bulk_insert_mappings(Covariate, covariate_data)
+    print('about to commit ')
     session.commit()
     session.close()
 
