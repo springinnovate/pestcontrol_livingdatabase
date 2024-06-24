@@ -81,9 +81,12 @@ def main():
     sample_table.columns = map(str.lower, sample_table.columns)
     for index, row in sample_table.iterrows():
         print(f'{100*index/len(sample_table.index):.2f}%')
+        study_id = row[STUDY_ID]
+        if study_id not in study_id_to_study_map:
+            continue
         # one row is a sample
         extra_columns = []
-        study = study_id_to_study_map[row[STUDY_ID]]
+        study = study_id_to_study_map[study_id]
         sample = Sample(study=study)
         sample_fields = set(dir(sample))
         covariate_list = []

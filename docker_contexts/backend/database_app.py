@@ -15,14 +15,12 @@ from flask import request
 from flask import Response
 from jinja2 import Template
 from sqlalchemy import inspect
+from sqlalchemy.sql import and_
 
 
 config = configparser.ConfigParser()
-config.read('alembic.ini')
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = config['alembic']['sqlalchemy.url']
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 
 @app.route('/api/')
@@ -31,6 +29,12 @@ def index():
     # Example: Fetch all records from ExampleModel
     samples = session.query(Sample).all()
     return 'Number of samples: ' + str(len(samples))
+
+OPERATION_MAP = {
+    '=': lambda field, value: field == value,
+    '<': lambda field, value: field < value,
+    '>': lambda field, value: field > value
+}
 
 
 @app.route('/api/home')
@@ -49,8 +53,13 @@ def home():
         column.name for column in inspector.columns
         if not column.primary_key]
 
+    session = SessionLocal()
+    n_samples = session.query(Sample).count()
+
     return render_template(
         'query_builder.html',
+        status_message=f'Number of samples in db: {n_samples}',
+        possible_operations=list(OPERATION_MAP),
         fields=study_columns+sample_columns+covariate_columns)
 
 
@@ -122,28 +131,44 @@ def build_template():
         f'attachment; filename={filename}')
     return response
 
+def to_dict(obj):
+    """
+    Convert a SQLAlchemy model object into a dictionary.
+    """
+    print(f'processing {obj}')
+    return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
 
 @app.route('/api/process_query', methods=['POST'])
 def process_query():
     fields = request.form.getlist('field')
     operations = request.form.getlist('operation')
     values = request.form.getlist('value')
-    print(app.config['SQLALCHEMY_DATABASE_URI'])
-    session = SessionLocal()
-    engine = session.get_bind()
-    print(f"Database URL: {engine.url}")
-    inspector = inspect(session.bind)
-    tables = inspector.get_table_names()
-    print("Tables in the database:", tables)
-
-
-    samples = session.query(Sample).all()
 
     # Example of how you might process these queries
+    filters = []
     for field, operation, value in zip(fields, operations, values):
-        print(f"query: {field} {operation} {value}")
-        # Build your query based on the input
-    return "Query processed"
+        if hasattr(Study, field):
+            column = getattr(Study, field)
+        elif hasattr(Sample, field):
+            column = getattr(Sample, field)
+        else:
+            raise AttributeError(f"Field '{field}' not found in Study or Sample.")
+        filter_condition = OPERATION_MAP[operation](column, value)
+        filters.append(filter_condition)
+    session = SessionLocal()
+    study_query = session.query(Study).join(
+        Sample, Sample.study_id == Study.id_key).filter(
+        and_(*filters))
+    sample_query = session.query(Sample).join(
+        Study, Sample.study_id == Study.id_key).filter(
+        and_(*filters))
+    print(study_query.all())
+    print(sample_query.all())
+    session.close()
+    return render_template(
+        'query_result.html',
+        studies=[to_dict(s) for s in study_query.all()],
+        samples=[to_dict(s) for s in sample_query.all()])
 
 
 @app.route('/api/searchable_fields', methods=['GET'])
