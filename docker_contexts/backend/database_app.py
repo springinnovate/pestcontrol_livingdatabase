@@ -1,5 +1,7 @@
 import configparser
 import datetime
+import logging
+import sys
 
 from database import SessionLocal
 from database_model_definitions import BASE_FIELDS
@@ -17,6 +19,15 @@ from jinja2 import Template
 from sqlalchemy import inspect
 from sqlalchemy.sql import and_
 
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    stream=sys.stdout,
+    format=(
+        '%(asctime)s (%(relativeCreated)d) %(levelname)s %(name)s'
+        ' [%(funcName)s:%(lineno)d] %(message)s'))
+logging.getLogger('taskgraph').setLevel(logging.INFO)
+LOGGER = logging.getLogger(__name__)
 
 config = configparser.ConfigParser()
 
@@ -40,7 +51,6 @@ OPERATION_MAP = {
 @app.route('/api/home')
 def home():
     inspector = inspect(Study)
-    print(inspector.columns.id_key)
     study_columns = [
         column.name for column in inspector.columns
         if not column.primary_key]
@@ -91,7 +101,7 @@ def build_template():
         else:
             study_level_var_list.append(
                 (study_level_key, request.form[study_level_key]))
-    print(f'THIS IS THE LIST: {study_level_var_list}')
+    LOGGER.debug(f'THIS IS THE LIST: {study_level_var_list}')
     covariates = []
     # search for the covariates
     for key in request.form:
@@ -122,7 +132,7 @@ def build_template():
         template_content = file.read()
     living_database_template = Template(template_content)
     output = living_database_template.render(variables)
-    print(output)
+    LOGGER.debug(output)
 
     response = Response(output, mimetype='text/csv')
     # Specify the name of the download file
@@ -131,44 +141,53 @@ def build_template():
         f'attachment; filename={filename}')
     return response
 
+
 def to_dict(obj):
     """
     Convert a SQLAlchemy model object into a dictionary.
     """
-    print(f'processing {obj}')
+    LOGGER.debug(f'processing {obj}')
     return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
+
 
 @app.route('/api/process_query', methods=['POST'])
 def process_query():
-    fields = request.form.getlist('field')
-    operations = request.form.getlist('operation')
-    values = request.form.getlist('value')
+    try:
+        fields = request.form.getlist('field')
+        operations = request.form.getlist('operation')
+        values = request.form.getlist('value')
 
-    # Example of how you might process these queries
-    filters = []
-    for field, operation, value in zip(fields, operations, values):
-        if hasattr(Study, field):
-            column = getattr(Study, field)
-        elif hasattr(Sample, field):
-            column = getattr(Sample, field)
-        else:
-            raise AttributeError(f"Field '{field}' not found in Study or Sample.")
-        filter_condition = OPERATION_MAP[operation](column, value)
-        filters.append(filter_condition)
-    session = SessionLocal()
-    study_query = session.query(Study).join(
-        Sample, Sample.study_id == Study.id_key).filter(
-        and_(*filters))
-    sample_query = session.query(Sample).join(
-        Study, Sample.study_id == Study.id_key).filter(
-        and_(*filters))
-    print(study_query.all())
-    print(sample_query.all())
-    session.close()
-    return render_template(
-        'query_result.html',
-        studies=[to_dict(s) for s in study_query.all()],
-        samples=[to_dict(s) for s in sample_query.all()])
+        # Example of how you might process these queries
+        filters = []
+        for field, operation, value in zip(fields, operations, values):
+            if hasattr(Study, field):
+                column = getattr(Study, field)
+            elif hasattr(Sample, field):
+                column = getattr(Sample, field)
+            else:
+                raise AttributeError(f"Field '{field}' not found in Study or Sample.")
+            filter_condition = OPERATION_MAP[operation](column, value)
+            filters.append(filter_condition)
+        session = SessionLocal()
+        study_query = session.query(Study).join(
+            Sample, Sample.study_id == Study.id_key).filter(
+            and_(*filters))
+        sample_query = session.query(Sample).join(
+            Study, Sample.study_id == Study.id_key).filter(
+            and_(*filters))
+
+        LOGGER.debug(f'processing the result of {study_query.count()} results')
+        study_query_result = [to_dict(s) for s in study_query.all()]
+        sample_query_result = [to_dict(s) for s in sample_query.all()]
+        LOGGER.debug('rendering the result')
+        session.close()
+        return render_template(
+            'query_result.html',
+            studies=study_query_result,
+            samples=sample_query_result)
+    except Exception as e:
+        LOGGER.exception(f'error with {e}')
+        raise
 
 
 @app.route('/api/searchable_fields', methods=['GET'])

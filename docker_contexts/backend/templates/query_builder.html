@@ -3,34 +3,93 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+#queryForm {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr); /* Adjust number of columns as needed */
+    gap: 20px; /* Spacing between columns */
+}
+
+.section-title {
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 5px;
+    cursor: pointer; /* Makes it look clickable */
+}
+
+.queryRow {
+    background-color: #f9f9f9;
+    padding: 10px;
+    border-radius: 5px;
+    margin-bottom: 10px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+.querySection {
+    margin-bottom: 20px;
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+}
+
+/* Style for collapsible content */
+.collapsible-content {
+    display: none;
+    padding: 10px;
+    background-color: #f4f4f4;
+    border-top: 1px solid #ddd;
+}
+</style>
 <title>Dynamic Query Builder</title>
 </head>
 <body>
 
 <form id="queryForm" action="/api/process_query" method="post">
     <div id="queryBuilder">
-        <!-- Query row template -->
-        <div>
-            {{ status_message }}
+        <div class="querySection">
+            <div class="section-title" onclick="toggleVisibility('columnQuery')">Query by column</div>
+            <div class="collapsible-content" id="columnQuery">
+                <div class="queryRow">
+                    <label for="fieldSelect">Choose a field:</label>
+                    <select name="field" id="fieldSelect">
+                        {% for field in fields %}
+                            <option value="{{ field }}">{{ field }}</option>
+                        {% endfor %}
+                    </select>
+                    <select name="operation">
+                        {% for op in possible_operations %}
+                            <option value="{{ op }}">{{ op }}</option>
+                        {% endfor %}
+                    </select>
+                    <input type="text" name="value">
+                    <button type="button" onclick="removeRow(this)">Remove</button>
+                </div>
+                <button type="button" onclick="addRow()">Add Condition</button>
+            </div>
         </div>
-        <div class="queryRow">
-            <label for="fieldSelect">Choose a field:</label>
-            <select name="field" id="fieldSelect">
-                <!-- Use Jinja2 to loop through the fields and create an option for each one -->
-                {% for field in fields %}
-                    <option value="{{ field }}">{{ field }}</option>
-                {% endfor %}
-            </select>
-            <select name="operation">
-                {% for op in possible_operations %}
-                    <option value="{{ op }}">{{ op }}</option>
-                {% endfor %}
-            </select>
-            <input type="text" name="value">
-            <button type="button" onclick="removeRow(this)">Remove</button>
+
+        <div class="querySection">
+            <div class="section-title" onclick="toggleVisibility('sampleSizeQuery')">Query by sample size</div>
+            <div class="collapsible-content" id="sampleSizeQuery">
+                <!-- Content for querying by sample size -->
+            </div>
+        </div>
+
+        <div class="querySection">
+            <div class="section-title" onclick="toggleVisibility('spaceQuery')">Query by space</div>
+            <div class="collapsible-content" id="spaceQuery">
+                <!-- Content for querying by space -->
+            </div>
+        </div>
+
+        <div class="querySection">
+            <div class="section-title" onclick="toggleVisibility('timeQuery')">Query by time</div>
+            <div class="collapsible-content" id="timeQuery">
+                <!-- Content for querying by time -->
+            </div>
         </div>
     </div>
-    <button type="button" onclick="addRow()">Add Condition</button>
+
     <input type="submit">
 </form>
 
@@ -38,7 +97,7 @@
 function addRow() {
     const queryBuilder = document.getElementById("queryBuilder");
     const newRow = queryBuilder.firstElementChild.cloneNode(true);
-    newRow.querySelector("input[type=text]").value = ""; // Clear the input value
+    newRow.querySelector("input[type=text]").value = "";
     queryBuilder.appendChild(newRow);
 }
 
@@ -47,6 +106,15 @@ function removeRow(button) {
         button.parentNode.remove();
     } else {
         alert("You must have at least one condition.");
+    }
+}
+
+function toggleVisibility(id) {
+    var element = document.getElementById(id);
+    if (element.style.display === 'block') {
+        element.style.display = 'none';
+    } else {
+        element.style.display = 'block';
     }
 }
 </script>
