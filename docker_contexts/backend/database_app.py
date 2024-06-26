@@ -184,9 +184,22 @@ def process_query():
             m = re.match(r"[(]?([^, ]+)[, ]*([^, )]+)[\)]?", center_point)
             lat, lng = [float(v) for v in m.group(1, 2)]
             center_point_buffer = float(
-                request.form.get('centerPointBuffer').strip())
-            return f'{lat}, {lng}, {center_point_buffer}'
+                request.form.get('centerPointBuffer').strip())/2
+            ul_lat = lat+center_point_buffer/2
+            lr_lat = lat-center_point_buffer/2
+            ul_lng = lng+center_point_buffer/2
+            lr_lng = lng-center_point_buffer/2
 
+        upper_left_point = request.form.get('upperLeft').strip()
+        lower_right_point = request.form.get('lowerRight').strip()
+
+        if upper_left_point != '':
+            m = re.match(r"[(]?([^, ]+)[, ]*([^, )]+)[\)]?", upper_left_point)
+            ul_lat, ul_lng = [float(v) for v in m.group(1, 2)]
+            m = re.match(r"[(]?([^, ]+)[, ]*([^, )]+)[\)]?", lower_right_point)
+            lr_lat, lr_lng = [float(v) for v in m.group(1, 2)]
+
+        return f'{ul_lat},{ul_lng} - {lr_lat},{lr_lng}'
 
         LOGGER.debug(f'processing the result of {study_query.count()} results')
         study_query_result = [to_dict(s) for s in study_query.all()]

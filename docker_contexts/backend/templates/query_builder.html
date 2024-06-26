@@ -88,7 +88,6 @@
                 <button type="button" onclick="addRow()">Add Column</button>
             </div>
         </div>
-
         <div class="querySection">
             <div class="section-title" onclick="toggleVisibility('spaceQuery')">Query by space</div>
             <div class="collapsible-content" id="spaceQuery">
@@ -104,7 +103,6 @@
                     <input type="text" id="centerPoint" name="centerPoint" placeholder="(latitude, longitude)">
                     <label for="centerPointBuffer">Size of bounding box edges in degrees</label>
                     <input type="text" id="centerPointBuffer" name="centerPointBuffer" placeholder="0.25">
-
                 </div>
 
                 <div id="cornerPointsInputs" style="display: none; position: relative; border: 2px solid #ccc; height: 200px; margin-top: 20px;">
@@ -119,7 +117,6 @@
                 </div>
             </div>
         </div>
-
         <div class="querySection">
             <div class="section-title" onclick="toggleVisibility('timeQuery')">Query by time</div>
             <div class="collapsible-content" id="timeQuery">
@@ -128,9 +125,12 @@
                 <input type="text" id="year_range" name="year_range" placeholder="e.g., 1990, 1992, 1995-2000">
             </div>
         </div>
-
-
-
+        <div class="querySection">
+            <div class="section-title" onclick="toggleVisibility('sampleSizeQuery')">Query by sample size</div>
+            <div class="collapsible-content" id="sampleSizeQuery">
+                <!-- Content for querying by sample size -->
+            </div>
+        </div>
     </div>
 
     <input type="submit">
