@@ -147,7 +147,6 @@ def to_dict(obj):
     """
     Convert a SQLAlchemy model object into a dictionary.
     """
-    LOGGER.debug(f'processing {obj}')
     return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
 
 
@@ -170,15 +169,11 @@ def process_query():
             if operation == '=' and '*' in value:
                 value = value.replace('*', '%')
             filter_condition = OPERATION_MAP[operation](column, value)
+            LOGGER.debug(filter_condition)
             filters.append(filter_condition)
         session = SessionLocal()
-        study_query = session.query(Study).join(
-            Sample, Sample.study_id == Study.id_key).filter(
-            and_(*filters))
-        sample_query = session.query(Sample).join(
-            Study, Sample.study_id == Study.id_key).filter(
-            and_(*filters))
 
+        ul_lat = None
         center_point = request.form.get('centerPoint').strip()
         if center_point != '':
             m = re.match(r"[(]?([^, ]+)[, ]*([^, )]+)[\)]?", center_point)
@@ -199,7 +194,18 @@ def process_query():
             m = re.match(r"[(]?([^, ]+)[, ]*([^, )]+)[\)]?", lower_right_point)
             lr_lat, lr_lng = [float(v) for v in m.group(1, 2)]
 
-        return f'{ul_lat},{ul_lng} - {lr_lat},{lr_lng}'
+        if ul_lat is not None:
+            filters.append(Sample.latitude <= ul_lat)
+            filters.append(Sample.latitude >= lr_lat)
+            filters.append(Sample.longitude <= ul_lng)
+            filters.append(Sample.longitude >= lr_lng)
+
+        study_query = session.query(Study).join(
+            Sample, Sample.study_id == Study.id_key).filter(
+            and_(*filters))
+        sample_query = session.query(Sample).join(
+            Study, Sample.study_id == Study.id_key).filter(
+            and_(*filters))
 
         LOGGER.debug(f'processing the result of {study_query.count()} results')
         study_query_result = [to_dict(s) for s in study_query.all()]
