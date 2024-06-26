@@ -239,11 +239,15 @@ def process_query():
         study_query_result = [to_dict(s) for s in study_query.all()]
         sample_query_result = [to_dict(s) for s in sample_query.all()]
         LOGGER.debug('rendering the result')
+        points = [
+            {"lat": s['latitude'], "lng": s['longitude']}
+            for s in sample_query_result]
         session.close()
         return render_template(
             'query_result.html',
             studies=study_query_result,
-            samples=sample_query_result)
+            samples=sample_query_result,
+            points=points)
     except Exception as e:
         LOGGER.exception(f'error with {e}')
         raise

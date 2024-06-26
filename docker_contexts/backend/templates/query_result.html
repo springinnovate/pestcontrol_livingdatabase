@@ -2,9 +2,39 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css">
+    <style>
+        #map {
+            height: 600px;
+            width: 100%;
+        }
+    </style>
 </head>
 <body>
     {% if studies|length > 0 %}
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', (event) => {
+            // Initialize the map
+            var map = L.map('map').setView([37.7749, -122.4194], 5);  // Default view centered on the USA
+
+            // Add OpenStreetMap tiles
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }).addTo(map);
+
+            // Points passed from Flask to Jinja
+            var points = {{ points | tojson }};
+
+            // Add points to the map
+            points.forEach(function(point) {
+                L.marker([point.lat, point.lng]).addTo(map)
+                    .bindPopup('Latitude: ' + point.lat + '<br>Longitude: ' + point.lng);
+            });
+        });
+    </script>
     <table border="1">
         <thead>
             <tr>
@@ -41,6 +71,8 @@
         {% endfor %}
     </tbody>
     </table>
+    {% else %}
+    No data matched the filter!
     {% endif %}
 </body>
 </html>
