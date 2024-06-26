@@ -34,7 +34,7 @@
 
 /* Style for collapsible content */
 .collapsible-content {
-    display: none;
+    display: 'block';
     padding: 10px;
     background-color: #f4f4f4;
     border-top: 1px solid #ddd;
@@ -121,8 +121,8 @@
             <div class="section-title" onclick="toggleVisibility('timeQuery')">Query by time</div>
             <div class="collapsible-content" id="timeQuery">
                 <p>Please enter a year, a comma-separated list of years, or a range using a hyphen (e.g., 1990-1995).</p>
-                <label for="year_range">Enter year(s):</label>
-                <input type="text" id="year_range" name="year_range" placeholder="e.g., 1990, 1992, 1995-2000">
+                <label for="yearRange">Enter year(s):</label>
+                <input type="text" id="yearRange" name="yearRange" placeholder="e.g., 1990, 1992, 1995-2000">
             </div>
         </div>
         <div class="querySection">

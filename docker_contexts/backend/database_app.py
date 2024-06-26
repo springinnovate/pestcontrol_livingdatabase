@@ -18,7 +18,7 @@ from flask import request
 from flask import Response
 from jinja2 import Template
 from sqlalchemy import inspect
-from sqlalchemy.sql import and_
+from sqlalchemy.sql import and_, or_
 
 
 logging.basicConfig(
@@ -174,31 +174,59 @@ def process_query():
         session = SessionLocal()
 
         ul_lat = None
-        center_point = request.form.get('centerPoint').strip()
-        if center_point != '':
-            m = re.match(r"[(]?([^, ]+)[, ]*([^, )]+)[\)]?", center_point)
-            lat, lng = [float(v) for v in m.group(1, 2)]
-            center_point_buffer = float(
-                request.form.get('centerPointBuffer').strip())/2
-            ul_lat = lat+center_point_buffer/2
-            lr_lat = lat-center_point_buffer/2
-            ul_lng = lng+center_point_buffer/2
-            lr_lng = lng-center_point_buffer/2
+        center_point = request.form.get('centerPoint')
+        if center_point is not None:
+            center_point = center_point.strip()
+            if center_point != '':
+                m = re.match(r"[(]?([^, ]+)[, ]*([^, )]+)[\)]?", center_point)
+                lat, lng = [float(v) for v in m.group(1, 2)]
+                center_point_buffer = float(
+                    request.form.get('centerPointBuffer').strip())/2
+                ul_lat = lat+center_point_buffer/2
+                lr_lat = lat-center_point_buffer/2
+                ul_lng = lng+center_point_buffer/2
+                lr_lng = lng-center_point_buffer/2
 
-        upper_left_point = request.form.get('upperLeft').strip()
-        lower_right_point = request.form.get('lowerRight').strip()
+        upper_left_point = request.form.get('upperLeft')
+        if upper_left_point is not None:
+            upper_left_point = request.form.get('upperLeft').strip()
+            lower_right_point = request.form.get('lowerRight').strip()
 
-        if upper_left_point != '':
-            m = re.match(r"[(]?([^, ]+)[, ]*([^, )]+)[\)]?", upper_left_point)
-            ul_lat, ul_lng = [float(v) for v in m.group(1, 2)]
-            m = re.match(r"[(]?([^, ]+)[, ]*([^, )]+)[\)]?", lower_right_point)
-            lr_lat, lr_lng = [float(v) for v in m.group(1, 2)]
+            if upper_left_point != '':
+                m = re.match(r"[(]?([^, ]+)[, ]*([^, )]+)[\)]?", upper_left_point)
+                ul_lat, ul_lng = [float(v) for v in m.group(1, 2)]
+                m = re.match(r"[(]?([^, ]+)[, ]*([^, )]+)[\)]?", lower_right_point)
+                lr_lat, lr_lng = [float(v) for v in m.group(1, 2)]
 
         if ul_lat is not None:
             filters.append(Sample.latitude <= ul_lat)
             filters.append(Sample.latitude >= lr_lat)
             filters.append(Sample.longitude <= ul_lng)
             filters.append(Sample.longitude >= lr_lng)
+
+        year_range = request.form.get('yearRange')
+        if year_range is not None:
+            year_range = year_range.strip()
+            LOGGER.debug(year_range)
+            if year_range != '':
+                m = [
+                    v.group() for v in
+                    re.finditer(r"(\d+ ?- ?\d+)|(?:(\d+))", year_range)]
+                year_filters = []
+                for year_group in m:
+                    if '-' not in year_group:
+                        year = int(year_group.strip())
+                        LOGGER.debug(f'{year}')
+                        year_filters.append(Sample.year == year)
+                    else:
+                        start_year, end_year = [
+                            int(v.strip()) for v in year_group.split('-')]
+                        LOGGER.debug(f'{start_year} {end_year}')
+                        year_filters.append(
+                            and_(
+                                Sample.year >= start_year,
+                                Sample.year <= end_year))
+                filters.append(or_(*year_filters))
 
         study_query = session.query(Study).join(
             Sample, Sample.study_id == Study.id_key).filter(
