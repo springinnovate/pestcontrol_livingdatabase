@@ -39,6 +39,27 @@
     background-color: #f4f4f4;
     border-top: 1px solid #ddd;
 }
+
+.querySection input[type="text"], .querySection select {
+    width: 90%;  // Ensures the inputs don't overflow the positioned divs
+    padding: 8px;
+    margin: 4px 0;  // Reduced margin for a tighter fit
+    box-sizing: border-box;
+}
+
+.querySection div {
+    margin-bottom: 10px;
+}
+
+#cornerPointsInputs {
+    background-color: #f4f4f4;  // Light background to highlight the box
+    padding: 10px;  // Padding to create some space inside the border
+}
+
+#cornerPointsInputs > div {
+    min-width: 220px;  // Ensures that there is enough room for labels and inputs
+}
+
 </style>
 <title>Dynamic Query Builder</title>
 </head>
@@ -64,30 +85,52 @@
                     <input type="text" name="value">
                     <button type="button" onclick="removeRow(this)">Remove</button>
                 </div>
-                <button type="button" onclick="addRow()">Add Condition</button>
-            </div>
-        </div>
-
-        <div class="querySection">
-            <div class="section-title" onclick="toggleVisibility('sampleSizeQuery')">Query by sample size</div>
-            <div class="collapsible-content" id="sampleSizeQuery">
-                <!-- Content for querying by sample size -->
+                <button type="button" onclick="addRow()">Add Column</button>
             </div>
         </div>
 
         <div class="querySection">
             <div class="section-title" onclick="toggleVisibility('spaceQuery')">Query by space</div>
             <div class="collapsible-content" id="spaceQuery">
-                <!-- Content for querying by space -->
+                <label>Select query type:</label>
+                <select id="spaceQueryType" onchange="toggleSpaceQueryType()">
+                    <option value="centerPoint">Central Point</option>
+                    <option value="cornerPoints">Corner Coordinates</option>
+                </select>
+
+                <!-- Central Point Input -->
+                <div id="centerPointInputs" style="display: block;">
+                    <label for="centerPoint">Central Point (latitude, longitude):</label>
+                    <input type="text" id="centerPoint" name="centerPoint" placeholder="(latitude, longitude)">
+                    <label for="centerPointBuffer">Size of bounding box edges in degrees</label>
+                    <input type="text" id="centerPointBuffer" name="centerPointBuffer" placeholder="0.25">
+
+                </div>
+
+                <div id="cornerPointsInputs" style="display: none; position: relative; border: 2px solid #ccc; height: 200px; margin-top: 20px;">
+                    <div style="position: absolute; top: 15px; left: 15px;">
+                        <label for="upperLeft">Upper Left (latitude, longitude)</label>
+                        <input type="text" id="upperLeft" name="upperLeft" placeholder="(latitude, longitude)">
+                    </div>
+                    <div style="position: absolute; bottom: 15px; right: 15px; text-align: right;">
+                        <label for="lowerRight">Lower Right (latitude, longitude)</label>
+                        <input type="text" id="lowerRight" name="lowerRight" placeholder="(latitude, longitude)">
+                    </div>
+                </div>
             </div>
         </div>
 
         <div class="querySection">
             <div class="section-title" onclick="toggleVisibility('timeQuery')">Query by time</div>
             <div class="collapsible-content" id="timeQuery">
-                <!-- Content for querying by time -->
+                <p>Please enter a year, a comma-separated list of years, or a range using a hyphen (e.g., 1990-1995).</p>
+                <label for="year_range">Enter year(s):</label>
+                <input type="text" id="year_range" name="year_range" placeholder="e.g., 1990, 1992, 1995-2000">
             </div>
         </div>
+
+
+
     </div>
 
     <input type="submit">
@@ -115,6 +158,20 @@ function toggleVisibility(id) {
         element.style.display = 'none';
     } else {
         element.style.display = 'block';
+    }
+}
+
+function toggleSpaceQueryType() {
+    var queryType = document.getElementById('spaceQueryType').value;
+    var centerPointInputs = document.getElementById('centerPointInputs');
+    var cornerPointsInputs = document.getElementById('cornerPointsInputs');
+
+    if (queryType === 'centerPoint') {
+        centerPointInputs.style.display = 'block';
+        cornerPointsInputs.style.display = 'none';
+    } else if (queryType === 'cornerPoints') {
+        centerPointInputs.style.display = 'none';
+        cornerPointsInputs.style.display = 'block';
     }
 }
 </script>

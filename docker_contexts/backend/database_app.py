@@ -1,4 +1,5 @@
 import configparser
+import re
 import datetime
 import logging
 import sys
@@ -166,6 +167,8 @@ def process_query():
                 column = getattr(Sample, field)
             else:
                 raise AttributeError(f"Field '{field}' not found in Study or Sample.")
+            if operation == '=' and '*' in value:
+                value = value.replace('*', '%')
             filter_condition = OPERATION_MAP[operation](column, value)
             filters.append(filter_condition)
         session = SessionLocal()
@@ -175,6 +178,15 @@ def process_query():
         sample_query = session.query(Sample).join(
             Study, Sample.study_id == Study.id_key).filter(
             and_(*filters))
+
+        center_point = request.form.get('centerPoint').strip()
+        if center_point != '':
+            m = re.match(r"[(]?([^, ]+)[, ]*([^, )]+)[\)]?", center_point)
+            lat, lng = [float(v) for v in m.group(1, 2)]
+            center_point_buffer = float(
+                request.form.get('centerPointBuffer').strip())
+            return f'{lat}, {lng}, {center_point_buffer}'
+
 
         LOGGER.debug(f'processing the result of {study_query.count()} results')
         study_query_result = [to_dict(s) for s in study_query.all()]
