@@ -10,7 +10,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy import ForeignKey
 from typing import List
 from typing import Optional
-from sqlalchemy import Table, Column, Integer, JSON
+from sqlalchemy import Column, Integer, UniqueConstraint, Index, Table
 
 
 COVARIATE_ID = 'covariate'
@@ -62,10 +62,13 @@ FUNCTIONAL_TYPE = 'functional_type'
 CROP_COMMERCIAL_NAME = 'crop_commercial_name'
 CROP_LATIN_NAME = 'crop_latin_name'
 GROWTH_STAGE_OF_CROP_AT_SAMPLING = 'growth_stage_of_crop_at_sampling'
+LATITUDE = 'latitude'
+LONGITUDE = 'longitude'
+
 
 BASE_FIELDS = [
-    'Latitude',
-    'Longitude',
+    LATITUDE,
+    LONGITUDE,
     MANAGER,
     YEAR,
     MONTH,
@@ -157,7 +160,8 @@ class Study(Base):
     study_metadata: Mapped[Optional[str]]
     paper_dois = relationship(
         "DOI", secondary=StudyDOIAssociation, back_populates="studies")
-    samples: Mapped[List["Sample"]] = relationship("Sample", back_populates="study")
+    samples: Mapped[List["Sample"]] = relationship(
+        "Sample", back_populates="study")
 
 
 class DOI(Base):
@@ -172,9 +176,9 @@ class Sample(Base):
     __tablename__ = 'sample'
     id_key: Mapped[int] = mapped_column(primary_key=True)
     study_id: Mapped[int] = mapped_column(ForeignKey('study.id_key'))
+    point_id: Mapped[int] = mapped_column(ForeignKey('point.id_key'))
     study: Mapped[Study] = relationship("Study", back_populates="samples")
-    latitude: Mapped[Optional[float]]
-    longitude: Mapped[Optional[float]]
+    point: Mapped["Point"] = relationship("Point", back_populates="samples")
     manager: Mapped[Optional[str]]
     year: Mapped[Optional[int]]
     month: Mapped[Optional[int]]
@@ -219,11 +223,26 @@ class Sample(Base):
         back_populates="sample")
 
 
+class Point(Base):
+    __tablename__ = 'point'
+    __table_args__ = (
+        UniqueConstraint('latitude', 'longitude', name='uix_lat_long'),
+        Index('idx_lat_long', 'latitude', 'longitude'),
+    )
+    id_key: Mapped[int] = mapped_column(primary_key=True)
+    samples: Mapped[List["Sample"]] = relationship(
+        back_populates='point')
+    latitude: Mapped[float]
+    longitude: Mapped[float]
+    country: Mapped[Optional[str]]
+    continent: Mapped[Optional[str]]
+
+
 class Covariate(Base):
     __tablename__ = 'covariate'
     id_key: Mapped[int] = mapped_column(primary_key=True)
     sample_id: Mapped[int] = mapped_column(ForeignKey('sample.id_key'))
-    covariate_category: Mapped[Optional[str]]
     covariate_name: Mapped[Optional[str]]
     covariate_value: Mapped[Optional[str]]
+    covariate_category: Mapped[Optional[str]]
     sample: Mapped["Sample"] = relationship(back_populates="covariates")

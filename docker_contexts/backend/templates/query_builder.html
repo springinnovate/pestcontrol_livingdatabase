@@ -60,6 +60,13 @@
     min-width: 220px;  // Ensures that there is enough room for labels and inputs
 }
 
+.query-input-group {
+    margin-bottom: 15px; /* Add space between each input group */
+    padding: 10px; /* Add padding for better separation */
+    border: 1px solid #ccc; /* Add border around each input group */
+    border-radius: 5px; /* Add rounded corners */
+    background-color: #f9f9f9; /* Light background color */
+}
 </style>
 <title>Dynamic Query Builder</title>
 </head>
@@ -126,10 +133,38 @@
             </div>
         </div>
         <div class="querySection">
-            <div class="section-title" onclick="toggleVisibility('sampleSizeQuery')">Query by sample size</div>
-            <div class="collapsible-content" id="sampleSizeQuery">
-                <!-- Content for querying by sample size -->
-            </div>
+            <div class="section-title" onclick="toggleVisibility('sampleSizeQuery')">Query by minimum sample size</div>
+                <div class="collapsible-content" id="sampleSizeQuery">
+                    <div class="query-input-group">
+                        <label for="minObservationsResponseVariable">Min observations in study for given response variable:</label>
+                        <select name="minObservationsResponseVariable" id="minObservationsResponseVariable">
+                            {% for variable in response_variables %}
+                                <option value="{{ variable }}">{{ variable }}</option>
+                            {% endfor %}
+                        <input type="number" id="minObservationsSampleSize" name="minObservationsSampleSize" min="1">
+                    </div>
+                    <div class="query-input-group">
+                        <label for="minSiteYears">Minimum number of site-years in study:</label>
+                        <input type="number" id="minSiteYears" name="minSiteYears" min="1">
+                    </div>
+                    <div class="query-input-group">
+                        <label for="minSitesResponseType">Minimum number of sites for a response type in study:</label>
+                        <select name="minSitesResponseType" id="minSitesResponseType">
+                            {% for variable in response_types %}
+                                <option value="{{ variable }}">{{ variable }}</option>
+                            {% endfor %}
+                        </select>
+                        <input type="number" id="minSitesResponseTypeCount" name="minSitesResponseTypeCount" min="1">
+                    </div>
+                    <div class="query-input-group">
+                        <label for="sampleSizeMinYears">Minimum number years in a study:</label>
+                        <input type="number" id="sampleSizeMinYears" name="sampleSizeMinYears" min="1">
+                    </div>
+                    <div class="query-input-group">
+                        <label for="sampleSizeMinObservationsPerYear">Minimum number of observations within all years of a study:</label>
+                        <input type="number" id="sampleSizeMinObservationsPerYear" name="sampleSizeMinObservationsPerYear" min="1">
+                    </div>
+                </div>
         </div>
     </div>
 

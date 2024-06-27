@@ -19,6 +19,7 @@ from flask import Response
 from jinja2 import Template
 from sqlalchemy import inspect
 from sqlalchemy.sql import and_, or_
+from sqlalchemy import distinct, func
 
 
 logging.basicConfig(
@@ -67,11 +68,18 @@ def home():
     session = SessionLocal()
     n_samples = session.query(Sample).count()
 
+    response_variables = session.query(distinct(Sample.response_variable)).filter(
+        Sample.response_variable.isnot(None),
+        Sample.response_variable != ''
+    ).all()
+    response_variables = [value[0] for value in response_variables]
+
     return render_template(
         'query_builder.html',
         status_message=f'Number of samples in db: {n_samples}',
         possible_operations=list(OPERATION_MAP),
-        fields=study_columns+sample_columns+covariate_columns)
+        fields=study_columns+sample_columns+covariate_columns,
+        response_variables=response_variables)
 
 
 @app.route('/api/template')
