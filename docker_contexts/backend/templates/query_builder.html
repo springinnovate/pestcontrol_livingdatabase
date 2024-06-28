@@ -138,9 +138,11 @@
                     <div class="query-input-group">
                         <label for="minObservationsResponseVariable">Min observations in study for given response variable:</label>
                         <select name="minObservationsResponseVariable" id="minObservationsResponseVariable">
+                            <option value="" selected>Select a response variable</option>
                             {% for variable in response_variables %}
                                 <option value="{{ variable }}">{{ variable }}</option>
                             {% endfor %}
+                        </select>
                         <input type="number" id="minObservationsSampleSize" name="minObservationsSampleSize" min="1">
                     </div>
                     <div class="query-input-group">

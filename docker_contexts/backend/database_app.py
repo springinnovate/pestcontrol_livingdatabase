@@ -6,7 +6,7 @@ import sys
 
 from database import SessionLocal
 from database_model_definitions import BASE_FIELDS
-from database_model_definitions import Study, Sample, Covariate
+from database_model_definitions import Study, Sample, Covariate, Point
 from database_model_definitions import STUDY_LEVEL_VARIABLES
 from database_model_definitions import FILTERABLE_FIELDS
 from database_model_definitions import FIELDS_BY_REPONSE_TYPE
@@ -18,6 +18,7 @@ from flask import request
 from flask import Response
 from jinja2 import Template
 from sqlalchemy import inspect
+from sqlalchemy.engine import Row
 from sqlalchemy.sql import and_, or_
 from sqlalchemy import distinct, func
 
@@ -110,7 +111,6 @@ def build_template():
         else:
             study_level_var_list.append(
                 (study_level_key, request.form[study_level_key]))
-    LOGGER.debug(f'THIS IS THE LIST: {study_level_var_list}')
     covariates = []
     # search for the covariates
     for key in request.form:
@@ -141,7 +141,6 @@ def build_template():
         template_content = file.read()
     living_database_template = Template(template_content)
     output = living_database_template.render(variables)
-    LOGGER.debug(output)
 
     response = Response(output, mimetype='text/csv')
     # Specify the name of the download file
@@ -155,6 +154,13 @@ def to_dict(obj):
     """
     Convert a SQLAlchemy model object into a dictionary.
     """
+    if isinstance(obj, Row):
+        # Flatten the result by merging dictionaries
+        result = {}
+        for item in obj:
+            result.update(to_dict(item))
+        return result
+
     return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
 
 
@@ -177,7 +183,6 @@ def process_query():
             if operation == '=' and '*' in value:
                 value = value.replace('*', '%')
             filter_condition = OPERATION_MAP[operation](column, value)
-            LOGGER.debug(filter_condition)
             filters.append(filter_condition)
         session = SessionLocal()
 
@@ -215,7 +220,6 @@ def process_query():
         year_range = request.form.get('yearRange')
         if year_range is not None:
             year_range = year_range.strip()
-            LOGGER.debug(year_range)
             if year_range != '':
                 m = [
                     v.group() for v in
@@ -224,29 +228,53 @@ def process_query():
                 for year_group in m:
                     if '-' not in year_group:
                         year = int(year_group.strip())
-                        LOGGER.debug(f'{year}')
                         year_filters.append(Sample.year == year)
                     else:
                         start_year, end_year = [
                             int(v.strip()) for v in year_group.split('-')]
-                        LOGGER.debug(f'{start_year} {end_year}')
                         year_filters.append(
                             and_(
                                 Sample.year >= start_year,
                                 Sample.year <= end_year))
                 filters.append(or_(*year_filters))
 
+        # add filters for the min observation side
+        min_observations_response_variable = request.form.get(
+            'minObservationsResponseVariable')
+
+        if min_observations_response_variable:
+            min_observations = int(request.form.get('minObservationsSampleSize'))
+            studies_with_min_observations = session.query(
+                    Sample.study_id
+                ).filter(Sample.response_variable == 'Abundance').group_by(
+                Sample.study_id, Sample.response_variable).having(
+                func.count(Sample.id_key) >= min_observations)
+            valid_study_ids = [
+                row[0] for row in studies_with_min_observations.all()]
+            filters.append(
+                Sample.study_id.in_(valid_study_ids))
+
+        min_site_years = request.form.get('minSiteYears')
+        if min_site_years:
+            unique_years_count_query = session.query(
+                Sample.study_id, func.count(distinct(Sample.year))).group_by(
+                Sample.study_id).having(
+                    func.count(distinct(Sample.year)) >= int(min_site_years))
+            valid_study_ids = [
+                row[0] for row in unique_years_count_query.all()]
+            filters.append(
+                Sample.study_id.in_(valid_study_ids))
+
         study_query = session.query(Study).join(
             Sample, Sample.study_id == Study.id_key).filter(
             and_(*filters))
-        sample_query = session.query(Sample).join(
-            Study, Sample.study_id == Study.id_key).filter(
+        sample_query = session.query(Sample, Point).join(
+            Study, Sample.study_id == Study.id_key).join(
+            Point, Sample.point_id == Point.id_key).filter(
             and_(*filters))
 
-        LOGGER.debug(f'processing the result of {study_query.count()} results')
         study_query_result = [to_dict(s) for s in study_query.all()]
         sample_query_result = [to_dict(s) for s in sample_query.all()]
-        LOGGER.debug('rendering the result')
         points = [
             {"lat": s['latitude'], "lng": s['longitude']}
             for s in sample_query_result]
@@ -264,6 +292,7 @@ def process_query():
 @app.route('/api/searchable_fields', methods=['GET'])
 def searchable_fields():
     return FILTERABLE_FIELDS
+
 
 if __name__ == '__main__':
     app.run(debug=True)
