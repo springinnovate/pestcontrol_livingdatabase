@@ -152,6 +152,7 @@
                     <div class="query-input-group">
                         <label for="minSitesResponseType">Minimum number of sites for a response type in study:</label>
                         <select name="minSitesResponseType" id="minSitesResponseType">
+                            <option value="" selected>Select a response type</option>
                             {% for variable in response_types %}
                                 <option value="{{ variable }}">{{ variable }}</option>
                             {% endfor %}

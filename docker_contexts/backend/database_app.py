@@ -75,12 +75,19 @@ def home():
     ).all()
     response_variables = [value[0] for value in response_variables]
 
+    response_types = session.query(distinct(Sample.response_type)).filter(
+        Sample.response_type.isnot(None),
+        Sample.response_type != ''
+    ).all()
+    response_types = [value[0] for value in response_types]
+
     return render_template(
         'query_builder.html',
         status_message=f'Number of samples in db: {n_samples}',
         possible_operations=list(OPERATION_MAP),
         fields=study_columns+sample_columns+covariate_columns,
-        response_variables=response_variables)
+        response_variables=response_variables,
+        response_types=response_types)
 
 
 @app.route('/api/template')
@@ -246,7 +253,7 @@ def process_query():
             min_observations = int(request.form.get('minObservationsSampleSize'))
             studies_with_min_observations = session.query(
                     Sample.study_id
-                ).filter(Sample.response_variable == 'Abundance').group_by(
+                ).filter(Sample.response_variable == min_observations_response_variable).group_by(
                 Sample.study_id, Sample.response_variable).having(
                 func.count(Sample.id_key) >= min_observations)
             valid_study_ids = [
@@ -262,8 +269,20 @@ def process_query():
                     func.count(distinct(Sample.year)) >= int(min_site_years))
             valid_study_ids = [
                 row[0] for row in unique_years_count_query.all()]
-            filters.append(
-                Sample.study_id.in_(valid_study_ids))
+            filters.append(Sample.study_id.in_(valid_study_ids))
+
+        min_sites_response_type = request.form.get('minSitesResponseType')
+        if min_sites_response_type:
+            min_sites_per_response_type_count = int(
+                request.form.get('minSitesResponseTypeCount'))
+            min_sites = session.query(
+                Sample.study_id, func.count(distinct(Sample.point_id))).filter(
+                Sample.response_type == min_sites_response_type).group_by(
+                Sample.study_id).having(func.count(
+                    distinct(Sample.point_id)) >= min_sites_per_response_type_count)
+            valid_study_ids = [row[0] for row in min_sites.all()]
+            filters.append(Sample.study_id.in_(valid_study_ids))
+
 
         study_query = session.query(Study).join(
             Sample, Sample.study_id == Study.id_key).filter(
@@ -272,6 +291,7 @@ def process_query():
             Study, Sample.study_id == Study.id_key).join(
             Point, Sample.point_id == Point.id_key).filter(
             and_(*filters))
+
 
         study_query_result = [to_dict(s) for s in study_query.all()]
         sample_query_result = [to_dict(s) for s in sample_query.all()]
