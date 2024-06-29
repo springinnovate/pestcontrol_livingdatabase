@@ -81,13 +81,21 @@ def home():
     ).all()
     response_types = [value[0] for value in response_types]
 
+    country_set = session.query(distinct(Point.country)).all()
+    country_set = [value[0] for value in country_set]
+    continent_set = session.query(distinct(Point.continent)).all()
+    continent_set = [value[0] for value in continent_set]
+
     return render_template(
         'query_builder.html',
         status_message=f'Number of samples in db: {n_samples}',
         possible_operations=list(OPERATION_MAP),
         fields=study_columns+sample_columns+covariate_columns,
         response_variables=response_variables,
-        response_types=response_types)
+        response_types=response_types,
+        country_set=country_set,
+        continent_set=continent_set,
+        )
 
 
 @app.route('/api/template')

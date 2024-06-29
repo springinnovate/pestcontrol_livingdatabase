@@ -103,6 +103,8 @@
                 <select id="spaceQueryType" onchange="toggleSpaceQueryType()">
                     <option value="centerPoint">Central Point</option>
                     <option value="cornerPoints">Corner Coordinates</option>
+                    <option value="country">Country</option>
+                    <option value="continent">Continent</option>
                 </select>
 
                 <!-- Central Point Input -->
@@ -123,6 +125,25 @@
                         <input type="text" id="lowerRight" name="lowerRight" placeholder="(latitude, longitude)">
                     </div>
                 </div>
+                <div id="countrySelectInput" style="display: none;">
+                    <label for="countrySelect">Country:</label>
+                    <select name="countrySelect" id="countrySelect">
+                        <option value="" selected>Select a country</option>
+                        {% for variable in country_set %}
+                            <option value="{{ variable }}">{{ variable }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div id="continentSelectInput" style="display: none;">
+                    <label for="continentSelect">Continent:</label>
+                    <select name="continentSelect" id="continentSelect">
+                        <option value="" selected>Select a continent</option>
+                        {% for variable in continent_set %}
+                            <option value="{{ variable }}">{{ variable }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
             </div>
         </div>
         <div class="querySection">
@@ -204,13 +225,29 @@ function toggleSpaceQueryType() {
     var queryType = document.getElementById('spaceQueryType').value;
     var centerPointInputs = document.getElementById('centerPointInputs');
     var cornerPointsInputs = document.getElementById('cornerPointsInputs');
+    var countrySelectInput = document.getElementById('countrySelectInput');
+    var continentSelectInput = document.getElementById('continentSelectInput');
 
     if (queryType === 'centerPoint') {
         centerPointInputs.style.display = 'block';
         cornerPointsInputs.style.display = 'none';
+        countrySelectInput.style.display = 'none';
+        continentSelectInput.style.display = 'none';
     } else if (queryType === 'cornerPoints') {
         centerPointInputs.style.display = 'none';
         cornerPointsInputs.style.display = 'block';
+        countrySelectInput.style.display = 'none';
+        continentSelectInput.style.display = 'none';
+    } else if (queryType === 'country') {
+        centerPointInputs.style.display = 'none';
+        cornerPointsInputs.style.display = 'none';
+        countrySelectInput.style.display = 'block';
+        continentSelectInput.style.display = 'none';
+    } else if (queryType === 'continent') {
+        centerPointInputs.style.display = 'none';
+        cornerPointsInputs.style.display = 'none';
+        countrySelectInput.style.display = 'none';
+        continentSelectInput.style.display = 'block';
     }
 }
 </script>
