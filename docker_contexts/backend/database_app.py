@@ -279,7 +279,7 @@ def process_query():
             min_sites_per_response_type_count = int(
                 request.form.get('minSitesResponseTypeCount'))
             min_sites = session.query(
-                Sample.study_id, func.count(distinct(Sample.point_id))).filter(
+                Sample.study_id).filter(
                 Sample.response_type == min_sites_response_type).group_by(
                 Sample.study_id).having(func.count(
                     distinct(Sample.point_id)) >= min_sites_per_response_type_count)
@@ -303,7 +303,6 @@ def process_query():
             valid_study_ids = [
                 row[0] for row in unique_years_count_query.all()]
             filters.append(Sample.study_id.in_(valid_study_ids))
-
 
         study_query_result = [to_dict(s) for s in study_query.all()]
         sample_query_result = [to_dict(s) for s in sample_query.all()]
