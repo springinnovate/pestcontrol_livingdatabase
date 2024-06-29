@@ -181,6 +181,8 @@ def process_query():
         # Example of how you might process these queries
         filters = []
         for field, operation, value in zip(fields, operations, values):
+            if not field:
+                continue
             if hasattr(Study, field):
                 column = getattr(Study, field)
             elif hasattr(Sample, field):

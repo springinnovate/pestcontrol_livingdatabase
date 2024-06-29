@@ -80,6 +80,7 @@
                 <div class="queryRow">
                     <label for="fieldSelect">Choose a field:</label>
                     <select name="field" id="fieldSelect">
+                        <option value="" selected>Select field</option>
                         {% for field in fields %}
                             <option value="{{ field }}">{{ field }}</option>
                         {% endfor %}
