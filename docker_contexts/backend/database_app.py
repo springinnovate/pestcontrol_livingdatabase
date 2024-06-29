@@ -286,15 +286,8 @@ def process_query():
             valid_study_ids = [row[0] for row in min_sites.all()]
             filters.append(Sample.study_id.in_(valid_study_ids))
 
-        study_query = session.query(Study).join(
-            Sample, Sample.study_id == Study.id_key).filter(
-            and_(*filters))
-        sample_query = session.query(Sample, Point).join(
-            Study, Sample.study_id == Study.id_key).join(
-            Point, Sample.point_id == Point.id_key).filter(
-            and_(*filters))
-
         sample_size_min_years = request.form.get('sampleSizeMinYears')
+        LOGGER.debug(f'***** {sample_size_min_years}')
         if sample_size_min_years:
             unique_years_count_query = session.query(
                 Sample.study_id).group_by(
@@ -302,7 +295,16 @@ def process_query():
                     func.count(distinct(Sample.year)) >= int(sample_size_min_years))
             valid_study_ids = [
                 row[0] for row in unique_years_count_query.all()]
+            LOGGER.debug(f'********* valid study ids: {valid_study_ids}')
             filters.append(Sample.study_id.in_(valid_study_ids))
+
+        study_query = session.query(Study).join(
+            Sample, Sample.study_id == Study.id_key).filter(
+            and_(*filters))
+        sample_query = session.query(Sample, Point).join(
+            Study, Sample.study_id == Study.id_key).join(
+            Point, Sample.point_id == Point.id_key).filter(
+            and_(*filters))
 
         study_query_result = [to_dict(s) for s in study_query.all()]
         sample_query_result = [to_dict(s) for s in sample_query.all()]
