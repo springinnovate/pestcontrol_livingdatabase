@@ -298,6 +298,21 @@ def process_query():
             LOGGER.debug(f'********* valid study ids: {valid_study_ids}')
             filters.append(Sample.study_id.in_(valid_study_ids))
 
+        min_observations_per_year = request.form.get('sampleSizeMinObservationsPerYear')
+        if min_observations_per_year:
+            unique_years_count_query = session.query(
+                Sample.study_id,
+                func.count(Sample.study_id).label('sample_count')).group_by(
+                Sample.study_id, Sample.year).subquery()
+            min_samples_per_study_query = session.query(
+                unique_years_count_query.c.study_id).group_by(
+                unique_years_count_query.c.study_id).having(
+                func.min(unique_years_count_query.c.sample_count) >=
+                int(min_observations_per_year))
+            valid_study_ids = [
+                row[0] for row in min_samples_per_study_query.all()]
+            filters.append(Sample.study_id.in_(valid_study_ids))
+
         study_query = session.query(Study).join(
             Sample, Sample.study_id == Study.id_key).filter(
             and_(*filters))
@@ -308,9 +323,14 @@ def process_query():
 
         study_query_result = [to_dict(s) for s in study_query.all()]
         sample_query_result = [to_dict(s) for s in sample_query.all()]
+        point_set = set([
+            (s['latitude'], s['longitude'])
+            for s in sample_query_result])
         points = [
-            {"lat": s['latitude'], "lng": s['longitude']}
-            for s in sample_query_result]
+            {"lat": s[0], "lng": s[1]}
+            for s in point_set]
+        LOGGER.debug(
+            f'samples: {len(sample_query_result)} points: {len(points)}')
         session.close()
         return render_template(
             'query_result.html',
