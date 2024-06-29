@@ -297,7 +297,7 @@ def process_query():
         sample_size_min_years = request.form.get('sampleSizeMinYears')
         if sample_size_min_years:
             unique_years_count_query = session.query(
-                Sample.study_id, func.count(distinct(Sample.year))).group_by(
+                Sample.study_id).group_by(
                 Sample.study_id).having(
                     func.count(distinct(Sample.year)) >= int(sample_size_min_years))
             valid_study_ids = [
