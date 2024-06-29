@@ -223,6 +223,8 @@ function toggleVisibility(id) {
 
 function toggleSpaceQueryType() {
     var queryType = document.getElementById('spaceQueryType').value;
+
+    resetSpaceInputs();
     var centerPointInputs = document.getElementById('centerPointInputs');
     var cornerPointsInputs = document.getElementById('cornerPointsInputs');
     var countrySelectInput = document.getElementById('countrySelectInput');
@@ -249,6 +251,22 @@ function toggleSpaceQueryType() {
         countrySelectInput.style.display = 'none';
         continentSelectInput.style.display = 'block';
     }
+}
+
+function resetSpaceInputs() {
+    // Reset center point inputs
+    document.getElementById('centerPoint').value = '';
+    document.getElementById('centerPointBuffer').value = '0.25';
+
+    // Reset corner points inputs
+    document.getElementById('upperLeft').value = '';
+    document.getElementById('lowerRight').value = '';
+
+    // Reset country select input
+    document.getElementById('countrySelect').value = '';
+
+    // Reset continent select input
+    document.getElementById('continentSelect').value = '';
 }
 </script>
 
