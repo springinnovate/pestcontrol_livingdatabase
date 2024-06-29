@@ -228,6 +228,13 @@ def process_query():
                 m = re.match(r"[(]?([^, ]+)[, ]*([^, )]+)[\)]?", lower_right_point)
                 lr_lat, lr_lng = [float(v) for v in m.group(1, 2)]
 
+        country_select = request.form.get('countrySelect')
+        if country_select:
+            filters.append(Point.country == country_select)
+        continent_select = request.form.get('continentSelect')
+        if continent_select:
+            filters.append(Point.continent == continent_select)
+
         if ul_lat is not None:
             filters.append(Sample.latitude <= ul_lat)
             filters.append(Sample.latitude >= lr_lat)
