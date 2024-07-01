@@ -175,8 +175,8 @@ class DOI(Base):
 class Sample(Base):
     __tablename__ = 'sample'
     id_key: Mapped[int] = mapped_column(primary_key=True)
-    study_id: Mapped[int] = mapped_column(ForeignKey('study.id_key'))
-    point_id: Mapped[int] = mapped_column(ForeignKey('point.id_key'))
+    study_id: Mapped[int] = mapped_column(ForeignKey('study.id_key'), index=True)
+    point_id: Mapped[int] = mapped_column(ForeignKey('point.id_key'), index=True)
     study: Mapped[Study] = relationship("Study", back_populates="samples")
     point: Mapped["Point"] = relationship("Point", back_populates="samples")
     manager: Mapped[Optional[str]]
@@ -241,7 +241,7 @@ class Point(Base):
 class Covariate(Base):
     __tablename__ = 'covariate'
     id_key: Mapped[int] = mapped_column(primary_key=True)
-    sample_id: Mapped[int] = mapped_column(ForeignKey('sample.id_key'))
+    sample_id: Mapped[int] = mapped_column(ForeignKey('sample.id_key'), index=True)
     covariate_name: Mapped[Optional[str]]
     covariate_value: Mapped[Optional[str]]
     covariate_category: Mapped[Optional[str]]

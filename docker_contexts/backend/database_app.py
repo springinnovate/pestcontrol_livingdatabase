@@ -331,7 +331,8 @@ def process_query():
             filters.append(Sample.study_id.in_(valid_study_ids))
 
         study_query = session.query(Study).join(
-            Sample, Sample.study_id == Study.id_key).filter(
+            Sample, Sample.study_id == Study.id_key).join(
+            Point, Sample.point_id == Point.id_key).filter(
             and_(*filters))
         sample_query = session.query(Sample, Point).join(
             Study, Sample.study_id == Study.id_key).join(
