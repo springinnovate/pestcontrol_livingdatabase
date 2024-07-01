@@ -9,6 +9,8 @@ services:
     container_name: backend
     hostname: backend_api
     build: docker_contexts/backend
+    volumes:
+      - ./docker_contexts/backend:/usr/local/pcld_api
     logging:
       driver: local
       options:
