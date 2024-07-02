@@ -42,41 +42,30 @@
     <table border="1">
         <thead>
             <tr>
-                {% for key in studies[0].keys() %}
-                <th>{{ key }}</th>
-                {% endfor %}
+                {% for key in studies[0].keys() %}<th>{{ key }}</th>{% endfor %}
             </tr>
         </thead>
         <tbody>
             {% for study in studies %}
-            <tr>
-                {% for value in study.values() %}
-                <td>{{ value }}</td>
-                {% endfor %}
-            </tr>
+            <tr>{% for value in study.values() %}<td>{{ value }}</td>{% endfor %}</tr>
             {% endfor %}
         </tbody>
     </table>
     <table border="1">
     <thead>
         <tr>
-            {% for key in samples[0].keys() %}
-            <th>{{ key }}</th>
-            {% endfor %}
+            {% for key in samples[0].keys() %}<th>{{ key }}</th>{% endfor %}
         </tr>
     </thead>
     <tbody>
-        {% for study in samples %}
-        <tr>
-            {% for value in study.values() %}
-            <td>{{ value }}</td>
-            {% endfor %}
-        </tr>
+        {% for sample in samples %}
+        <tr>{% for key, value in sample.items() %}<td>{{ value }}</td>{% endfor %}</tr>
         {% endfor %}
     </tbody>
     </table>
     {% else %}
     No data matched the filter!
     {% endif %}
+    {{ samples }}
 </body>
 </html>

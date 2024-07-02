@@ -232,10 +232,10 @@ def process_query():
             filters.append(Point.continent == continent_select)
 
         if ul_lat is not None:
-            filters.append(Sample.latitude <= ul_lat)
-            filters.append(Sample.latitude >= lr_lat)
-            filters.append(Sample.longitude <= ul_lng)
-            filters.append(Sample.longitude >= lr_lng)
+            filters.append(Point.latitude <= ul_lat)
+            filters.append(Point.latitude >= lr_lat)
+            filters.append(Point.longitude <= ul_lng)
+            filters.append(Point.longitude >= lr_lng)
 
         year_range = request.form.get('yearRange')
         if year_range is not None:
@@ -354,6 +354,14 @@ def process_query():
 
         study_query_result = [to_dict(s) for s in study_query.all()]
         sample_query_result = [to_dict(s) for s in sample_query.all()]
+
+        key_sets = [set(d.keys()) for d in sample_query_result]
+        all_keys = set().union(*key_sets)
+        common_keys = set(key_sets[0]).intersection(*key_sets[1:])
+        not_in_all_keys = all_keys - common_keys
+        LOGGER.debug(f'these are the common keys: {common_keys}')
+        LOGGER.debug(f'these are the disjoint keys: {not_in_all_keys}')
+
         point_set = set([
             (s['latitude'], s['longitude'])
             for s in sample_query_result])
@@ -362,6 +370,8 @@ def process_query():
             for s in point_set]
         LOGGER.debug(
             f'samples: {len(sample_query_result)} points: {len(points)}')
+        LOGGER.debug(f'keys: {sample_query_result[0]}')
+        LOGGER.debug(f'keys: {sample_query_result[1]}')
         session.close()
         return render_template(
             'query_result.html',
