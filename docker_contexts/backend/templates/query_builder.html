@@ -79,7 +79,7 @@
             <div class="collapsible-content" id="columnQuery">
                 <div class="queryRow">
                     <label for="fieldSelect">Choose a field:</label>
-                    <select name="field" id="fieldSelect">
+                    <select name="field" id="fieldSelect" onchange="updateValueOptions(this)">
                         <option value="" selected>Select field</option>
                         {% for field in fields %}
                             <option value="{{ field }}">{{ field }}</option>
@@ -272,31 +272,29 @@ function resetSpaceInputs() {
 }
 
 const fieldValues = {
-        {% for field, values in unique_values.items() %}
-        "{{ field }}": [{% for value in values %}"{{ value }}"{% if not loop.last %}, {% endif %}{% endfor %}],
-        {% endfor %}
-    };
+    {% for field, values in unique_field_values.items() %}"{{ field }}": [{% for value in values %}"{{ value }}"{% if not loop.last %}, {% endif %}{% endfor %}],
+    {% endfor %}
+};
 
-    // Function to update value dropdown options based on the selected field
-    function updateValueOptions(fieldSelect) {
-        const queryRow = fieldSelect.closest('.queryRow');
-        const valueSelect = queryRow.querySelector('.valueSelect');
-        const selectedField = fieldSelect.value;
+function updateValueOptions(fieldSelect) {
+    const queryRow = fieldSelect.closest('.queryRow');
+    const valueSelect = queryRow.querySelector('.valueSelect');
+    const selectedField = fieldSelect.value;
 
-        // Clear previous options
-        valueSelect.innerHTML = '<option value="" selected>Select value</option>';
+    // Clear previous options
+    valueSelect.innerHTML = '<option value="" selected>Select value</option>';
 
-        // Populate new options
-        if (selectedField in fieldValues) {
-            const values = fieldValues[selectedField];
-            values.forEach(value => {
-                const option = document.createElement('option');
-                option.value = value;
-                option.text = value;
-                valueSelect.appendChild(option);
-            });
-        }
+    // Populate new options
+    if (selectedField in fieldValues) {
+        const values = fieldValues[selectedField];
+        values.forEach(value => {
+            const option = document.createElement('option');
+            option.value = value;
+            option.text = value;
+            valueSelect.appendChild(option);
+        });
     }
+}
 </script>
 
 </body>

@@ -2,27 +2,30 @@ import configparser
 import datetime
 import itertools
 import logging
+import os
+import pickle
 import re
 import sys
 
 from database import SessionLocal
 from database_model_definitions import BASE_FIELDS
-from database_model_definitions import Study, Sample, Covariate, Point
-from database_model_definitions import STUDY_LEVEL_VARIABLES
-from database_model_definitions import FILTERABLE_FIELDS
-from database_model_definitions import FIELDS_BY_RESPONSE_TYPE
 from database_model_definitions import COORDINATE_PRECISION_FIELD
 from database_model_definitions import COORDINATE_PRECISION_FULL_PRECISION_VALUE
+from database_model_definitions import FIELDS_BY_RESPONSE_TYPE
+from database_model_definitions import FILTERABLE_FIELDS
 from database_model_definitions import SAMPLE_DISPLAY_FIELDS
+from database_model_definitions import Study, Sample, Covariate, Point
+from database_model_definitions import STUDY_LEVEL_VARIABLES
+from database_model_definitions import SEARCH_BY_UNIQUE_VAL
 from flask import Flask
 from flask import render_template
 from flask import request
 from flask import Response
 from jinja2 import Template
+from sqlalchemy import distinct, func
 from sqlalchemy import inspect
 from sqlalchemy.engine import Row
 from sqlalchemy.sql import and_, or_
-from sqlalchemy import distinct, func
 
 
 logging.basicConfig(
@@ -37,6 +40,37 @@ LOGGER = logging.getLogger(__name__)
 config = configparser.ConfigParser()
 
 app = Flask(__name__)
+
+
+UNIQUE_FIELD_VALUES_PKL = 'unique_field_values.pkl'
+
+
+def init_unique_fieldnames():
+    global UNIQUE_FIELD_VALUES
+    UNIQUE_FIELD_VALUES = {}
+
+    if os.path.exists(UNIQUE_FIELD_VALUES_PKL):
+        # Load data from the pickle file
+        with open(UNIQUE_FIELD_VALUES_PKL, 'rb') as f:
+            UNIQUE_FIELD_VALUES = pickle.load(f)
+        LOGGER.info("Loaded unique field values from pickle file.")
+        return
+
+    session = SessionLocal()
+    for column in SEARCH_BY_UNIQUE_VAL:
+        LOGGER.debug(f'processing {column}')
+        LOGGER.debug(f'i.e. {column.name}')
+        unique_values = session.query(distinct(column)).all()
+        UNIQUE_FIELD_VALUES[column.name] = [v[0] for v in unique_values]
+
+    session.close()
+
+    with open(UNIQUE_FIELD_VALUES_PKL, 'wb') as f:
+        pickle.dump(UNIQUE_FIELD_VALUES, f)
+    LOGGER.info(f"Saved unique field values to {UNIQUE_FIELD_VALUES_PKL}.")
+
+
+init_unique_fieldnames()
 
 
 @app.route('/api/')
@@ -88,28 +122,17 @@ def home():
     continent_set = session.query(distinct(Point.continent)).all()
     continent_set = [value[0] for value in continent_set]
 
-    # get unique values for fields
-    unique_field_values = {}
-    for column, column_str in itertools.chain(
-            zip(inspect(Study).columns, study_columns),
-            zip(inspect(Sample).columns, sample_columns),
-            zip(inspect(Covariate).columns, covariate_columns)):
-        LOGGER.debug(f'working on {column_str}')
-        filtered_response_types = session.query(
-            distinct(column)).all()
-        unique_field_values[column_str] = [
-            v[0] for v in filtered_response_types]
-
+    LOGGER.debug(UNIQUE_FIELD_VALUES)
     return render_template(
         'query_builder.html',
         status_message=f'Number of samples in db: {n_samples}',
         possible_operations=list(OPERATION_MAP),
-        fields=study_columns+sample_columns+covariate_columns,
+        fields=UNIQUE_FIELD_VALUES.keys(),
         response_variables=response_variables,
         response_types=response_types,
         country_set=country_set,
         continent_set=continent_set,
-        unique_field_values=unique_field_values,
+        unique_field_values=UNIQUE_FIELD_VALUES,
         )
 
 
