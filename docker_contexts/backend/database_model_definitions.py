@@ -212,7 +212,7 @@ class Covariate(Base):
     covariate_category: Mapped[Optional[str]] = mapped_column(index=True)
     sample: Mapped["Sample"] = relationship(back_populates="covariates")
 
-
+# these will be dropdowns
 SEARCH_BY_UNIQUE_VAL = [
     Sample.response_type,
     Sample.response_variable,
@@ -227,7 +227,6 @@ SEARCH_BY_UNIQUE_VAL = [
     Sample.day,
     Sample.time,
     Sample.replicate,
-    Sample.sampling_effort,
     Sample.observer_id,
     Sample.sampler_type,
     Sample.crop_commercial_name,
@@ -255,6 +254,11 @@ SEARCH_BY_UNIQUE_VAL = [
     Sample.enemy_sub_species,
     Sample.enemy_morphospecies,
     Sample.enemy_lifestage,
+]
+
+# these will be manually entered values
+SEARCH_BY_VAL = [
+    Sample.sampling_effort,
 ]
 
 SAMPLE_DISPLAY_FIELDS = [
