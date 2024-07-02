@@ -105,41 +105,6 @@ FILTERABLE_FIELDS = [
     GROWTH_STAGE_OF_CROP_AT_SAMPLING,
 ]
 
-FIELDS_BY_REPONSE_TYPE = {
-    'abundance': [
-        'Class',
-        'Order',
-        'Family',
-        'Genus ',
-        'Species',
-        'Sub-species',
-        'Morphospecies',
-        'Life stage',
-        ],
-    'activity': [
-        'Pest class',
-        'Pest order',
-        'Pest family',
-        'Pest species',
-        'Pest sub-species',
-        'Pest morphospecies',
-        'Pest life stage',
-        'Enemy class',
-        'Enemy order',
-        'Enemy family',
-        'Enemy species',
-        'Enemy sub-species',
-        'Enemy morphospecies',
-        'Enemy lifestage',
-        ],
-    'production': [],
-}
-
-if len(RESPONSE_TYPES) != len(set(RESPONSE_TYPES).union(set(FIELDS_BY_REPONSE_TYPE))):
-    raise ValueError(
-        'Response types and fields by response types do not have the same '
-        'fields in database_model_definitions.py, open that file and find out '
-        'what is going on.')
 
 
 class Base(DeclarativeBase):
@@ -179,46 +144,46 @@ class Sample(Base):
     point_id: Mapped[int] = mapped_column(ForeignKey('point.id_key'), index=True)
     study: Mapped[Study] = relationship("Study", back_populates="samples")
     point: Mapped["Point"] = relationship("Point", back_populates="samples")
-    manager: Mapped[Optional[str]]
-    year: Mapped[Optional[int]]
-    month: Mapped[Optional[int]]
-    day: Mapped[Optional[int]]
-    time: Mapped[Optional[str]]
-    replicate: Mapped[Optional[str]]
-    sampling_effort: Mapped[Optional[str]]
-    observation: Mapped[Optional[str]]
-    observer_id: Mapped[Optional[str]]
-    response_type: Mapped[Optional[str]]
-    response_variable: Mapped[Optional[str]]
-    units: Mapped[Optional[str]]
-    sampling_method: Mapped[Optional[str]]
-    sampler_type: Mapped[Optional[str]]
-    functional_type: Mapped[Optional[str]]
-    crop_commercial_name: Mapped[Optional[str]]
-    crop_latin_name: Mapped[Optional[str]]
-    abundance_class: Mapped[Optional[str]]
-    order: Mapped[Optional[str]]
-    family: Mapped[Optional[str]]
-    genus: Mapped[Optional[str]]
-    species: Mapped[Optional[str]]
-    subspecies: Mapped[Optional[str]]
-    morphospecies: Mapped[Optional[str]]
-    life_stage: Mapped[Optional[str]]
-    pest_class: Mapped[Optional[str]]
-    pest_order: Mapped[Optional[str]]
-    pest_family: Mapped[Optional[str]]
-    pest_species: Mapped[Optional[str]]
-    pest_sub_species: Mapped[Optional[str]]
-    pest_morphospecies: Mapped[Optional[str]]
-    pest_life_stage: Mapped[Optional[str]]
-    enemy_class: Mapped[Optional[str]]
-    enemy_order: Mapped[Optional[str]]
-    enemy_family: Mapped[Optional[str]]
-    enemy_species: Mapped[Optional[str]]
-    enemy_sub_species: Mapped[Optional[str]]
-    enemy_morphospecies: Mapped[Optional[str]]
-    enemy_lifestage: Mapped[Optional[str]]
-    growth_stage_of_crop_at_sampling: Mapped[Optional[str]]
+    manager: Mapped[Optional[str]] = mapped_column(index=True)
+    year: Mapped[Optional[int]] = mapped_column(index=True)
+    month: Mapped[Optional[int]] = mapped_column(index=True)
+    day: Mapped[Optional[int]] = mapped_column(index=True)
+    time: Mapped[Optional[str]] = mapped_column(index=True)
+    replicate: Mapped[Optional[str]] = mapped_column(index=True)
+    sampling_effort: Mapped[Optional[str]] = mapped_column(index=True)
+    observation: Mapped[Optional[str]] = mapped_column(index=True)
+    observer_id: Mapped[Optional[str]] = mapped_column(index=True)
+    response_type: Mapped[Optional[str]] = mapped_column(index=True)
+    response_variable: Mapped[Optional[str]] = mapped_column(index=True)
+    units: Mapped[Optional[str]] = mapped_column(index=True)
+    sampling_method: Mapped[Optional[str]] = mapped_column(index=True)
+    sampler_type: Mapped[Optional[str]] = mapped_column(index=True)
+    functional_type: Mapped[Optional[str]] = mapped_column(index=True)
+    crop_commercial_name: Mapped[Optional[str]] = mapped_column(index=True)
+    crop_latin_name: Mapped[Optional[str]] = mapped_column(index=True)
+    abundance_class: Mapped[Optional[str]] = mapped_column(index=True)
+    order: Mapped[Optional[str]] = mapped_column(index=True)
+    family: Mapped[Optional[str]] = mapped_column(index=True)
+    genus: Mapped[Optional[str]] = mapped_column(index=True)
+    species: Mapped[Optional[str]] = mapped_column(index=True)
+    subspecies: Mapped[Optional[str]] = mapped_column(index=True)
+    morphospecies: Mapped[Optional[str]] = mapped_column(index=True)
+    life_stage: Mapped[Optional[str]] = mapped_column(index=True)
+    pest_class: Mapped[Optional[str]] = mapped_column(index=True)
+    pest_order: Mapped[Optional[str]] = mapped_column(index=True)
+    pest_family: Mapped[Optional[str]] = mapped_column(index=True)
+    pest_species: Mapped[Optional[str]] = mapped_column(index=True)
+    pest_sub_species: Mapped[Optional[str]] = mapped_column(index=True)
+    pest_morphospecies: Mapped[Optional[str]] = mapped_column(index=True)
+    pest_life_stage: Mapped[Optional[str]] = mapped_column(index=True)
+    enemy_class: Mapped[Optional[str]] = mapped_column(index=True)
+    enemy_order: Mapped[Optional[str]] = mapped_column(index=True)
+    enemy_family: Mapped[Optional[str]] = mapped_column(index=True)
+    enemy_species: Mapped[Optional[str]] = mapped_column(index=True)
+    enemy_sub_species: Mapped[Optional[str]] = mapped_column(index=True)
+    enemy_morphospecies: Mapped[Optional[str]] = mapped_column(index=True)
+    enemy_lifestage: Mapped[Optional[str]] = mapped_column(index=True)
+    growth_stage_of_crop_at_sampling: Mapped[Optional[str]] = mapped_column(index=True)
     covariates: Mapped[List["Covariate"]] = relationship(
         back_populates="sample")
 
@@ -246,3 +211,67 @@ class Covariate(Base):
     covariate_value: Mapped[Optional[str]]
     covariate_category: Mapped[Optional[str]]
     sample: Mapped["Sample"] = relationship(back_populates="covariates")
+
+
+SAMPLE_DISPLAY_FIELDS = [
+    Sample.response_type,
+    Sample.response_variable,
+    Sample.sampling_method,
+    Sample.observation,
+    Sample.units,
+    Sample.functional_type,
+    Point.latitude,
+    Point.longitude,
+    Point.country,
+    Sample.year,
+    Sample.study,
+    Sample.point,
+    Sample.manager,
+    Sample.month,
+    Sample.day,
+    Sample.time,
+    Sample.replicate,
+    Sample.sampling_effort,
+    Sample.observer_id,
+    Sample.sampler_type,
+    Sample.crop_commercial_name,
+    Sample.growth_stage_of_crop_at_sampling,
+]
+
+FIELDS_BY_RESPONSE_TYPE = {
+    'abundance': [
+        Sample.crop_latin_name,
+        Sample.abundance_class,
+        Sample.order,
+        Sample.family,
+        Sample.genus,
+        Sample.species,
+        Sample.subspecies,
+        Sample.morphospecies,
+        Sample.life_stage,
+        ],
+    'activity': [
+        Sample.pest_class,
+        Sample.pest_order,
+        Sample.pest_family,
+        Sample.pest_species,
+        Sample.pest_sub_species,
+        Sample.pest_morphospecies,
+        Sample.pest_life_stage,
+        Sample.enemy_class,
+        Sample.enemy_order,
+        Sample.enemy_family,
+        Sample.enemy_species,
+        Sample.enemy_sub_species,
+        Sample.enemy_morphospecies,
+        Sample.enemy_lifestage,
+        ],
+    'production': [],
+}
+
+
+if len(RESPONSE_TYPES) != len(set(RESPONSE_TYPES).union(set(FIELDS_BY_RESPONSE_TYPE))):
+    raise ValueError(
+        'Response types and fields by response types do not have the same '
+        'fields in database_model_definitions.py, open that file and find out '
+        'what is going on.')

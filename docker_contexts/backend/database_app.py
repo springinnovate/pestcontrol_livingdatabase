@@ -9,9 +9,10 @@ from database_model_definitions import BASE_FIELDS
 from database_model_definitions import Study, Sample, Covariate, Point
 from database_model_definitions import STUDY_LEVEL_VARIABLES
 from database_model_definitions import FILTERABLE_FIELDS
-from database_model_definitions import FIELDS_BY_REPONSE_TYPE
+from database_model_definitions import FIELDS_BY_RESPONSE_TYPE
 from database_model_definitions import COORDINATE_PRECISION_FIELD
 from database_model_definitions import COORDINATE_PRECISION_FULL_PRECISION_VALUE
+from database_model_definitions import SAMPLE_DISPLAY_FIELDS
 from flask import Flask
 from flask import render_template
 from flask import request
@@ -121,7 +122,7 @@ def build_template():
                 study_level_var_list.append(
                     (study_level_key, precision_level))
             else:
-                response_type_variable_list = FIELDS_BY_REPONSE_TYPE[
+                response_type_variable_list = FIELDS_BY_RESPONSE_TYPE[
                     request.form[study_level_key]]
         else:
             study_level_var_list.append(
@@ -170,12 +171,7 @@ def to_dict(obj):
     Convert a SQLAlchemy model object into a dictionary.
     """
     if isinstance(obj, Row):
-        # Flatten the result by merging dictionaries
-        result = {}
-        for item in obj:
-            result.update(to_dict(item))
-        return result
-
+        return obj._mapping
     return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
 
 
@@ -334,7 +330,24 @@ def process_query():
             Sample, Sample.study_id == Study.id_key).join(
             Point, Sample.point_id == Point.id_key).filter(
             and_(*filters))
-        sample_query = session.query(Sample, Point).join(
+
+        # determine what response types are in this query
+        filtered_response_types = session.query(
+            distinct(Sample.response_type)).join(
+            Study, Sample.study_id == Study.id_key).join(
+            Point, Sample.point_id == Point.id_key).filter(
+            and_(*filters)
+        ).filter(Sample.response_type.isnot(None)).all()
+
+        fields_to_select = SAMPLE_DISPLAY_FIELDS.copy()
+        for response_type, fields in FIELDS_BY_RESPONSE_TYPE.items():
+            LOGGER.debug(f'testing if {response_type} is in {filtered_response_types}')
+            if response_type.lower() in [
+                    rt[0].lower() for rt in filtered_response_types]:
+                LOGGER.debug(f'because of {filtered_response_types} extending these field {fields}')
+                fields_to_select.extend(fields)
+
+        sample_query = session.query(*fields_to_select).join(
             Study, Sample.study_id == Study.id_key).join(
             Point, Sample.point_id == Point.id_key).filter(
             and_(*filters))
