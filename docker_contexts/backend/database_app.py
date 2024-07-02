@@ -1,7 +1,8 @@
 import configparser
-import re
 import datetime
+import itertools
 import logging
+import re
 import sys
 
 from database import SessionLocal
@@ -87,6 +88,18 @@ def home():
     continent_set = session.query(distinct(Point.continent)).all()
     continent_set = [value[0] for value in continent_set]
 
+    # get unique values for fields
+    unique_field_values = {}
+    for column, column_str in itertools.chain(
+            zip(inspect(Study).columns, study_columns),
+            zip(inspect(Sample).columns, sample_columns),
+            zip(inspect(Covariate).columns, covariate_columns)):
+        LOGGER.debug(f'working on {column_str}')
+        filtered_response_types = session.query(
+            distinct(column)).all()
+        unique_field_values[column_str] = [
+            v[0] for v in filtered_response_types]
+
     return render_template(
         'query_builder.html',
         status_message=f'Number of samples in db: {n_samples}',
@@ -96,6 +109,7 @@ def home():
         response_types=response_types,
         country_set=country_set,
         continent_set=continent_set,
+        unique_field_values=unique_field_values,
         )
 
 
@@ -372,6 +386,7 @@ def process_query():
             f'samples: {len(sample_query_result)} points: {len(points)}')
         LOGGER.debug(f'keys: {sample_query_result[0]}')
         LOGGER.debug(f'keys: {sample_query_result[1]}')
+
         session.close()
         return render_template(
             'query_result.html',

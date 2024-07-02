@@ -121,8 +121,8 @@ StudyDOIAssociation = Table(
 class Study(Base):
     __tablename__ = 'study'
     id_key: Mapped[int] = mapped_column(primary_key=True)
-    study_id: Mapped[str]
-    study_metadata: Mapped[Optional[str]]
+    study_id: Mapped[str] = mapped_column(index=True)
+    study_metadata: Mapped[Optional[str]] = mapped_column(index=True)
     paper_dois = relationship(
         "DOI", secondary=StudyDOIAssociation, back_populates="studies")
     samples: Mapped[List["Sample"]] = relationship(
@@ -132,7 +132,7 @@ class Study(Base):
 class DOI(Base):
     __tablename__ = 'doi'
     id_key: Mapped[int] = mapped_column(primary_key=True)
-    doi: Mapped[str]
+    doi: Mapped[str] = mapped_column(index=True)
     studies = relationship(
         "Study", secondary=StudyDOIAssociation, back_populates="paper_dois")
 
@@ -197,19 +197,19 @@ class Point(Base):
     id_key: Mapped[int] = mapped_column(primary_key=True)
     samples: Mapped[List["Sample"]] = relationship(
         back_populates='point')
-    latitude: Mapped[float]
-    longitude: Mapped[float]
-    country: Mapped[Optional[str]]
-    continent: Mapped[Optional[str]]
+    latitude: Mapped[float] = mapped_column(index=True)
+    longitude: Mapped[float] = mapped_column(index=True)
+    country: Mapped[Optional[str]] = mapped_column(index=True)
+    continent: Mapped[Optional[str]] = mapped_column(index=True)
 
 
 class Covariate(Base):
     __tablename__ = 'covariate'
     id_key: Mapped[int] = mapped_column(primary_key=True)
     sample_id: Mapped[int] = mapped_column(ForeignKey('sample.id_key'), index=True)
-    covariate_name: Mapped[Optional[str]]
-    covariate_value: Mapped[Optional[str]]
-    covariate_category: Mapped[Optional[str]]
+    covariate_name: Mapped[Optional[str]] = mapped_column(index=True)
+    covariate_value: Mapped[Optional[str]] = mapped_column(index=True)
+    covariate_category: Mapped[Optional[str]] = mapped_column(index=True)
     sample: Mapped["Sample"] = relationship(back_populates="covariates")
 
 
