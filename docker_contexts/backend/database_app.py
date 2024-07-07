@@ -8,20 +8,13 @@ import re
 import sys
 
 from database import SessionLocal
-from database_model_definitions import BASE_FIELDS
-from database_model_definitions import COORDINATE_PRECISION_FIELD
-from database_model_definitions import COORDINATE_PRECISION_FULL_PRECISION_VALUE
 from database_model_definitions import FIELDS_BY_RESPONSE_TYPE
-from database_model_definitions import FILTERABLE_FIELDS
 from database_model_definitions import SAMPLE_DISPLAY_FIELDS
 from database_model_definitions import Study, Sample, Covariate, Point
-from database_model_definitions import STUDY_LEVEL_VARIABLES
-from database_model_definitions import SEARCH_BY_UNIQUE_VAL, SEARCH_BY_VAL
+from database_model_definitions import SEARCH_BY_UNIQUE_VAL
 from flask import Flask
 from flask import render_template
 from flask import request
-from flask import Response
-from jinja2 import Template
 from sqlalchemy import distinct, func
 from sqlalchemy import inspect
 from sqlalchemy.engine import Row
@@ -80,6 +73,7 @@ def index():
     samples = session.query(Sample).all()
     return 'Number of samples: ' + str(len(samples))
 
+
 OPERATION_MAP = {
     '=': lambda field, value: field == value,
     '<': lambda field, value: field < value,
@@ -89,19 +83,6 @@ OPERATION_MAP = {
 
 @app.route('/api/home')
 def home():
-    inspector = inspect(Study)
-    study_columns = [
-        column.name for column in inspector.columns
-        if not column.primary_key]
-    inspector = inspect(Sample)
-    sample_columns = [
-        column.name for column in inspector.columns
-        if not column.primary_key]
-    inspector = inspect(Covariate)
-    covariate_columns = [
-        column.name for column in inspector.columns
-        if not column.primary_key]
-
     session = SessionLocal()
     n_samples = session.query(Sample).count()
 
@@ -126,80 +107,13 @@ def home():
         'query_builder.html',
         status_message=f'Number of samples in db: {n_samples}',
         possible_operations=list(OPERATION_MAP),
-        fields=UNIQUE_FIELD_VALUES.keys(),
+        unique_fields=UNIQUE_FIELD_VALUES.keys(),
         response_variables=response_variables,
         response_types=response_types,
         country_set=country_set,
         continent_set=continent_set,
         unique_field_values=UNIQUE_FIELD_VALUES,
         )
-
-
-@app.route('/api/template')
-def template():
-    return render_template(
-        'template_builder.html',
-        study_level_fields=STUDY_LEVEL_VARIABLES,
-        coordinate_precision_field=COORDINATE_PRECISION_FIELD,
-        coordinate_precision_full_precision_value=COORDINATE_PRECISION_FULL_PRECISION_VALUE)
-
-
-@app.route('/api/build_template', methods=['POST'])
-def build_template():
-    # Loop through the request.form dictionary
-    study_level_var_list = []
-    response_type_variable_list = None
-    precision_level = None
-    for study_level_key in STUDY_LEVEL_VARIABLES:
-        if isinstance(study_level_key, tuple):
-            study_level_key = study_level_key[0]
-            if study_level_key == COORDINATE_PRECISION_FIELD:
-                precision_level = request.form[study_level_key]
-                study_level_var_list.append(
-                    (study_level_key, precision_level))
-            else:
-                response_type_variable_list = FIELDS_BY_RESPONSE_TYPE[
-                    request.form[study_level_key]]
-        else:
-            study_level_var_list.append(
-                (study_level_key, request.form[study_level_key]))
-    covariates = []
-    # search for the covariates
-    for key in request.form:
-        if key.startswith('covariate_name_'):
-            # Extract the index
-            index = key.split('_')[-1]
-            category_key = f'covariate_category_{index}'
-            covariate_name = request.form[key]
-            covariate_category = request.form.get(category_key, '')
-            covariates.append((covariate_name, covariate_category))
-
-    datetime_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    user_ip = request.remote_addr
-    additional_fields = []
-    if precision_level != COORDINATE_PRECISION_FULL_PRECISION_VALUE:
-        additional_fields.append('SiteID')
-    variables = {
-        'header': f'{datetime_str},{user_ip}',
-        'study_level_variables': study_level_var_list,
-        'headers': (
-            additional_fields + BASE_FIELDS +
-            response_type_variable_list + [
-                f'Covariate_{name}' for name, _ in covariates]),
-    }
-
-    # Render the template with variables
-    with open('templates/living_database_study.jinja', 'r') as file:
-        template_content = file.read()
-    living_database_template = Template(template_content)
-    output = living_database_template.render(variables)
-
-    response = Response(output, mimetype='text/csv')
-    # Specify the name of the download file
-    filename = f"living_database_template_{datetime_str}.csv"
-    response.headers['Content-Disposition'] = (
-        f'attachment; filename={filename}')
-    return response
 
 
 def to_dict(obj):
@@ -412,18 +326,13 @@ def process_query():
 
         session.close()
         return render_template(
-            'query_result.html',
+            'results_view.html',
             studies=study_query_result,
             samples=sample_query_result,
             points=points)
     except Exception as e:
         LOGGER.exception(f'error with {e}')
         raise
-
-
-@app.route('/api/searchable_fields', methods=['GET'])
-def searchable_fields():
-    return FILTERABLE_FIELDS
 
 
 if __name__ == '__main__':
