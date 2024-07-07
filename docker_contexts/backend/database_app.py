@@ -16,7 +16,7 @@ from database_model_definitions import FILTERABLE_FIELDS
 from database_model_definitions import SAMPLE_DISPLAY_FIELDS
 from database_model_definitions import Study, Sample, Covariate, Point
 from database_model_definitions import STUDY_LEVEL_VARIABLES
-from database_model_definitions import SEARCH_BY_UNIQUE_VAL
+from database_model_definitions import SEARCH_BY_UNIQUE_VAL, SEARCH_BY_VAL
 from flask import Flask
 from flask import render_template
 from flask import request
@@ -122,7 +122,6 @@ def home():
     continent_set = session.query(distinct(Point.continent)).all()
     continent_set = [value[0] for value in continent_set]
 
-    LOGGER.debug(UNIQUE_FIELD_VALUES)
     return render_template(
         'query_builder.html',
         status_message=f'Number of samples in db: {n_samples}',
@@ -384,6 +383,7 @@ def process_query():
                 LOGGER.debug(f'because of {filtered_response_types} extending these field {fields}')
                 fields_to_select.extend(fields)
 
+        LOGGER.debug(f'about to query the samples, here are the filters: {filters}')
         sample_query = session.query(*fields_to_select).join(
             Study, Sample.study_id == Study.id_key).join(
             Point, Sample.point_id == Point.id_key).filter(

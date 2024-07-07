@@ -77,6 +77,7 @@
         <div class="querySection">
             <div class="section-title" onclick="toggleVisibility('columnQuery')">Query by column</div>
             <div class="collapsible-content" id="columnQuery">
+            <div id="queryRows">
                 <div class="queryRow">
                     <label for="fieldSelect">Choose a field:</label>
                     <select name="field" id="fieldSelect" onchange="updateValueOptions(this)">
@@ -95,8 +96,9 @@
                     </select>
                     <button type="button" onclick="removeRow(this)">Remove</button>
                 </div>
-                <button type="button" onclick="addRow()">Add Column</button>
             </div>
+            <button type="button" onclick="addRow()">Add Column</button>
+        </div>
         </div>
         <div class="querySection">
             <div class="section-title" onclick="toggleVisibility('spaceQuery')">Query by space</div>
@@ -200,18 +202,21 @@
 
 <script>
 function addRow() {
-    const queryBuilder = document.getElementById("queryBuilder");
-    const newRow = queryBuilder.firstElementChild.cloneNode(true);
-    newRow.querySelector("input[type=text]").value = "";
-    queryBuilder.appendChild(newRow);
+    const queryRows = document.getElementById("queryRows");
+    const newRow = queryRows.firstElementChild.cloneNode(true);
+    newRow.querySelectorAll('select').forEach(select => {
+        if (select.name === 'operation') {
+            select.value = '=';
+        } else {
+            select.value = '';
+        }
+    });
+    queryRows.appendChild(newRow);
 }
 
 function removeRow(button) {
-    if (document.getElementsByClassName("queryRow").length > 1) {
-        button.parentNode.remove();
-    } else {
-        alert("You must have at least one condition.");
-    }
+    const row = button.closest('.queryRow');
+    row.remove();
 }
 
 function toggleVisibility(id) {
