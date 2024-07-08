@@ -8,10 +8,7 @@ import re
 import sys
 
 from database import SessionLocal
-from database_model_definitions import FIELDS_BY_RESPONSE_TYPE
-from database_model_definitions import SAMPLE_DISPLAY_FIELDS
-from database_model_definitions import Study, Sample, Covariate, Point
-from database_model_definitions import SEARCH_BY_UNIQUE_VAL
+from database_model_definitions import Study, Sample, Point, Species
 from flask import Flask
 from flask import render_template
 from flask import request
@@ -333,6 +330,32 @@ def process_query():
     except Exception as e:
         LOGGER.exception(f'error with {e}')
         raise
+
+
+from flask import Flask, render_template, request, redirect, url_for
+from forms import SpeciesForm
+
+
+@app.route('/admin/species', methods=['GET', 'POST'])
+def admin_species():
+    session = SessionLocal()
+    form = SpeciesForm()
+    if form.validate_on_submit():
+        name = form.name.data
+        new_species = Species(name=name)
+        session.add(new_species)
+        session.commit()
+        return redirect(url_for('admin_species'))
+    species_list = Species.query.all()
+    return render_template('admin_species.html', form=form, species_list=species_list)
+
+@app.route('/admin/species/delete/<int:id_key>', methods=['POST'])
+def delete_species(id_key):
+    session = SessionLocal()
+    species = Species.query.get(id_key)
+    session.delete(species)
+    session.commit()
+    return redirect(url_for('admin_species'))
 
 
 if __name__ == '__main__':
