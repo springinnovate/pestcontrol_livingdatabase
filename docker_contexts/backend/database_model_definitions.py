@@ -106,16 +106,137 @@ FILTERABLE_FIELDS = [
 ]
 
 
-
 class Base(DeclarativeBase):
     pass
 
+geolocation_to_point_association = Table(
+    'geolocation_to_point_association', Base.metadata,
+    Column(
+        'point_id',
+        ForeignKey('point.id_key'),
+        primary_key=True),
+    Column(
+        'geolocation_id',
+        ForeignKey('geolocation_name.id_key'),
+        primary_key=True)
+)
 
-StudyDOIAssociation = Table(
+
+class GeolocationName(Base):
+    __tablename__ = 'geolocation_name'
+    id_key: Mapped[int] = mapped_column(primary_key=True)
+    geolocation_name: Mapped[Optional[str]] = mapped_column()
+    points: Mapped[list["Point"]] = relationship(
+        "Point",
+        secondary=geolocation_to_point_association,
+        back_populates="geolocations")
+
+
+class Point(Base):
+    __tablename__ = 'point'
+    __table_args__ = (
+        UniqueConstraint('latitude', 'longitude', name='uix_lat_long'),
+        Index('idx_lat_long', 'latitude', 'longitude')
+    )
+    id_key: Mapped[int] = mapped_column(primary_key=True)
+    geolocations: Mapped[Optional[List[GeolocationName]]] = relationship(
+        "GeolocationName",
+        secondary=geolocation_to_point_association,
+        back_populates="points")
+    latitude: Mapped[float] = mapped_column(index=True)
+    longitude: Mapped[float] = mapped_column(index=True)
+    samples: Mapped[List["Sample"]] = relationship(
+        "Sample", back_populates="point")
+
+
+class ResponseType(Base):
+    __tablename__ = 'response_type'
+    id_key: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str]
+    samples: Mapped[List["Sample"]] = relationship(
+        "Sample", back_populates="response_type")
+
+
+class FunctionalType(Base):
+    __tablename__ = 'functional_type'
+    id_key: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str]
+    samples: Mapped[List["Sample"]] = relationship(
+        "Sample", back_populates="functional_type")
+
+
+class Species(Base):
+    __tablename__ = 'species'
+    id_key: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str]
+    samples: Mapped[List["Sample"]] = relationship(
+        "Sample", back_populates="species")
+
+
+class CropName(Base):
+    __tablename__ = 'crop_name'
+    id_key: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str]
+    samples: Mapped[List["Sample"]] = relationship(
+        "Sample", back_populates="crop_name")
+
+
+class SamplingMethod(Base):
+    __tablename__ = 'sampling_method'
+    id_key: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str]
+    samples: Mapped[List["Sample"]] = relationship(
+        "Sample", back_populates="sampling_method")
+
+
+class CovariateName(Base):
+    __tablename__ = 'covariate_name'
+    id_key: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(unique=True, nullable=False)
+    covariate_values: Mapped[List["CovariateValue"]] = relationship(
+        "CovariateValue", back_populates="covariate_name")
+
+
+covariate_to_study_association = Table(
+    'covariate_to_study_association', Base.metadata,
+    Column(
+        'covariate_id',
+        ForeignKey('covariate_value.id_key'),
+        primary_key=True),
+    Column(
+        'study_id',
+        ForeignKey('study.id_key'),
+        primary_key=True)
+)
+
+
+class CovariateValue(Base):
+    __tablename__ = 'covariate_value'
+    id_key: Mapped[int] = mapped_column(primary_key=True)
+    covariate_id: Mapped[int] = mapped_column(
+        ForeignKey('covariate_name.id_key'), nullable=False)
+    value: Mapped[str] = mapped_column(nullable=False)
+    covariate_name: Mapped[CovariateName] = relationship(
+        "CovariateName", back_populates="covariate_values")
+    samples: Mapped[List["Sample"]] = relationship(
+        "Sample",
+        secondary=covariate_to_study_association,
+        back_populates="covariates")
+
+
+study_doi_association = Table(
     'study_doi_association', Base.metadata,
-    Column(STUDY_ID, Integer, ForeignKey('study.id_key'), primary_key=True),
+    Column('study_id', Integer, ForeignKey('study.id_key'), primary_key=True),
     Column('doi_id', Integer, ForeignKey('doi.id_key'), primary_key=True)
 )
+
+
+class DOI(Base):
+    __tablename__ = 'doi'
+    id_key: Mapped[int] = mapped_column(primary_key=True)
+    doi: Mapped[str] = mapped_column(index=True)
+    studies: Mapped[List["Study"]] = relationship(
+        "Study", secondary=study_doi_association, back_populates="paper_dois")
 
 
 class Study(Base):
@@ -123,202 +244,63 @@ class Study(Base):
     id_key: Mapped[int] = mapped_column(primary_key=True)
     study_id: Mapped[str] = mapped_column(index=True)
     study_metadata: Mapped[Optional[str]] = mapped_column(index=True)
-    paper_dois = relationship(
-        "DOI", secondary=StudyDOIAssociation, back_populates="studies")
+    paper_dois: Mapped[List[DOI]] = relationship(
+        "DOI", secondary=study_doi_association, back_populates="studies")
     samples: Mapped[List["Sample"]] = relationship(
         "Sample", back_populates="study")
 
 
-class DOI(Base):
-    __tablename__ = 'doi'
+class EarthObservationSource(Base):
+    __tablename__ = 'earth_observation_source'
     id_key: Mapped[int] = mapped_column(primary_key=True)
-    doi: Mapped[str] = mapped_column(index=True)
-    studies = relationship(
-        "Study", secondary=StudyDOIAssociation, back_populates="paper_dois")
+    metadata: Mapped[str] = mapped_column(index=True)
+    values: Mapped[List["EarthObservationValue"]] = relationship(
+        "EarthObservationValue", back_populates="earth_observation_source")
+
+
+class EarthObservationValue(Base):
+    __tablename__ = 'earth_observation_value'
+    id_key: Mapped[int] = mapped_column(primary_key=True)
+    value: Mapped[float] = mapped_column()
+    earth_observation_source: Mapped[EarthObservationSource] = relationship(
+        "EarthObservationSource", back_populates="values")
+    sample: Mapped["Sample"] = relationship(
+        "Sample", back_populates="earth_observation_values")
 
 
 class Sample(Base):
     __tablename__ = 'sample'
     id_key: Mapped[int] = mapped_column(primary_key=True)
-    study_id: Mapped[int] = mapped_column(ForeignKey('study.id_key'), index=True)
+
+    response_id: Mapped[int] = mapped_column(ForeignKey('response_type.id_key'), index=True)
+    response_type: Mapped[ResponseType] = relationship(ResponseType, back_populates="samples")
+
+    species_id: Mapped[int] = mapped_column(ForeignKey('species.id_key'), index=True)
+    species: Mapped[Species] = relationship(Species, back_populates="samples")
+
     point_id: Mapped[int] = mapped_column(ForeignKey('point.id_key'), index=True)
+    point: Mapped[Point] = relationship(Point, back_populates="samples")
+
+    functional_type_id: Mapped[int] = mapped_column(ForeignKey('functional_type.id_key'), index=True)
+    functional_type: Mapped[FunctionalType] = relationship(FunctionalType, back_populates="samples")
+
+    crop_name_id: Mapped[int] = mapped_column(ForeignKey('crop_name.id_key'), index=True)
+    crop_name: Mapped[CropName] = relationship(CropName, back_populates="samples")
+
+    sampling_method_id: Mapped[int] = mapped_column(ForeignKey('sampling_method.id_key'), index=True)
+    sampling_method: Mapped[SamplingMethod] = relationship(SamplingMethod, back_populates="samples")
+
+    study_id: Mapped[int] = mapped_column(ForeignKey('study.id_key'), index=True)
     study: Mapped[Study] = relationship("Study", back_populates="samples")
-    point: Mapped["Point"] = relationship("Point", back_populates="samples")
-    manager: Mapped[Optional[str]] = mapped_column(index=True)
-    year: Mapped[Optional[int]] = mapped_column(index=True)
-    month: Mapped[Optional[int]] = mapped_column(index=True)
-    day: Mapped[Optional[int]] = mapped_column(index=True)
-    time: Mapped[Optional[str]] = mapped_column(index=True)
-    replicate: Mapped[Optional[str]] = mapped_column(index=True)
-    sampling_effort: Mapped[Optional[str]] = mapped_column(index=True)
-    observation: Mapped[Optional[str]] = mapped_column(index=True)
-    observer_id: Mapped[Optional[str]] = mapped_column(index=True)
-    response_type: Mapped[Optional[str]] = mapped_column(index=True)
-    response_variable: Mapped[Optional[str]] = mapped_column(index=True)
-    units: Mapped[Optional[str]] = mapped_column(index=True)
-    sampling_method: Mapped[Optional[str]] = mapped_column(index=True)
-    sampler_type: Mapped[Optional[str]] = mapped_column(index=True)
-    functional_type: Mapped[Optional[str]] = mapped_column(index=True)
-    crop_commercial_name: Mapped[Optional[str]] = mapped_column(index=True)
-    crop_latin_name: Mapped[Optional[str]] = mapped_column(index=True)
-    abundance_class: Mapped[Optional[str]] = mapped_column(index=True)
-    order: Mapped[Optional[str]] = mapped_column(index=True)
-    family: Mapped[Optional[str]] = mapped_column(index=True)
-    genus: Mapped[Optional[str]] = mapped_column(index=True)
-    species: Mapped[Optional[str]] = mapped_column(index=True)
-    subspecies: Mapped[Optional[str]] = mapped_column(index=True)
-    morphospecies: Mapped[Optional[str]] = mapped_column(index=True)
-    life_stage: Mapped[Optional[str]] = mapped_column(index=True)
-    pest_class: Mapped[Optional[str]] = mapped_column(index=True)
-    pest_order: Mapped[Optional[str]] = mapped_column(index=True)
-    pest_family: Mapped[Optional[str]] = mapped_column(index=True)
-    pest_species: Mapped[Optional[str]] = mapped_column(index=True)
-    pest_sub_species: Mapped[Optional[str]] = mapped_column(index=True)
-    pest_morphospecies: Mapped[Optional[str]] = mapped_column(index=True)
-    pest_life_stage: Mapped[Optional[str]] = mapped_column(index=True)
-    enemy_class: Mapped[Optional[str]] = mapped_column(index=True)
-    enemy_order: Mapped[Optional[str]] = mapped_column(index=True)
-    enemy_family: Mapped[Optional[str]] = mapped_column(index=True)
-    enemy_species: Mapped[Optional[str]] = mapped_column(index=True)
-    enemy_sub_species: Mapped[Optional[str]] = mapped_column(index=True)
-    enemy_morphospecies: Mapped[Optional[str]] = mapped_column(index=True)
-    enemy_lifestage: Mapped[Optional[str]] = mapped_column(index=True)
-    growth_stage_of_crop_at_sampling: Mapped[Optional[str]] = mapped_column(index=True)
-    covariates: Mapped[List["Covariate"]] = relationship(
-        back_populates="sample")
 
+    sampling_effort: Mapped[int] = mapped_column(index=True)
 
-class Point(Base):
-    __tablename__ = 'point'
-    __table_args__ = (
-        UniqueConstraint('latitude', 'longitude', name='uix_lat_long'),
-        Index('idx_lat_long', 'latitude', 'longitude'),
-    )
-    id_key: Mapped[int] = mapped_column(primary_key=True)
-    samples: Mapped[List["Sample"]] = relationship(
-        back_populates='point')
-    latitude: Mapped[float] = mapped_column(index=True)
-    longitude: Mapped[float] = mapped_column(index=True)
-    country: Mapped[Optional[str]] = mapped_column(index=True)
-    continent: Mapped[Optional[str]] = mapped_column(index=True)
+    covariates: Mapped[List[CovariateValue]] = relationship(
+        "CovariateValue",
+        secondary=covariate_to_study_association,
+        back_populates="samples")
 
-
-class Covariate(Base):
-    __tablename__ = 'covariate'
-    id_key: Mapped[int] = mapped_column(primary_key=True)
-    sample_id: Mapped[int] = mapped_column(ForeignKey('sample.id_key'), index=True)
-    covariate_name: Mapped[Optional[str]] = mapped_column(index=True)
-    covariate_value: Mapped[Optional[str]] = mapped_column(index=True)
-    covariate_category: Mapped[Optional[str]] = mapped_column(index=True)
-    sample: Mapped["Sample"] = relationship(back_populates="covariates")
-
-# these will be dropdowns
-SEARCH_BY_UNIQUE_VAL = [
-    Sample.response_type,
-    Sample.response_variable,
-    Sample.sampling_method,
-    Sample.units,
-    Sample.functional_type,
-    Point.country,
-    Sample.year,
-    Study.study_id,
-    Sample.manager,
-    Sample.month,
-    Sample.day,
-    Sample.time,
-    Sample.replicate,
-    Sample.observer_id,
-    Sample.sampler_type,
-    Sample.crop_commercial_name,
-    Sample.growth_stage_of_crop_at_sampling,
-    Sample.crop_latin_name,
-    Sample.abundance_class,
-    Sample.order,
-    Sample.family,
-    Sample.genus,
-    Sample.species,
-    Sample.subspecies,
-    Sample.morphospecies,
-    Sample.life_stage,
-    Sample.pest_class,
-    Sample.pest_order,
-    Sample.pest_family,
-    Sample.pest_species,
-    Sample.pest_sub_species,
-    Sample.pest_morphospecies,
-    Sample.pest_life_stage,
-    Sample.enemy_class,
-    Sample.enemy_order,
-    Sample.enemy_family,
-    Sample.enemy_species,
-    Sample.enemy_sub_species,
-    Sample.enemy_morphospecies,
-    Sample.enemy_lifestage,
-]
-
-# these will be manually entered values
-SEARCH_BY_VAL = [
-    Sample.sampling_effort,
-]
-
-SAMPLE_DISPLAY_FIELDS = [
-    Sample.response_type,
-    Sample.response_variable,
-    Sample.sampling_method,
-    Sample.observation,
-    Sample.units,
-    Sample.functional_type,
-    Point.latitude,
-    Point.longitude,
-    Point.country,
-    Sample.year,
-    Study.study_id,
-    Sample.manager,
-    Sample.month,
-    Sample.day,
-    Sample.time,
-    Sample.replicate,
-    Sample.sampling_effort,
-    Sample.observer_id,
-    Sample.sampler_type,
-    Sample.crop_commercial_name,
-    Sample.growth_stage_of_crop_at_sampling,
-]
-
-FIELDS_BY_RESPONSE_TYPE = {
-    'abundance': [
-        Sample.crop_latin_name,
-        Sample.abundance_class,
-        Sample.order,
-        Sample.family,
-        Sample.genus,
-        Sample.species,
-        Sample.subspecies,
-        Sample.morphospecies,
-        Sample.life_stage,
-        ],
-    'activity': [
-        Sample.pest_class,
-        Sample.pest_order,
-        Sample.pest_family,
-        Sample.pest_species,
-        Sample.pest_sub_species,
-        Sample.pest_morphospecies,
-        Sample.pest_life_stage,
-        Sample.enemy_class,
-        Sample.enemy_order,
-        Sample.enemy_family,
-        Sample.enemy_species,
-        Sample.enemy_sub_species,
-        Sample.enemy_morphospecies,
-        Sample.enemy_lifestage,
-        ],
-    'production': [],
-}
-
-
-if len(RESPONSE_TYPES) != len(set(RESPONSE_TYPES).union(set(FIELDS_BY_RESPONSE_TYPE))):
-    raise ValueError(
-        'Response types and fields by response types do not have the same '
-        'fields in database_model_definitions.py, open that file and find out '
-        'what is going on.')
+    observation: Mapped[float] = mapped_column(index=True)
+    year: Mapped[int] = mapped_column(index=True)
+    earth_observation_values: Mapped[List[EarthObservationValue]] = \
+        relationship("EarthObservationValue", back_populates="sample")
