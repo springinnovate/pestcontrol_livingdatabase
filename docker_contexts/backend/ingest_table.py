@@ -1,4 +1,6 @@
 """Script to take in a CSV table and put it in the database."""
+from difflib import get_close_matches
+import os
 import argparse
 import geopandas
 import numpy
@@ -6,9 +8,11 @@ import logging
 import sys
 
 from database import SessionLocal, init_db
-from database_model_definitions import Study, DOI, Sample, Covariate, Point, COVARIATE_ID, DOI_ID, STUDY_ID, StudyDOIAssociation, LATITUDE, LONGITUDE
+from database_model_definitions import SAMPLE_USER_INPUT_FIELDS
+from database_model_definitions import STUDY_USER_INPUT_FIELDS
 from sqlalchemy import and_
-import pandas
+import pandas as pd
+
 
 TABLE_MAPPING_PATH = 'table_mapping.csv'
 
@@ -105,14 +109,77 @@ def fetch_or_add_point(
     return new_point
 
 
+def load_column_names(table_path):
+    df = pd.read_csv(table_path, nrows=0)
+    return df.columns.tolist()
+
+
+def rootbasename(path):
+    return os.path.splitext(os.path.basename(path))[0]
+
+
+def match_strings(base_list, to_match_list):
+    match_result = []
+    matched_so_far = set()
+    remaining_matches = set(to_match_list)
+    for base_str in base_list:
+        match = get_close_matches(
+            base_str, remaining_matches, n=1, cutoff=0.6)
+        if match:
+            match = match[0]
+            if match in matched_so_far:
+                continue
+            match_result.append((match, base_str))
+            remaining_matches.remove(match)
+        else:
+            match_result.append(('', base_str))
+    for remaining_str in remaining_matches:
+        match_result.append((remaining_str, ''))
+    return sorted(match_result, reverse=True)
+
+
 def main():
     init_db()
     session = SessionLocal()
     parser = argparse.ArgumentParser(description='parse table')
     parser.add_argument('metadata_table_path', help='Path to metadata table for studies in samples')
     parser.add_argument('sample_table_path', help='Path to table of samples on each row')
+    parser.add_argument('--column_matching_table_path', help='Path to column matching table.')
     parser.add_argument('--nrows', type=int, default=None, help='to limit the number of rows for testing')
+
     args = parser.parse_args()
+
+    column_matching_path = (
+        f'{rootbasename(args.metadata_table_path)}_'
+        f'{rootbasename(args.sample_table_path)}.csv')
+
+    # if no column matching table
+    if not os.path.exists(column_matching_path) or True:
+        study_columns = load_column_names(args.metadata_table_path)
+        matches = match_strings(study_columns, STUDY_USER_INPUT_FIELDS)
+        study_matching_df = pd.DataFrame(
+            matches, columns=['EXPECTED (do not change)', 'USER INPUT (match with EXPECTED)'])
+
+        sample_colums = load_column_names(args.sample_table_path)
+        matches = match_strings(sample_colums, SAMPLE_USER_INPUT_FIELDS)
+
+        sample_matching_df = pd.DataFrame(
+            matches, columns=['EXPECTED (do not change)', 'USER INPUT (match with EXPECTED)'])
+
+        with open(column_matching_path, 'w', newline='') as f:
+            f.write('STUDY TABLE\n')
+            study_matching_df.to_csv(f, index=False)
+            f.write('\n')  # Add a blank line between tables
+
+            # Write the second dataframe to the same CSV file
+            f.write('SAMPLE TABLE\n')
+            sample_matching_df.to_csv(f, index=False)
+
+    return
+    # load study table
+    # validate that columns in study table
+
+    # endif
 
     country_vector = geopandas.read_file(
         "../../base_data/countries_iso3_md5_6fb2431e911401992e6e56ddf0a9bcda.gpkg")
