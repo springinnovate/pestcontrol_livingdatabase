@@ -357,5 +357,17 @@ def delete_species(id_key):
     return redirect(url_for('admin_species'))
 
 
+@app.route('/admin/species/edit/<int:id_key>', methods=['GET', 'POST'])
+def edit_species(id_key):
+    session = SessionLocal()
+    species = session.query(Species).get(id_key)
+    form = SpeciesForm(obj=species)
+    if form.validate_on_submit():
+        species.name = form.name.data
+        session.commit()
+        return redirect(url_for('admin_species'))
+    return render_template('edit_species.html', form=form, species=species)
+
+
 if __name__ == '__main__':
     app.run(debug=True)
