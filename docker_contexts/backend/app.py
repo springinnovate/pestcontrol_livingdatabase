@@ -1,6 +1,4 @@
 import configparser
-import datetime
-import itertools
 import logging
 import os
 import pickle
@@ -13,7 +11,6 @@ from flask import Flask
 from flask import render_template
 from flask import request
 from sqlalchemy import distinct, func
-from sqlalchemy import inspect
 from sqlalchemy.engine import Row
 from sqlalchemy.sql import and_, or_
 
@@ -30,6 +27,7 @@ LOGGER = logging.getLogger(__name__)
 config = configparser.ConfigParser()
 
 app = Flask(__name__)
+app.config['SECRET_KEY'] = 'your_secret_key'
 
 
 UNIQUE_FIELD_VALUES_PKL = 'unique_field_values.pkl'
@@ -332,8 +330,8 @@ def process_query():
         raise
 
 
-from flask import Flask, render_template, request, redirect, url_for
 from forms import SpeciesForm
+from flask import redirect, url_for
 
 
 @app.route('/admin/species', methods=['GET', 'POST'])
@@ -346,13 +344,14 @@ def admin_species():
         session.add(new_species)
         session.commit()
         return redirect(url_for('admin_species'))
-    species_list = Species.query.all()
+    species_list = session.query(Species).all()
     return render_template('admin_species.html', form=form, species_list=species_list)
+
 
 @app.route('/admin/species/delete/<int:id_key>', methods=['POST'])
 def delete_species(id_key):
     session = SessionLocal()
-    species = Species.query.get(id_key)
+    species = session.query(Species).get(id_key)
     session.delete(species)
     session.commit()
     return redirect(url_for('admin_species'))

@@ -109,6 +109,7 @@ FILTERABLE_FIELDS = [
 class Base(DeclarativeBase):
     pass
 
+
 geolocation_to_point_association = Table(
     'geolocation_to_point_association', Base.metadata,
     Column(
@@ -205,7 +206,7 @@ covariate_to_study_association = Table(
         primary_key=True),
     Column(
         'study_id',
-        ForeignKey('study.id_key'),
+        ForeignKey('sample.id_key'),
         primary_key=True)
 )
 
@@ -262,8 +263,14 @@ class EarthObservationValue(Base):
     __tablename__ = 'earth_observation_value'
     id_key: Mapped[int] = mapped_column(primary_key=True)
     value: Mapped[float] = mapped_column()
+
+    earth_observation_source_id: Mapped[int] = mapped_column(
+        ForeignKey('earth_observation_source.id_key'), index=True)
     earth_observation_source: Mapped[EarthObservationSource] = relationship(
         "EarthObservationSource", back_populates="values")
+
+    sample_id: Mapped[int] = mapped_column(
+        ForeignKey('sample.id_key'), index=True)
     sample: Mapped["Sample"] = relationship(
         "Sample", back_populates="earth_observation_values")
 
