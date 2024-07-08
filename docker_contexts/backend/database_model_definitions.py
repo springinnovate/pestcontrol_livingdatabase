@@ -125,7 +125,7 @@ geolocation_to_point_association = Table(
 class GeolocationName(Base):
     __tablename__ = 'geolocation_name'
     id_key: Mapped[int] = mapped_column(primary_key=True)
-    geolocation_name: Mapped[Optional[str]] = mapped_column()
+    geolocation_name: Mapped[str] = mapped_column(unique=True, index=True)
     points: Mapped[list["Point"]] = relationship(
         "Point",
         secondary=geolocation_to_point_association,
@@ -152,7 +152,7 @@ class Point(Base):
 class ResponseType(Base):
     __tablename__ = 'response_type'
     id_key: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str]
+    name: Mapped[str] = mapped_column(unique=True, index=True)
     samples: Mapped[List["Sample"]] = relationship(
         "Sample", back_populates="response_type")
 
@@ -160,7 +160,7 @@ class ResponseType(Base):
 class FunctionalType(Base):
     __tablename__ = 'functional_type'
     id_key: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str]
+    name: Mapped[str] = mapped_column(unique=True, index=True)
     samples: Mapped[List["Sample"]] = relationship(
         "Sample", back_populates="functional_type")
 
@@ -168,7 +168,7 @@ class FunctionalType(Base):
 class Species(Base):
     __tablename__ = 'species'
     id_key: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str]
+    name: Mapped[str] = mapped_column(unique=True, index=True)
     samples: Mapped[List["Sample"]] = relationship(
         "Sample", back_populates="species")
 
@@ -176,7 +176,7 @@ class Species(Base):
 class CropName(Base):
     __tablename__ = 'crop_name'
     id_key: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str]
+    name: Mapped[str] = mapped_column(unique=True, index=True)
     samples: Mapped[List["Sample"]] = relationship(
         "Sample", back_populates="crop_name")
 
@@ -184,7 +184,7 @@ class CropName(Base):
 class SamplingMethod(Base):
     __tablename__ = 'sampling_method'
     id_key: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str]
+    name: Mapped[str] = mapped_column(unique=True, index=True)
     samples: Mapped[List["Sample"]] = relationship(
         "Sample", back_populates="sampling_method")
 
@@ -192,7 +192,7 @@ class SamplingMethod(Base):
 class CovariateName(Base):
     __tablename__ = 'covariate_name'
     id_key: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(unique=True)
     covariate_values: Mapped[List["CovariateValue"]] = relationship(
         "CovariateValue", back_populates="covariate_name")
 
@@ -214,8 +214,8 @@ class CovariateValue(Base):
     __tablename__ = 'covariate_value'
     id_key: Mapped[int] = mapped_column(primary_key=True)
     covariate_id: Mapped[int] = mapped_column(
-        ForeignKey('covariate_name.id_key'), nullable=False)
-    value: Mapped[str] = mapped_column(nullable=False)
+        ForeignKey('covariate_name.id_key'))
+    value: Mapped[str] = mapped_column(unique=True, index=True)
     covariate_name: Mapped[CovariateName] = relationship(
         "CovariateName", back_populates="covariate_values")
     samples: Mapped[List["Sample"]] = relationship(
@@ -234,7 +234,7 @@ study_doi_association = Table(
 class DOI(Base):
     __tablename__ = 'doi'
     id_key: Mapped[int] = mapped_column(primary_key=True)
-    doi: Mapped[str] = mapped_column(index=True)
+    doi: Mapped[str] = mapped_column(unique=True, index=True)
     studies: Mapped[List["Study"]] = relationship(
         "Study", secondary=study_doi_association, back_populates="paper_dois")
 
@@ -242,7 +242,7 @@ class DOI(Base):
 class Study(Base):
     __tablename__ = 'study'
     id_key: Mapped[int] = mapped_column(primary_key=True)
-    study_id: Mapped[str] = mapped_column(index=True)
+    study_id: Mapped[str] = mapped_column(unique=True, index=True)
     study_metadata: Mapped[Optional[str]] = mapped_column(index=True)
     paper_dois: Mapped[List[DOI]] = relationship(
         "DOI", secondary=study_doi_association, back_populates="studies")
@@ -253,7 +253,7 @@ class Study(Base):
 class EarthObservationSource(Base):
     __tablename__ = 'earth_observation_source'
     id_key: Mapped[int] = mapped_column(primary_key=True)
-    metadata: Mapped[str] = mapped_column(index=True)
+    source_metadata: Mapped[str] = mapped_column(unique=True, index=True)
     values: Mapped[List["EarthObservationValue"]] = relationship(
         "EarthObservationValue", back_populates="earth_observation_source")
 
