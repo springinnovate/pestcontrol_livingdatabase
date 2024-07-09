@@ -329,7 +329,8 @@ STUDY_USER_INPUT_FIELDS = [
 SAMPLE_USER_INPUT_FIELDS = [
     'response_type',
     'species',
-    'point',
+    'latitude',
+    'longitude',
     'functional_type',
     'crop_name',
     'sampling_method',

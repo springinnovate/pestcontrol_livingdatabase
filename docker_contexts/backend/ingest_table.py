@@ -139,6 +139,25 @@ def match_strings(base_list, to_match_list):
     return sorted(match_result, reverse=True)
 
 
+def extract_column_matching(matching_df, column_matching_path):
+    missing_fields = []
+    base_to_target_map = {}
+    for row in matching_df.iterrows():
+        expected_field, user_field = row[1]
+        if expected_field in [None, numpy.nan]:
+            continue
+
+        if not isinstance(user_field, str):
+            missing_fields.append(expected_field)
+        base_to_target_map[expected_field] = user_field
+    if missing_fields:
+        raise ValueError(
+            'was expecting the following fields in study table but they were '
+            f'undefined: {missing_fields}. Fix by modifying '
+            f'`{column_matching_path}` so these fields are defined.')
+    return base_to_target_map
+
+
 def main():
     init_db()
     session = SessionLocal()
@@ -180,24 +199,21 @@ def main():
         with open(column_matching_path, 'r') as f:
             lines = f.readlines()
 
-
-        sample_table_start_index = lines.index('SAMPLE TABLE\n')
+        sample_table_start_index = next(
+            (i for i, s in enumerate(lines)
+             if s.startswith('SAMPLE TABLE')), -1)
 
         study_matching_df = pd.read_csv(io.StringIO(''.join(lines[1:sample_table_start_index])))
         sample_matching_df = pd.read_csv(io.StringIO(''.join(lines[sample_table_start_index+1:])))
 
     missing_fields = []
-    for row in study_matching_df.iterrows():
-        expected_field, user_field = row[1]
-        if expected_field in [None, numpy.nan]:
-            continue
+    study_base_to_user_fields = extract_column_matching(
+        study_matching_df, column_matching_path)
+    sample_base_to_user_fields = extract_column_matching(
+        sample_matching_df, column_matching_path)
+    print(study_base_to_user_fields)
+    print(sample_base_to_user_fields)
 
-        if not isinstance(user_field, str):
-            missing_fields.append(expected_field)
-        print(expected_field, user_field)
-    if missing_fields:
-        raise ValueError(
-            f'was expecting the following fields in study table but they were undefined: {missing_fields}')
     return
     # load study table
     # validate that columns in study table
