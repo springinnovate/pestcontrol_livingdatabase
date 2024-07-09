@@ -1,5 +1,6 @@
 """Script to take in a CSV table and put it in the database."""
 from difflib import get_close_matches
+import io
 import os
 import argparse
 import geopandas
@@ -154,7 +155,7 @@ def main():
         f'{rootbasename(args.sample_table_path)}.csv')
 
     # if no column matching table
-    if not os.path.exists(column_matching_path) or True:
+    if not os.path.exists(column_matching_path):
         study_columns = load_column_names(args.metadata_table_path)
         matches = match_strings(study_columns, STUDY_USER_INPUT_FIELDS)
         study_matching_df = pd.DataFrame(
@@ -174,7 +175,29 @@ def main():
             # Write the second dataframe to the same CSV file
             f.write('SAMPLE TABLE\n')
             sample_matching_df.to_csv(f, index=False)
+        return
+    else:
+        with open(column_matching_path, 'r') as f:
+            lines = f.readlines()
 
+
+        sample_table_start_index = lines.index('SAMPLE TABLE\n')
+
+        study_matching_df = pd.read_csv(io.StringIO(''.join(lines[1:sample_table_start_index])))
+        sample_matching_df = pd.read_csv(io.StringIO(''.join(lines[sample_table_start_index+1:])))
+
+    missing_fields = []
+    for row in study_matching_df.iterrows():
+        expected_field, user_field = row[1]
+        if expected_field in [None, numpy.nan]:
+            continue
+
+        if not isinstance(user_field, str):
+            missing_fields.append(expected_field)
+        print(expected_field, user_field)
+    if missing_fields:
+        raise ValueError(
+            f'was expecting the following fields in study table but they were undefined: {missing_fields}')
     return
     # load study table
     # validate that columns in study table
