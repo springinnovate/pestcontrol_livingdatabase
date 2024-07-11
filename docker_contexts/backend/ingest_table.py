@@ -28,6 +28,29 @@ logging.getLogger('taskgraph').setLevel(logging.INFO)
 LOGGER = logging.getLogger(__name__)
 
 
+def validate_tables(metadata_table_df, sample_table_df):
+    error_str = ''
+    # should have same study ids
+    study_ids_metadata = set(metadata_table_df['study_id'].unique())
+    study_ids_sample = set(sample_table_df['study_id'].unique())
+
+    missing_in_sample = study_ids_metadata-study_ids_sample
+    if missing_in_sample:
+        error_str += (
+            f'these study ids are in metadata but not in sample: '
+            f'{missing_in_sample}')
+
+    missing_in_metadata = study_ids_sample-study_ids_metadata
+    if missing_in_metadata:
+        error_str += (
+            f'these study ids are in study but not in metadata: '
+            f'{missing_in_metadata}')
+
+    if error_str:
+        raise ValueError(error_str)
+    return True
+
+
 def fetch_or_create_study(session, study_id, doi, metadata):
     study = session.query(Study).join(StudyDOIAssociation).join(DOI).filter(
         and_(
@@ -143,13 +166,13 @@ def extract_column_matching(matching_df, column_matching_path):
     missing_fields = []
     base_to_target_map = {}
     for row in matching_df.iterrows():
-        expected_field, user_field = row[1]
+        expected_field, base_field = row[1]
         if expected_field in [None, numpy.nan]:
             continue
 
-        if not isinstance(user_field, str):
+        if not isinstance(base_field, str):
             missing_fields.append(expected_field)
-        base_to_target_map[expected_field] = user_field
+        base_to_target_map[base_field] = expected_field
     if missing_fields:
         raise ValueError(
             'was expecting the following fields in study table but they were '
@@ -195,24 +218,41 @@ def main():
             f.write('SAMPLE TABLE\n')
             sample_matching_df.to_csv(f, index=False)
         return
-    else:
-        with open(column_matching_path, 'r') as f:
-            lines = f.readlines()
 
-        sample_table_start_index = next(
-            (i for i, s in enumerate(lines)
-             if s.startswith('SAMPLE TABLE')), -1)
 
-        study_matching_df = pd.read_csv(io.StringIO(''.join(lines[1:sample_table_start_index])))
-        sample_matching_df = pd.read_csv(io.StringIO(''.join(lines[sample_table_start_index+1:])))
+    with open(column_matching_path, 'r') as f:
+        lines = f.readlines()
 
-    missing_fields = []
+    sample_table_start_index = next(
+        (i for i, s in enumerate(lines)
+         if s.startswith('SAMPLE TABLE')), -1)
+
+    study_matching_df = pd.read_csv(io.StringIO(''.join(lines[1:sample_table_start_index])))
+    sample_matching_df = pd.read_csv(io.StringIO(''.join(lines[sample_table_start_index+1:])))
+
     study_base_to_user_fields = extract_column_matching(
         study_matching_df, column_matching_path)
+    print(study_base_to_user_fields)
+
+    # read metadata table and rename the columns to expected names, drop
+    # NAs
+    metadata_table_df = pd.read_csv(args.metadata_table_path, low_memory=False)
+    metadata_table_df.rename(columns=study_base_to_user_fields, inplace=True)
+    metadata_table_df = metadata_table_df[study_base_to_user_fields.values()].dropna()
+    print(metadata_table_df)
+
     sample_base_to_user_fields = extract_column_matching(
         sample_matching_df, column_matching_path)
-    print(study_base_to_user_fields)
     print(sample_base_to_user_fields)
+    sample_table_df = pd.read_csv(args.sample_table_path, low_memory=False, nrows=1000)
+    sample_table_df.rename(columns=sample_base_to_user_fields, inplace=True)
+    sample_table_df = sample_table_df[sample_base_to_user_fields.values()].dropna()
+    print(sample_table_df)
+
+    # todo process the table:
+    # * verify that the study ids in the study table are exclusively in the sample table
+    #   error if not
+    validate_tables(metadata_table_df, sample_table_df)
 
     return
     # load study table

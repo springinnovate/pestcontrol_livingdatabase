@@ -6,7 +6,7 @@ import re
 import sys
 
 from database import SessionLocal
-from database_model_definitions import Study, Sample, Point, Species
+from database_model_definitions import Study, Sample, Point
 from flask import Flask
 from flask import render_template
 from flask import request
