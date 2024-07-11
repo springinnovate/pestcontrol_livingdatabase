@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Species</title>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
+</head>
+<body>
+    <div class="container mt-5">
+        <h1>Admin - Covariates</h1>
+        <form method="POST" action="{{ url_for('admin_covariate') }}">
+            {{ form.hidden_tag() }}
+            <div class="form-group">
+                {{ form.name.label(class="form-control-label") }}
+                {{ form.name(class="form-control") }}
+            </div>
+            {{ form.submit(class="btn btn-primary") }}
+        </form>
+
+        <h2 class="mt-5">Species List</h2>
+        <table class="table table-bordered">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for covariate in covariate_list %}
+                <tr>
+                    <td>{{ covariate.name }}</td>
+                    <td>
+                        <form method="POST" action="{{ url_for('delete_covariate', id_key=covariate.id_key) }}" style="display:inline-block;">
+                            <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                        </form>
+                        <a href="{{ url_for('edit_covariate', id_key=covariate.id_key) }}" class="btn btn-warning btn-sm">Edit</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>

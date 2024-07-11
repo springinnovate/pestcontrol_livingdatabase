@@ -6,7 +6,7 @@ import re
 import sys
 
 from database import SessionLocal
-from database_model_definitions import Study, Sample, Point
+from database_model_definitions import Study, Sample, Point, CovariateDefn
 from flask import Flask
 from flask import render_template
 from flask import request
@@ -36,7 +36,7 @@ UNIQUE_FIELD_VALUES_PKL = 'unique_field_values.pkl'
 def init_unique_fieldnames():
     global UNIQUE_FIELD_VALUES
     UNIQUE_FIELD_VALUES = {}
-
+    return
     if os.path.exists(UNIQUE_FIELD_VALUES_PKL):
         # Load data from the pickle file
         with open(UNIQUE_FIELD_VALUES_PKL, 'rb') as f:
@@ -330,43 +330,44 @@ def process_query():
         raise
 
 
-from forms import SpeciesForm
+from forms import CovariateDefnForm
 from flask import redirect, url_for
 
 
-@app.route('/admin/species', methods=['GET', 'POST'])
-def admin_species():
+@app.route('/admin/covariate', methods=['GET', 'POST'])
+def admin_covariate():
     session = SessionLocal()
-    form = SpeciesForm()
+    form = CovariateDefnForm()
     if form.validate_on_submit():
         name = form.name.data
-        new_species = Species(name=name)
-        session.add(new_species)
+        new_covariate = CovariateDefn(name=name)
+        session.add(new_covariate)
         session.commit()
-        return redirect(url_for('admin_species'))
-    species_list = session.query(Species).all()
-    return render_template('admin_species.html', form=form, species_list=species_list)
+        return redirect(url_for('edit_covariate'))
+    covariate_list = session.query(CovariateDefn).all()
+    return render_template('admin_covariate.html', form=form, covariate_list=covariate_list)
 
 
-@app.route('/admin/species/delete/<int:id_key>', methods=['POST'])
-def delete_species(id_key):
+@app.route('/admin/covariate/delete/<int:id_key>', methods=['POST'])
+def delete_covariate(id_key):
     session = SessionLocal()
-    species = session.query(Species).get(id_key)
-    session.delete(species)
+    covariate = session.query(CovariateDefn).get(id_key)
+    session.delete(covariate)
     session.commit()
-    return redirect(url_for('admin_species'))
+    return redirect(url_for('admin_covariate'))
 
 
-@app.route('/admin/species/edit/<int:id_key>', methods=['GET', 'POST'])
-def edit_species(id_key):
+@app.route('/admin/covariate/edit/<int:id_key>', methods=['GET', 'POST'])
+def edit_covariate(id_key):
     session = SessionLocal()
-    species = session.query(Species).get(id_key)
-    form = SpeciesForm(obj=species)
+    covariate_defn = session.query(CovariateDefn).get(id_key)
+    form = CovariateDefnForm(obj=covariate_defn)
     if form.validate_on_submit():
-        species.name = form.name.data
+        covariate_defn.name = form.name.data
         session.commit()
-        return redirect(url_for('admin_species'))
-    return render_template('edit_species.html', form=form, species=species)
+        return redirect(url_for('admin_covariate'))
+    return render_template(
+        'edit_covariate.html', form=form, covariate_defn=covariate_defn)
 
 
 if __name__ == '__main__':

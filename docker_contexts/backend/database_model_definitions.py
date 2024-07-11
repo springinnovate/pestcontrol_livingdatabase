@@ -142,14 +142,14 @@ class Point(Base):
         Index('idx_lat_long', 'latitude', 'longitude')
     )
     id_key: Mapped[int] = mapped_column(primary_key=True)
-    geolocations: Mapped[Optional[List[GeolocationName]]] = relationship(
-        "GeolocationName",
-        secondary=geolocation_to_point_association,
-        back_populates="points")
     latitude: Mapped[float] = mapped_column(index=True)
     longitude: Mapped[float] = mapped_column(index=True)
     samples: Mapped[List["Sample"]] = relationship(
         "Sample", back_populates="point")
+    geolocations: Mapped[Optional[List[GeolocationName]]] = relationship(
+        "GeolocationName",
+        secondary=geolocation_to_point_association,
+        back_populates="points")
 
 
 class CovariateType(enum.Enum):
@@ -169,7 +169,8 @@ class CovariateDefn(Base):
     id_key: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(unique=True, index=True)
     display_order: Mapped[float] = mapped_column(default=0)
-    description: Mapped[Optional[str]] = mapped_column(String, default='no description provided')
+    description: Mapped[Optional[str]] = mapped_column(
+        String, default='no description provided')
     required: Mapped[RequiredState] = mapped_column(
         Enum(RequiredState), nullable=False, index=True)
     condition: Mapped[dict] = mapped_column(JSON, default=None)
@@ -179,8 +180,8 @@ class CovariateDefn(Base):
         "CovariateValue", back_populates="covariate_defn")
 
 
-covariate_to_study_association = Table(
-    'covariate_to_study_association', Base.metadata,
+covariate_to_sample_association = Table(
+    'covariate_to_sample_association', Base.metadata,
     Column(
         'covariate_id',
         ForeignKey('covariate_value.id_key'),
@@ -202,7 +203,7 @@ class CovariateValue(Base):
         "CovariateDefn", back_populates="covariate_values")
     samples: Mapped[List["Sample"]] = relationship(
         "Sample",
-        secondary=covariate_to_study_association,
+        secondary=covariate_to_sample_association,
         back_populates="covariates")
 
 
@@ -245,7 +246,7 @@ class Sample(Base):
 
     covariates: Mapped[Optional[List[CovariateValue]]] = relationship(
         "CovariateValue",
-        secondary=covariate_to_study_association,
+        secondary=covariate_to_sample_association,
         back_populates="samples")
 
 

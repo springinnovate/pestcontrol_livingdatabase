@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Edit Species</title>
+    <title>Edit covariate</title>
     <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
 </head>
 <body>
     <div class="container mt-5">
-        <h1>Edit Species</h1>
-        <form method="POST" action="{{ url_for('edit_species', id_key=species.id_key) }}">
+        <h1>Edit covariate</h1>
+        <form method="POST" action="{{ url_for('edit_covariate', id_key=covariate.id_key) }}">
             {{ form.hidden_tag() }}
             <div class="form-group">
                 {{ form.name.label(class="form-control-label") }}
@@ -17,7 +17,7 @@
             </div>
             {{ form.submit(class="btn btn-primary") }}
         </form>
-        <a href="{{ url_for('admin_species') }}" class="btn btn-secondary mt-3">Back to Admin</a>
+        <a href="{{ url_for('admin_covariate') }}" class="btn btn-secondary mt-3">Back to Admin</a>
     </div>
 </body>
 </html>
