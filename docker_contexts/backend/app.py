@@ -347,7 +347,9 @@ def admin_covariate():
 @app.route('/get_covariates', methods=['GET'])
 def get_covariates():
     session = SessionLocal()
-    covariate_list = session.query(CovariateDefn).order_by(CovariateDefn.display_order, CovariateDefn.name).all()
+    covariate_list = session.query(CovariateDefn).order_by(
+        CovariateDefn.display_order,
+        func.lower(CovariateDefn.name)).all()
     covariates = [{
         'id_key': c.id_key,
         'name': c.name,
