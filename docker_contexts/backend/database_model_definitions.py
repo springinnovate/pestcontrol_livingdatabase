@@ -230,6 +230,45 @@ class CovariateValue(Base):
         back_populates="covariates")
 
 
+doi_to_sample_association = Table(
+    'doi_to_sample_association', Base.metadata,
+    Column(
+        'doi_id',
+        ForeignKey('doi.id_key'),
+        primary_key=True),
+    Column(
+        'sample_id',
+        ForeignKey('sample.id_key'),
+        primary_key=True)
+)
+
+doi_to_study_association = Table(
+    'doi_to_study_association', Base.metadata,
+    Column(
+        'doi_id',
+        ForeignKey('doi.id_key'),
+        primary_key=True),
+    Column(
+        'study_id',
+        ForeignKey('study.id_key'),
+        primary_key=True)
+)
+
+
+class DOI(Base):
+    __tablename__ = 'doi'
+    id_key: Mapped[int] = mapped_column(primary_key=True)
+    value: Mapped[str] = mapped_column(unique=True, index=True)
+    samples: Mapped[List["Sample"]] = relationship(
+        "Sample",
+        secondary=doi_to_sample_association,
+        back_populates="doi")
+    studies: Mapped[List["Study"]] = relationship(
+        "Study",
+        secondary=doi_to_study_association,
+        back_populates="doi")
+
+
 class Study(Base):
     __tablename__ = 'study'
     id_key: Mapped[int] = mapped_column(primary_key=True)
@@ -239,6 +278,10 @@ class Study(Base):
         back_populates="studies")
     samples: Mapped[List["Sample"]] = relationship(
         "Sample", back_populates="study")
+    doi: Mapped[List["DOI"]] = relationship(
+        "DOI",
+        secondary=doi_to_study_association,
+        back_populates="studies")
 
 
 class Sample(Base):
@@ -262,8 +305,19 @@ class Sample(Base):
         secondary=covariate_to_sample_association,
         back_populates="samples")
 
-SAMPLE_USER_INPUT_FIELDS = [
+    doi: Mapped[List["DOI"]] = relationship(
+        "DOI",
+        secondary=doi_to_sample_association,
+        back_populates="samples")
+
+
+REQUIRED_SAMPLE_INPUT_FIELDS = [
     'latitude',
     'longitude',
     'observation',
+    'doi',
     ]
+
+REQUIRED_STUDY_FIELDS = [
+    'doi',
+]

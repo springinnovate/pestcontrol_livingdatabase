@@ -9,9 +9,9 @@ import logging
 import sys
 
 from database import SessionLocal, init_db
-from database_model_definitions import SAMPLE_USER_INPUT_FIELDS
-from database_model_definitions import STUDY_USER_INPUT_FIELDS
-from sqlalchemy import and_
+from database_model_definitions import CovariateDefn, RequiredState, CovariateAssociation
+from database_model_definitions import REQUIRED_SAMPLE_INPUT_FIELDS, REQUIRED_STUDY_FIELDS
+from sqlalchemy import or_, and_, func
 import pandas as pd
 
 
@@ -181,19 +181,51 @@ def extract_column_matching(matching_df, column_matching_path):
     return base_to_target_map
 
 
-def create_matching_table(args, column_matching_path):
+def create_matching_table(session, args, column_matching_path):
+    study_covariate_list = session.query(CovariateDefn).filter(
+        CovariateDefn.required == RequiredState.REQUIRED,
+        CovariateDefn.covariate_association == CovariateAssociation.STUDY).order_by(
+        CovariateDefn.display_order,
+        func.lower(CovariateDefn.name)).all()
 
-    # TODO: this is where I left off, we're going to now use CovariateDefn to determine which fields should be defined
+    optional_study_covariate_list = session.query(CovariateDefn).filter(
+        or_(CovariateDefn.required == RequiredState.OPTIONAL,
+            CovariateDefn.required == RequiredState.CONDITIONAL),
+        CovariateDefn.covariate_association == CovariateAssociation.STUDY).order_by(
+        CovariateDefn.display_order,
+        func.lower(CovariateDefn.name)).all()
+
     study_columns = load_column_names(args.metadata_table_path)
-    matches = match_strings(study_columns, STUDY_USER_INPUT_FIELDS)
+    matches = match_strings(
+        study_columns,
+        REQUIRED_STUDY_FIELDS +
+        [c.name for c in study_covariate_list] +
+        [f'*{c.name}' for c in optional_study_covariate_list])
     study_matching_df = pd.DataFrame(
-        matches, columns=['EXPECTED (do not change)', 'USER INPUT (match with EXPECTED)'])
+        matches, columns=['EXPECTED (do not change), "*" means optional field', 'USER INPUT (match with EXPECTED)'])
 
-    sample_colums = load_column_names(args.sample_table_path)
-    matches = match_strings(sample_colums, SAMPLE_USER_INPUT_FIELDS)
+    sample_covariate_list = session.query(CovariateDefn).filter(
+        CovariateDefn.required == RequiredState.REQUIRED,
+        CovariateDefn.covariate_association == CovariateAssociation.SAMPLE).order_by(
+        CovariateDefn.display_order,
+        func.lower(CovariateDefn.name)).all()
+
+    optional_sample_covariate_list = session.query(CovariateDefn).filter(
+        or_(CovariateDefn.required == RequiredState.OPTIONAL,
+            CovariateDefn.required == RequiredState.CONDITIONAL),
+        CovariateDefn.covariate_association == CovariateAssociation.SAMPLE).order_by(
+        CovariateDefn.display_order,
+        func.lower(CovariateDefn.name)).all()
+
+    sample_columns = load_column_names(args.metadata_table_path)
+    matches = match_strings(
+        sample_columns,
+        REQUIRED_SAMPLE_INPUT_FIELDS +
+        [c.name for c in sample_covariate_list] +
+        [f'*{c.name}' for c in optional_sample_covariate_list])
 
     sample_matching_df = pd.DataFrame(
-        matches, columns=['EXPECTED (do not change)', 'USER INPUT (match with EXPECTED)'])
+        matches, columns=['EXPECTED (do not change), "*" means optional field', 'USER INPUT (match with EXPECTED)'])
 
     with open(column_matching_path, 'w', newline='') as f:
         f.write('STUDY TABLE\n')
@@ -222,7 +254,7 @@ def main():
 
     # if no column matching table
     if not os.path.exists(column_matching_path):
-        create_matching_table()
+        create_matching_table(session, args, column_matching_path)
         return
 
     with open(column_matching_path, 'r') as f:
