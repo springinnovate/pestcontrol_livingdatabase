@@ -364,14 +364,14 @@ def get_covariates():
 def update_covariate():
     session = SessionLocal()
     data = request.json
-    print(data)
-    covariate = session.query(CovariateDefn).get(data['id_key'])
-    covariate.name = data['name']
-    covariate.display_order = data['display_order']
-    covariate.description = data['description']
-    covariate.required = data['required']
-    if data['condition'] != "None":
-        covariate.condition = data['condition']
+    for remote_covariate in data['covariates']:
+        local_covariate = session.query(CovariateDefn).get(remote_covariate['id_key'])
+        local_covariate.name = remote_covariate['name']
+        local_covariate.display_order = remote_covariate['display_order']
+        local_covariate.description = remote_covariate['description']
+        local_covariate.required = remote_covariate['required']
+        if remote_covariate['condition'] != "None":
+            local_covariate.condition = remote_covariate['condition']
     session.commit()
 
     return get_covariates()

@@ -6,6 +6,16 @@
     <title>Admin - Covariates</title>
     <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
     <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <style>
+        .btn:disabled {
+            background-color: #d3d3d3;
+            border-color: #d3d3d3;
+            color: #808080;
+        }
+       .uncommitted-edit {
+            background-color: #ffffcc; /* light yellow background */
+        }
+    </style>
 </head>
 <body>
     <div class="container mt-5">
@@ -42,32 +52,40 @@
             });
         });
 
-        function updateCovariate(button) {
-            var row = button.closest('tr');
-            var id_key = row.getAttribute('data-id');
-            var name = row.querySelector('input[name="name"]').value;
-            var displayOrder = row.querySelector('input[name="display_order"]').value;
-            var description = row.querySelector('input[name="description"]').value;
-            var required = row.querySelector('select[name="required"]').value;
-            var condition = row.querySelector('input[name="condition"]').value;
+        function updateCovariates() {
+            var rows = document.querySelectorAll('.uncommitted-edit');
+            var covariates = [];
 
-            $.ajax({
-                url: '{{ url_for("update_covariate") }}',
-                type: 'POST',
-                contentType: 'application/json',
-                data: JSON.stringify({
+            rows.forEach(function(row) {
+                var id_key = row.getAttribute('data-id');
+                var name = row.querySelector('input[name="name"]').value;
+                var displayOrder = row.querySelector('input[name="display_order"]').value;
+                var description = row.querySelector('input[name="description"]').value;
+                var required = row.querySelector('select[name="required"]').value;
+                var condition = row.querySelector('input[name="condition"]').value;
+
+                var covariate = {
                     id_key: id_key,
                     name: name,
                     display_order: displayOrder,
                     description: description,
                     required: required,
                     condition: condition
-                }),
+                };
+
+                covariates.push(covariate);
+            });
+
+            $.ajax({
+                url: '{{ url_for("update_covariate") }}',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ covariates: covariates }),
                 success: function(response) {
                     if (response.success) {
                         updateTable(response.covariates);
                     } else {
-                        alert('Failed to update covariate.');
+                        alert('Failed to update covariates.');
                     }
                 }
             });
@@ -82,9 +100,9 @@
                 row.setAttribute('data-id', covariate.id_key);
 
                 row.innerHTML = `
-                    <td><input type="text" name="name" value="${covariate.name}"></td>
-                    <td><input type="number" name="display_order" value="${covariate.display_order}"></td>
-                    <td><input type="text" name="description" value="${covariate.description}"></td>
+                    <td><input type="text" name="name" value="${covariate.name}" onfocus="this.select()"></td>
+                    <td><input type="number" name="display_order" value="${covariate.display_order}" onfocus="this.select()"></td>
+                    <td><input type="text" name="description" value="${covariate.description}" onfocus="this.select()"></td>
                     <td>
                         <select name="required">
                             {% for state in required_states %}
@@ -92,14 +110,45 @@
                             {% endfor %}
                         </select>
                     </td>
-                    <td><input type="text" name="condition" value="${covariate.condition}"></td>
+                    <td><input type="text" name="condition" value="${covariate.condition}" onfocus="this.select()"></td>
                     <td>
-                        <button class="btn btn-primary btn-sm" onclick="updateCovariate(this)">Update</button>
+                        <button class="btn btn-primary btn-sm" onclick="updateCovariates()" disabled>Update</button>
                     </td>
                 `;
 
                 tableBody.appendChild(row);
+
+                var inputs = row.querySelectorAll('input, select');
+                inputs.forEach(function(input) {
+                    input.addEventListener('input', function() {
+                        checkForChanges(row);
+                    });
+                    input.addEventListener('keydown', function(event) {
+                        if (event.key === 'Enter') {
+                            row.querySelector('button').click();
+                        }
+                    });
+                });
             });
+
+            function checkForChanges(row) {
+                var inputs = row.querySelectorAll('input, select');
+                var hasChanges = false;
+
+                inputs.forEach(function(input) {
+                    var originalValue = input.getAttribute('data-original-value');
+                    if (input.value !== originalValue) {
+                        hasChanges = true;
+                    }
+                });
+
+                row.querySelector('button').disabled = !hasChanges;
+                if (hasChanges) {
+                    row.classList.add('uncommitted-edit');
+                } else {
+                    row.classList.remove('uncommitted-edit');
+                }
+            }
         }
     </script>
 </body>
