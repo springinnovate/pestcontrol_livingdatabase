@@ -217,7 +217,7 @@ def create_matching_table(session, args, column_matching_path):
         CovariateDefn.display_order,
         func.lower(CovariateDefn.name)).all()
 
-    sample_columns = load_column_names(args.metadata_table_path)
+    sample_columns = load_column_names(args.sample_table_path)
     matches = match_strings(
         sample_columns,
         REQUIRED_SAMPLE_INPUT_FIELDS +

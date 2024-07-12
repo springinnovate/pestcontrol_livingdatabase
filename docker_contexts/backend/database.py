@@ -19,8 +19,7 @@ def initialize_covariates():
     print('initalizing covariates')
 
     OTHER_COVARIATES = [
-        (0, 'doi', CovariateType.STRING, CovariateAssociation.STUDY, RequiredState.REQUIRED, None),
-        (0, 'study_id', CovariateType.STRING, CovariateAssociation.STUDY, RequiredState.OPTIONAL, None),
+        (0, 'doi', CovariateType.STRING, CovariateAssociation.STUDY, RequiredState.OPTIONAL, None),
         (0, 'study_metadata', CovariateType.STRING, CovariateAssociation.STUDY, RequiredState.OPTIONAL, None),
         (1, 'response_type', CovariateType.STRING, CovariateAssociation.SAMPLE, RequiredState.REQUIRED, None),
         (1, 'species', CovariateType.STRING, CovariateAssociation.SAMPLE, RequiredState.REQUIRED, None),
