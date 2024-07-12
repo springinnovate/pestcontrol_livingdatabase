@@ -340,14 +340,8 @@ from flask import redirect, url_for
 @app.route('/admin/covariate', methods=['GET', 'POST'])
 def admin_covariate():
     session = SessionLocal()
-    form = CovariateDefnForm()
-    if form.validate_on_submit():
-        name = form.name.data
-        new_covariate = CovariateDefn(name=name)
-        session.add(new_covariate)
-        session.commit()
-        return redirect(url_for('edit_covariate'))
     covariate_list = session.query(CovariateDefn).all()
+    covariate_list.sort(key=lambda x: (x.display_order, x.name))
     return render_template(
         'admin_covariate.html',
         covariate_list=covariate_list,
@@ -366,7 +360,19 @@ def update_covariate():
     if data['condition'] != "None":
         covariate.condition = data['condition']
     session.commit()
-    return jsonify(success=True)
+
+    # Return the updated list of covariates sorted by display_order and name
+    covariate_list = session.query(CovariateDefn).order_by(
+        CovariateDefn.display_order, CovariateDefn.name).all()
+    updated_covariates = [{
+        'id_key': c.id_key,
+        'name': c.name,
+        'display_order': c.display_order,
+        'description': c.description,
+        'required': c.required.value,
+        'condition': c.condition
+    } for c in covariate_list]
+    return jsonify(success=True, covariates=updated_covariates)
 
 
 @app.route('/admin/covariate/delete/<int:id_key>', methods=['POST'])

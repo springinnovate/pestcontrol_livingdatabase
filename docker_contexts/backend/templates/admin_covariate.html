@@ -21,22 +21,22 @@
                     <th>Actions</th>
                 </tr>
             </thead>
-            <tbody>
+            <tbody id="covariate-table-body">
                 {% for covariate in covariate_list %}
-                <tr>
+                <tr data-id="{{ covariate.id_key }}">
                     <td><input type="text" name="name" value="{{ covariate.name }}"></td>
                     <td><input type="number" name="display_order" value="{{ covariate.display_order }}"></td>
                     <td><input type="text" name="description" value="{{ covariate.description }}"></td>
                     <td>
                         <select name="required">
                             {% for state in required_states %}
-                            <option value="{{ state }}" {% if covariate.required == "{{ state }}" %}selected{% endif %}>{{ state }}</option>
+                            <option value="{{ state }}" {% if covariate.required == state %}selected{% endif %}>{{ state }}</option>
                             {% endfor %}
                         </select>
                     </td>
                     <td><input type="text" name="condition" value="{{ covariate.condition }}"></td>
                     <td>
-                        <button class="btn btn-primary btn-sm" onclick="updateCovariate({{ covariate.id_key }}, this)">Update</button>
+                        <button class="btn btn-primary btn-sm" onclick="updateCovariate(this)">Update</button>
                     </td>
                 </tr>
                 {% endfor %}
@@ -45,8 +45,9 @@
     </div>
 
     <script>
-        function updateCovariate(id_key, button) {
+        function updateCovariate(button) {
             var row = button.closest('tr');
+            var id_key = row.getAttribute('data-id');
             var name = row.querySelector('input[name="name"]').value;
             var displayOrder = row.querySelector('input[name="display_order"]').value;
             var description = row.querySelector('input[name="description"]').value;
@@ -67,11 +68,41 @@
                 }),
                 success: function(response) {
                     if (response.success) {
+                        updateTable(response.covariates);
                         alert('Covariate updated successfully.');
                     } else {
                         alert('Failed to update covariate.');
                     }
                 }
+            });
+        }
+
+        function updateTable(covariates) {
+            var tableBody = document.getElementById('covariate-table-body');
+            tableBody.innerHTML = ''; // Clear existing rows
+
+            covariates.forEach(function(covariate) {
+                var row = document.createElement('tr');
+                row.setAttribute('data-id', covariate.id_key);
+
+                row.innerHTML = `
+                    <td><input type="text" name="name" value="${covariate.name}"></td>
+                    <td><input type="number" name="display_order" value="${covariate.display_order}"></td>
+                    <td><input type="text" name="description" value="${covariate.description}"></td>
+                    <td>
+                        <select name="required">
+                            {% for state in required_states %}
+                            <option value="{{ state }}" ${covariate.required === "{{ state }}" ? 'selected' : ''}>{{ state }}</option>
+                            {% endfor %}
+                        </select>
+                    </td>
+                    <td><input type="text" name="condition" value="${covariate.condition}"></td>
+                    <td>
+                        <button class="btn btn-primary btn-sm" onclick="updateCovariate(this)">Update</button>
+                    </td>
+                `;
+
+                tableBody.appendChild(row);
             });
         }
     </script>
