@@ -6,13 +6,16 @@ import re
 import sys
 
 from database import SessionLocal
-from database_model_definitions import Study, Sample, Point, CovariateDefn
+from database_model_definitions import Study, Sample, Point, CovariateDefn, RequiredState
 from flask import Flask
 from flask import render_template
 from flask import request
+from flask import jsonify
 from sqlalchemy import distinct, func
 from sqlalchemy.engine import Row
 from sqlalchemy.sql import and_, or_
+
+from wtforms import Form, StringField, IntegerField, SelectField, validators
 
 
 logging.basicConfig(
@@ -345,7 +348,25 @@ def admin_covariate():
         session.commit()
         return redirect(url_for('edit_covariate'))
     covariate_list = session.query(CovariateDefn).all()
-    return render_template('admin_covariate.html', form=form, covariate_list=covariate_list)
+    return render_template(
+        'admin_covariate.html',
+        covariate_list=covariate_list,
+        required_states=[x.value for x in RequiredState])
+
+
+@app.route('/update_covariate', methods=['POST'])
+def update_covariate():
+    session = SessionLocal()
+    data = request.json
+    covariate = session.query(CovariateDefn).get(data['id_key'])
+    covariate.name = data['name']
+    covariate.display_order = data['display_order']
+    covariate.description = data['description']
+    covariate.required = data['required']
+    if data['condition'] != "None":
+        covariate.condition = data['condition']
+    session.commit()
+    return jsonify(success=True)
 
 
 @app.route('/admin/covariate/delete/<int:id_key>', methods=['POST'])

@@ -159,9 +159,9 @@ class CovariateType(enum.Enum):
 
 
 class RequiredState(enum.Enum):
-    OPTIONAL = "optional"
-    REQUIRED = "required"
-    CONDITIONAL = "conditional"
+    OPTIONAL = "OPTIONAL"
+    REQUIRED = "REQUIRED"
+    CONDITIONAL = "CONDITIONAL"
 
 
 class CovariateDefn(Base):
