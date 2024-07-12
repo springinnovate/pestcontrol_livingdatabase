@@ -26,6 +26,7 @@
                     <th>Name</th>
                     <th>Display order (smaller numbers displayed first)</th>
                     <th>Description</th>
+                    <th>Covariate association</th>
                     <th>Required as input</th>
                     <th>Condition if conditionally required</th>
                     <th>update changes</th>
@@ -62,6 +63,7 @@
                 var displayOrder = row.querySelector('input[name="display_order"]').value;
                 var description = row.querySelector('input[name="description"]').value;
                 var required = row.querySelector('select[name="required"]').value;
+                var covariate_association = row.querySelector('select[name="covariate_association"]').value;
                 var condition = row.querySelector('input[name="condition"]').value;
 
                 var covariate = {
@@ -70,6 +72,7 @@
                     display_order: displayOrder,
                     description: description,
                     required: required,
+                    covariate_association: covariate_association,
                     condition: condition
                 };
 
@@ -104,12 +107,20 @@
                     <td><input type="number" name="display_order" value="${covariate.display_order}" onfocus="this.select()"></td>
                     <td><input type="text" name="description" value="${covariate.description}" onfocus="this.select()"></td>
                     <td>
+                        <select name="covariate_association">
+                            {% for state in covariate_association_states %}
+                            <option value="{{ state }}" ${covariate.covariate_association === "{{ state }}" ? 'selected' : ''}>{{ state }}</option>
+                            {% endfor %}
+                        </select>
+                    </td>
+                    <td>
                         <select name="required">
                             {% for state in required_states %}
                             <option value="{{ state }}" ${covariate.required === "{{ state }}" ? 'selected' : ''}>{{ state }}</option>
                             {% endfor %}
                         </select>
                     </td>
+
                     <td><input type="text" name="condition" value="${covariate.condition}" onfocus="this.select()"></td>
                     <td>
                         <button class="btn btn-primary btn-sm" onclick="updateCovariates()" disabled>Update</button>

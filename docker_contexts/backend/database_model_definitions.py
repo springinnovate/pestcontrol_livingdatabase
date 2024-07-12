@@ -164,6 +164,11 @@ class RequiredState(enum.Enum):
     CONDITIONAL = "CONDITIONAL"
 
 
+class CovariateAssociation(enum.Enum):
+    STUDY = "STUDY"
+    SAMPLE = "SAMPLE"
+
+
 class CovariateDefn(Base):
     __tablename__ = 'covariate_defn'
     id_key: Mapped[int] = mapped_column(primary_key=True)
@@ -176,6 +181,8 @@ class CovariateDefn(Base):
     condition: Mapped[dict] = mapped_column(JSON, default=None)
     covariate_type: Mapped[CovariateType] = mapped_column(
         Enum(CovariateType), nullable=False, index=True)
+    covariate_association: Mapped[CovariateAssociation] = mapped_column(
+        Enum(CovariateAssociation), nullable=False, index=True)
     covariate_values: Mapped[List["CovariateValue"]] = relationship(
         "CovariateValue", back_populates="covariate_defn")
 
@@ -187,8 +194,20 @@ covariate_to_sample_association = Table(
         ForeignKey('covariate_value.id_key'),
         primary_key=True),
     Column(
-        'study_id',
+        'sample_id',
         ForeignKey('sample.id_key'),
+        primary_key=True)
+)
+
+covariate_to_study_association = Table(
+    'covariate_to_study_association', Base.metadata,
+    Column(
+        'covariate_id',
+        ForeignKey('covariate_value.id_key'),
+        primary_key=True),
+    Column(
+        'study_id',
+        ForeignKey('study.id_key'),
         primary_key=True)
 )
 
@@ -205,25 +224,19 @@ class CovariateValue(Base):
         "Sample",
         secondary=covariate_to_sample_association,
         back_populates="covariates")
-
-
-class DOI(Base):
-    __tablename__ = 'doi'
-    id_key: Mapped[int] = mapped_column(primary_key=True)
-    doi: Mapped[str] = mapped_column(unique=True, index=True)
     studies: Mapped[List["Study"]] = relationship(
-        "Study", back_populates="paper_doi")
+        "Study",
+        secondary=covariate_to_study_association,
+        back_populates="covariates")
 
 
 class Study(Base):
     __tablename__ = 'study'
     id_key: Mapped[int] = mapped_column(primary_key=True)
-    study_id: Mapped[str] = mapped_column(unique=True, index=True)
-    study_metadata: Mapped[Optional[str]] = mapped_column(index=True)
-    paper_doi_id: Mapped[int] = mapped_column(
-        ForeignKey('doi.id_key'), index=True)
-    paper_doi: Mapped[DOI] = relationship(
-        "DOI", back_populates="studies")
+    covariates: Mapped[List[CovariateValue]] = relationship(
+        "CovariateValue",
+        secondary=covariate_to_study_association,
+        back_populates="studies")
     samples: Mapped[List["Sample"]] = relationship(
         "Sample", back_populates="study")
 
@@ -244,7 +257,7 @@ class Sample(Base):
 
     observation: Mapped[float] = mapped_column(index=True)
 
-    covariates: Mapped[Optional[List[CovariateValue]]] = relationship(
+    covariates: Mapped[List[CovariateValue]] = relationship(
         "CovariateValue",
         secondary=covariate_to_sample_association,
         back_populates="samples")

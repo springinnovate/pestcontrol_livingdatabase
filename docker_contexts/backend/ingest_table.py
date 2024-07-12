@@ -181,6 +181,28 @@ def extract_column_matching(matching_df, column_matching_path):
     return base_to_target_map
 
 
+def create_matching_table(args, column_matching_path):
+    study_columns = load_column_names(args.metadata_table_path)
+    matches = match_strings(study_columns, STUDY_USER_INPUT_FIELDS)
+    study_matching_df = pd.DataFrame(
+        matches, columns=['EXPECTED (do not change)', 'USER INPUT (match with EXPECTED)'])
+
+    sample_colums = load_column_names(args.sample_table_path)
+    matches = match_strings(sample_colums, SAMPLE_USER_INPUT_FIELDS)
+
+    sample_matching_df = pd.DataFrame(
+        matches, columns=['EXPECTED (do not change)', 'USER INPUT (match with EXPECTED)'])
+
+    with open(column_matching_path, 'w', newline='') as f:
+        f.write('STUDY TABLE\n')
+        study_matching_df.to_csv(f, index=False)
+        f.write('\n')  # Add a blank line between tables
+
+        # Write the second dataframe to the same CSV file
+        f.write('SAMPLE TABLE\n')
+        sample_matching_df.to_csv(f, index=False)
+
+
 def main():
     init_db()
     session = SessionLocal()
@@ -198,27 +220,8 @@ def main():
 
     # if no column matching table
     if not os.path.exists(column_matching_path):
-        study_columns = load_column_names(args.metadata_table_path)
-        matches = match_strings(study_columns, STUDY_USER_INPUT_FIELDS)
-        study_matching_df = pd.DataFrame(
-            matches, columns=['EXPECTED (do not change)', 'USER INPUT (match with EXPECTED)'])
-
-        sample_colums = load_column_names(args.sample_table_path)
-        matches = match_strings(sample_colums, SAMPLE_USER_INPUT_FIELDS)
-
-        sample_matching_df = pd.DataFrame(
-            matches, columns=['EXPECTED (do not change)', 'USER INPUT (match with EXPECTED)'])
-
-        with open(column_matching_path, 'w', newline='') as f:
-            f.write('STUDY TABLE\n')
-            study_matching_df.to_csv(f, index=False)
-            f.write('\n')  # Add a blank line between tables
-
-            # Write the second dataframe to the same CSV file
-            f.write('SAMPLE TABLE\n')
-            sample_matching_df.to_csv(f, index=False)
+        create_matching_table()
         return
-
 
     with open(column_matching_path, 'r') as f:
         lines = f.readlines()

@@ -6,7 +6,7 @@ import re
 import sys
 
 from database import SessionLocal
-from database_model_definitions import Study, Sample, Point, CovariateDefn, RequiredState
+from database_model_definitions import Study, Sample, Point, CovariateDefn, RequiredState, CovariateAssociation
 from flask import Flask
 from flask import render_template
 from flask import request
@@ -14,8 +14,6 @@ from flask import jsonify
 from sqlalchemy import distinct, func
 from sqlalchemy.engine import Row
 from sqlalchemy.sql import and_, or_
-
-from wtforms import Form, StringField, IntegerField, SelectField, validators
 
 
 logging.basicConfig(
@@ -333,15 +331,12 @@ def process_query():
         raise
 
 
-from forms import CovariateDefnForm
-from flask import redirect, url_for
-
-
 @app.route('/admin/covariate', methods=['GET', 'POST'])
 def admin_covariate():
     return render_template(
         'admin_covariate.html',
-        required_states=[x.value for x in RequiredState])
+        required_states=[x.value for x in RequiredState],
+        covariate_association_states=[x.value for x in CovariateAssociation],)
 
 
 @app.route('/get_covariates', methods=['GET'])
@@ -356,6 +351,7 @@ def get_covariates():
         'display_order': c.display_order,
         'description': c.description,
         'required': c.required.value,
+        'covariate_association': c.covariate_association.value,
         'condition': c.condition
     } for c in covariate_list]
     session.close()
@@ -372,33 +368,12 @@ def update_covariate():
         local_covariate.display_order = remote_covariate['display_order']
         local_covariate.description = remote_covariate['description']
         local_covariate.required = remote_covariate['required']
+        local_covariate.covariate_association = remote_covariate['covariate_association']
         if remote_covariate['condition'] != "None":
             local_covariate.condition = remote_covariate['condition']
     session.commit()
 
     return get_covariates()
-
-
-@app.route('/admin/covariate/delete/<int:id_key>', methods=['POST'])
-def delete_covariate(id_key):
-    session = SessionLocal()
-    covariate = session.query(CovariateDefn).get(id_key)
-    session.delete(covariate)
-    session.commit()
-    return redirect(url_for('admin_covariate'))
-
-
-@app.route('/admin/covariate/edit/<int:id_key>', methods=['GET', 'POST'])
-def edit_covariate(id_key):
-    session = SessionLocal()
-    covariate_defn = session.query(CovariateDefn).get(id_key)
-    form = CovariateDefnForm(obj=covariate_defn)
-    if form.validate_on_submit():
-        covariate_defn.name = form.name.data
-        session.commit()
-        return redirect(url_for('admin_covariate'))
-    return render_template(
-        'edit_covariate.html', form=form, covariate_defn=covariate_defn)
 
 
 if __name__ == '__main__':
