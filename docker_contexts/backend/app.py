@@ -6,7 +6,7 @@ import re
 import sys
 
 from database import SessionLocal
-from database_model_definitions import Study, Sample, Point, CovariateDefn, RequiredState, CovariateAssociation
+from database_model_definitions import Study, Sample, Point, CovariateDefn, CovariateAssociation
 from flask import Flask
 from flask import render_template
 from flask import request
@@ -335,7 +335,6 @@ def process_query():
 def admin_covariate():
     return render_template(
         'admin_covariate.html',
-        required_states=[x.value for x in RequiredState],
         covariate_association_states=[x.value for x in CovariateAssociation],)
 
 
@@ -350,7 +349,8 @@ def get_covariates():
         'name': c.name,
         'display_order': c.display_order,
         'description': c.description,
-        'required': c.required.value,
+        'always_display': c.always_display,
+        'queryable': c.queryable,
         'covariate_association': c.covariate_association.value,
         'condition': c.condition
     } for c in covariate_list]
@@ -367,7 +367,8 @@ def update_covariate():
         local_covariate.name = remote_covariate['name']
         local_covariate.display_order = remote_covariate['display_order']
         local_covariate.description = remote_covariate['description']
-        local_covariate.required = remote_covariate['required']
+        local_covariate.queryable = remote_covariate['queryable']
+        local_covariate.always_display = remote_covariate['always_display']
         local_covariate.covariate_association = remote_covariate['covariate_association']
         if remote_covariate['condition'] != "None":
             local_covariate.condition = remote_covariate['condition']

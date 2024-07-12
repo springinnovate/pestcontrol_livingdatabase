@@ -158,12 +158,6 @@ class CovariateType(enum.Enum):
     INTEGER = "integer"
 
 
-class RequiredState(enum.Enum):
-    OPTIONAL = "OPTIONAL"
-    REQUIRED = "REQUIRED"
-    CONDITIONAL = "CONDITIONAL"
-
-
 class CovariateAssociation(enum.Enum):
     STUDY = "STUDY"
     SAMPLE = "SAMPLE"
@@ -176,8 +170,10 @@ class CovariateDefn(Base):
     display_order: Mapped[float] = mapped_column(default=0)
     description: Mapped[Optional[str]] = mapped_column(
         String, default='no description provided')
-    required: Mapped[RequiredState] = mapped_column(
-        Enum(RequiredState), nullable=False, index=True)
+    queryable: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, index=True)
+    always_display: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, index=True)
     condition: Mapped[dict] = mapped_column(JSON, default=None)
     covariate_type: Mapped[CovariateType] = mapped_column(
         Enum(CovariateType), nullable=False, index=True)

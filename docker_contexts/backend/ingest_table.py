@@ -148,7 +148,7 @@ def match_strings(base_list, to_match_list):
     remaining_matches = set(to_match_list)
     for base_str in base_list:
         match = get_close_matches(
-            base_str, remaining_matches, n=1, cutoff=0.6)
+            base_str.replace('*', ''), remaining_matches, n=1, cutoff=0.6)
         if match:
             match = match[0]
             if match in matched_so_far:

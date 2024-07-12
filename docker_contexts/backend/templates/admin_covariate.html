@@ -27,8 +27,10 @@
                     <th>Display order (smaller numbers displayed first)</th>
                     <th>Description</th>
                     <th>Covariate association</th>
-                    <th>Required as input</th>
-                    <th>Condition if conditionally required</th>
+                    <th>debug</th>
+                    <th>Queryable</th>
+                    <th>Always display</th>
+                    <th>Condition if conditionally displayed</th>
                     <th>update changes</th>
                 </tr>
             </thead>
@@ -62,7 +64,8 @@
                 var name = row.querySelector('input[name="name"]').value;
                 var displayOrder = row.querySelector('input[name="display_order"]').value;
                 var description = row.querySelector('input[name="description"]').value;
-                var required = row.querySelector('select[name="required"]').value;
+                var queryable = row.querySelector('select[name="queryable"]').value === 'true';
+                var always_display = row.querySelector('select[name="always_display"]').value === 'true';
                 var covariate_association = row.querySelector('select[name="covariate_association"]').value;
                 var condition = row.querySelector('input[name="condition"]').value;
 
@@ -71,7 +74,8 @@
                     name: name,
                     display_order: displayOrder,
                     description: description,
-                    required: required,
+                    queryable: queryable,
+                    always_display: always_display,
                     covariate_association: covariate_association,
                     condition: condition
                 };
@@ -113,11 +117,17 @@
                             {% endfor %}
                         </select>
                     </td>
+                    <td>${covariate.queryable}</td>
                     <td>
-                        <select name="required">
-                            {% for state in required_states %}
-                            <option value="{{ state }}" ${covariate.required === "{{ state }}" ? 'selected' : ''}>{{ state }}</option>
-                            {% endfor %}
+                        <select name="queryable">
+                            <option value="true" ${covariate.queryable ? 'selected' : ''}>True</option>
+                            <option value="false" ${!covariate.queryable ? 'selected' : ''}>False</option>
+                        </select>
+                    </td>
+                    <td>
+                        <select name="always_display">
+                            <option value="true" ${covariate.always_display ? 'selected' : ''}>True</option>
+                            <option value="false" ${!covariate.always_display ? 'selected' : ''}>False</option>
                         </select>
                     </td>
 
