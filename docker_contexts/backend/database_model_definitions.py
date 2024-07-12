@@ -262,16 +262,8 @@ class Sample(Base):
         secondary=covariate_to_sample_association,
         back_populates="samples")
 
-
-STUDY_USER_INPUT_FIELDS = [
-    'study_id',
-    'paper_doi_id',
-    'study_metadata',
-]
-
 SAMPLE_USER_INPUT_FIELDS = [
     'latitude',
     'longitude',
-    'study_id',
     'observation',
     ]

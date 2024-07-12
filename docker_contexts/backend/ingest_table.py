@@ -182,6 +182,8 @@ def extract_column_matching(matching_df, column_matching_path):
 
 
 def create_matching_table(args, column_matching_path):
+
+    # TODO: this is where I left off, we're going to now use CovariateDefn to determine which fields should be defined
     study_columns = load_column_names(args.metadata_table_path)
     matches = match_strings(study_columns, STUDY_USER_INPUT_FIELDS)
     study_matching_df = pd.DataFrame(
