@@ -22,29 +22,26 @@
                 </tr>
             </thead>
             <tbody id="covariate-table-body">
-                {% for covariate in covariate_list %}
-                <tr data-id="{{ covariate.id_key }}">
-                    <td><input type="text" name="name" value="{{ covariate.name }}"></td>
-                    <td><input type="number" name="display_order" value="{{ covariate.display_order }}"></td>
-                    <td><input type="text" name="description" value="{{ covariate.description }}"></td>
-                    <td>
-                        <select name="required">
-                            {% for state in required_states %}
-                            <option value="{{ state }}" {% if covariate.required == state %}selected{% endif %}>{{ state }}</option>
-                            {% endfor %}
-                        </select>
-                    </td>
-                    <td><input type="text" name="condition" value="{{ covariate.condition }}"></td>
-                    <td>
-                        <button class="btn btn-primary btn-sm" onclick="updateCovariate(this)">Update</button>
-                    </td>
-                </tr>
-                {% endfor %}
             </tbody>
         </table>
     </div>
 
     <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            $.ajax({
+                url: '{{ url_for("get_covariates") }}',
+                type: 'GET',
+                contentType: 'application/json',
+                success: function(response) {
+                    if (response.success) {
+                        updateTable(response.covariates);
+                    } else {
+                        alert('Failed to load covariates.');
+                    }
+                }
+            });
+        });
+
         function updateCovariate(button) {
             var row = button.closest('tr');
             var id_key = row.getAttribute('data-id');
@@ -69,7 +66,6 @@
                 success: function(response) {
                     if (response.success) {
                         updateTable(response.covariates);
-                        alert('Covariate updated successfully.');
                     } else {
                         alert('Failed to update covariate.');
                     }

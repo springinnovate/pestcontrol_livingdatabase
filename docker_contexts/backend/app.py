@@ -339,19 +339,32 @@ from flask import redirect, url_for
 
 @app.route('/admin/covariate', methods=['GET', 'POST'])
 def admin_covariate():
-    session = SessionLocal()
-    covariate_list = session.query(CovariateDefn).all()
-    covariate_list.sort(key=lambda x: (x.display_order, x.name))
     return render_template(
         'admin_covariate.html',
-        covariate_list=covariate_list,
         required_states=[x.value for x in RequiredState])
+
+
+@app.route('/get_covariates', methods=['GET'])
+def get_covariates():
+    session = SessionLocal()
+    covariate_list = session.query(CovariateDefn).order_by(CovariateDefn.display_order, CovariateDefn.name).all()
+    covariates = [{
+        'id_key': c.id_key,
+        'name': c.name,
+        'display_order': c.display_order,
+        'description': c.description,
+        'required': c.required.value,
+        'condition': c.condition
+    } for c in covariate_list]
+    session.close()
+    return jsonify(success=True, covariates=covariates)
 
 
 @app.route('/update_covariate', methods=['POST'])
 def update_covariate():
     session = SessionLocal()
     data = request.json
+    print(data)
     covariate = session.query(CovariateDefn).get(data['id_key'])
     covariate.name = data['name']
     covariate.display_order = data['display_order']
@@ -361,18 +374,7 @@ def update_covariate():
         covariate.condition = data['condition']
     session.commit()
 
-    # Return the updated list of covariates sorted by display_order and name
-    covariate_list = session.query(CovariateDefn).order_by(
-        CovariateDefn.display_order, CovariateDefn.name).all()
-    updated_covariates = [{
-        'id_key': c.id_key,
-        'name': c.name,
-        'display_order': c.display_order,
-        'description': c.description,
-        'required': c.required.value,
-        'condition': c.condition
-    } for c in covariate_list]
-    return jsonify(success=True, covariates=updated_covariates)
+    return get_covariates()
 
 
 @app.route('/admin/covariate/delete/<int:id_key>', methods=['POST'])
