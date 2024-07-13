@@ -108,12 +108,20 @@ def fetch_or_add_point(
         {'longitude': [longitude], 'latitude': [latitude]})
     point_gdf = geopandas.GeoDataFrame(
         latlng_df, geometry=geopandas.points_from_xy(
-            latlng_df.longitude, latlng_df.latitude), crs=continent_vector.crs)
+            latlng_df.longitude, latlng_df.latitude), crs='EPSG:4326')
+    if continent_vector.crs.is_geographic:
+        # Reproject continent_vector to a suitable projected CRS (e.g., EPSG:3857 for Web Mercator)
+        projected_crs = 'EPSG:3857'
+        continent_vector = continent_vector.to_crs(projected_crs)
+        projected_point_gdf = point_gdf.to_crs(projected_crs)
+    else:
+        projected_point_gdf = point_gdf
+
     geolocation_list = []
     try:
         continent_name = None
         continent_result = geopandas.sjoin_nearest(
-            point_gdf, continent_vector, how='left')
+            projected_point_gdf, continent_vector, how='left')
         continent_name = continent_vector.at[
             continent_result.index_right.dropna().astype(int).values[0],
             'CONTINENT']
@@ -123,10 +131,17 @@ def fetch_or_add_point(
     except IndexError:
         raise ValueError(f'could not find a continent for {point_gdf}')
 
+    if country_vector.crs.is_geographic:
+        # Reproject country_vector to a suitable projected CRS (e.g., EPSG:3857 for Web Mercator)
+        projected_crs = 'EPSG:3857'
+        country_vector = country_vector.to_crs(projected_crs)
+        projected_point_gdf = point_gdf.to_crs(projected_crs)
+    else:
+        projected_point_gdf = point_gdf
     try:
         country_name = None
         country_result = geopandas.sjoin_nearest(
-            point_gdf, country_vector, how='left')
+            projected_point_gdf, country_vector, how='left')
         country_name = country_vector.at[
             country_result.index_right.dropna().astype(int).values[0],
             'nev_name']
@@ -134,7 +149,7 @@ def fetch_or_add_point(
             session, country_name)
         geolocation_list.append(country_geolocation)
     except IndexError:
-        raise ValueError(f'could not find a country for {point_gdf}')
+        raise ValueError(f'could not find a country for {projected_point_gdf}')
 
     new_point = Point(
         latitude=latitude,
@@ -349,6 +364,7 @@ def main():
             elif sample not in covariate_value.samples:
                 covariate_value.samples.append(sample)
         session.add(sample)
+        session.flush()
 
     print('about to commit ')
     session.commit()
