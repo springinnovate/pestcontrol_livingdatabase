@@ -15,9 +15,11 @@ from database_model_definitions import CovariateAssociation
 from database_model_definitions import Point
 from database_model_definitions import GeolocationName
 from database_model_definitions import Study
+from database_model_definitions import Sample
 from database_model_definitions import REQUIRED_SAMPLE_INPUT_FIELDS
 from database_model_definitions import REQUIRED_STUDY_FIELDS
 from database_model_definitions import STUDY_ID
+from database_model_definitions import OBSERVATION
 from database_model_definitions import LATITUDE
 from database_model_definitions import LONGITUDE
 from sqlalchemy import and_, func
@@ -67,7 +69,6 @@ def fetch_or_create_study(session, covariate_defn_list, row):
             # it's possible to have covariates that aren't in the set
             continue
         value = row[covariate_defn.name]
-        print(value)
 
         covariate_value = session.query(CovariateValue).filter(
             CovariateValue.covariate_defn == covariate_defn,
@@ -85,22 +86,6 @@ def fetch_or_create_study(session, covariate_defn_list, row):
     return study
 
 
-def fetch_or_create_doi(session, doi_value):
-    # Attempt to find an existing DOI with the given value
-    existing_doi = session.query(DOI).filter(DOI.doi == doi_value).first()
-
-    if existing_doi is None:
-        # DOI doesn't exist, so create a new one
-        new_doi = DOI(doi=doi_value)
-        session.add(new_doi)
-        print("Created new DOI:", new_doi.doi)
-    else:
-        # Use the existing DOI
-        new_doi = existing_doi
-        print("Using existing DOI:", new_doi.doi)
-    return new_doi
-
-
 def fetch_or_create_geolocation_name(session, name):
     try:
         geolocation_name = session.query(GeolocationName).filter_by(
@@ -108,7 +93,6 @@ def fetch_or_create_geolocation_name(session, name):
     except NoResultFound:
         geolocation_name = GeolocationName(geolocation_name=name)
         session.add(geolocation_name)
-        session.flush()
     return geolocation_name
 
 
@@ -158,7 +142,6 @@ def fetch_or_add_point(
         geolocations=geolocation_list
     )
     session.add(new_point)
-    session.flush()
     return new_point
 
 
@@ -201,7 +184,7 @@ def extract_column_matching(matching_df, column_matching_path):
     base_to_target_map = {}
     for row in matching_df.iterrows():
         expected_field, user_field = row[1]
-        if any([field_set in [None, numpy.nan]
+        if any([not isinstance(field_set, str) and (field_set is None or numpy.isnan(field_set))
                 for field_set in [expected_field, user_field]]):
             continue
         required = expected_field.startswith('*')
@@ -309,9 +292,7 @@ def main():
         "../../base_data/countries_iso3_md5_6fb2431e911401992e6e56ddf0a9bcda.gpkg")
     continent_vector = geopandas.read_file('../../base_data/continents.gpkg')
 
-    covariate_data = []
-
-    study_covariate_list = session.query(CovariateDefn).filter(
+    study_covariate_defn_list = session.query(CovariateDefn).filter(
         CovariateDefn.covariate_association == CovariateAssociation.STUDY).order_by(
         CovariateDefn.display_order,
         func.lower(CovariateDefn.name)).all()
@@ -320,13 +301,15 @@ def main():
     for index, row in study_table_df.iterrows():
         study_id = row[STUDY_ID]
         study_id_to_study_map[row[STUDY_ID]] = fetch_or_create_study(
-            session, study_covariate_list, row)
+            session, study_covariate_defn_list, row)
+    session.flush()
 
-    print(study_id_to_study_map)
-    return
+    sample_covariate_defn_list = session.query(CovariateDefn).filter(
+        CovariateDefn.covariate_association == CovariateAssociation.SAMPLE).order_by(
+        CovariateDefn.display_order,
+        func.lower(CovariateDefn.name)).all()
     for index, row in sample_table_df.iterrows():
         print(f'{100*index/len(sample_table_df.index):.2f}%')
-        study_id = row[STUDY_ID]
         if any([numpy.isnan(row[x]) for x in [LATITUDE, LONGITUDE]]):
             raise ValueError(
                 f'found a row at {index} with no lat or long coordinates: '
@@ -337,26 +320,36 @@ def main():
             row[LATITUDE],
             row[LONGITUDE])
 
-        sample = Sample(study=study, point=point)
+        study_id = row[STUDY_ID]
+        study = study_id_to_study_map[study_id]
+        sample = Sample(
+            point=point,
+            study=study,
+            observation=row[OBSERVATION]
+            )
         session.add(sample)
 
-        session.flush()
-        sample_fields = set(dir(sample))
-        for column, value in row.items():
-            if column == STUDY_ID:
+        for covariate_defn in sample_covariate_defn_list:
+            if covariate_defn.name not in row:
+                # it's possible to have covariates that aren't in the set
                 continue
-            if column in sample_fields:
-                setattr(sample, column, row[column])
-            elif column.startswith(COVARIATE_ID):
-                if pandas.notna(value) and value != '':
-                    covariate_name = '_'.join(column.split('_')[1:])
-                    covariate_data.append({
-                        'sample_id': sample.id_key,
-                        'covariate_name': covariate_name,
-                        'covariate_value': value
-                    })
-    print('about to do bulk insert mappings')
-    session.bulk_insert_mappings(Covariate, covariate_data)
+            value = row[covariate_defn.name]
+            if not isinstance(value, str) and numpy.isnan(value):
+                continue
+
+            covariate_value = session.query(CovariateValue).filter(
+                CovariateValue.covariate_defn == covariate_defn,
+                CovariateValue.value == value).first()
+            if covariate_value is None:
+                covariate_value = CovariateValue(
+                    value=value,
+                    covariate_defn=covariate_defn,
+                    samples=[sample])
+                session.add(covariate_value)
+            elif sample not in covariate_value.samples:
+                covariate_value.samples.append(sample)
+        session.add(sample)
+
     print('about to commit ')
     session.commit()
     session.close()

@@ -76,6 +76,11 @@ class GeolocationName(Base):
         secondary=geolocation_to_point_association,
         back_populates="geolocations")
 
+    def __repr__(self):
+        return (
+            f'<GeolocationName(id={self.id_key}, '
+            f'geolocation_name={self.geolocation_name}>')
+
 
 class Point(Base):
     __tablename__ = 'point'
@@ -88,10 +93,16 @@ class Point(Base):
     longitude: Mapped[float] = mapped_column(index=True)
     samples: Mapped[List["Sample"]] = relationship(
         "Sample", back_populates="point")
-    geolocations: Mapped[Optional[List[GeolocationName]]] = relationship(
+    geolocations: Mapped[List[GeolocationName]] = relationship(
         "GeolocationName",
         secondary=geolocation_to_point_association,
         back_populates="points")
+
+    def __repr__(self):
+        return (
+            f'<Point(id={self.id_key}, latitude={self.latitude}, '
+            f'longitude={self.longitude}, geolocations={self.geolocations}>')
+
 
 
 class CovariateDefn(Base):
@@ -147,7 +158,7 @@ class CovariateValue(Base):
     id_key: Mapped[int] = mapped_column(primary_key=True)
     covariate_defn_id: Mapped[int] = mapped_column(
         ForeignKey('covariate_defn.id_key'))
-    value: Mapped[str] = mapped_column(unique=True, index=True)
+    value: Mapped[str] = mapped_column(nullable=False, index=True)
     covariate_defn: Mapped[CovariateDefn] = relationship(
         "CovariateDefn", back_populates="covariate_values")
     samples: Mapped[List["Sample"]] = relationship(
@@ -196,3 +207,9 @@ class Sample(Base):
         "CovariateValue",
         secondary=covariate_to_sample_association,
         back_populates="samples")
+
+    def __repr__(self):
+        return (
+            f'<Sample(id={self.id_key}, point={self.point}, '
+            f'study_id={self.study_id}, observation={self.observation} '
+            f'covariates={self.covariates}>')
