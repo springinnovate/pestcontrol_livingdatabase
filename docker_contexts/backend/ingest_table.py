@@ -58,12 +58,11 @@ def validate_tables(study_table_df, sample_table_df):
 def fetch_or_create_study(session, covariate_defn_list, row):
     study_id = row[STUDY_ID]
     study = session.query(Study).filter(Study.id_key == study_id).first()
-    if study is None:
-        study = Study(id_key=study_id)
+    if study is not None:
+        return study
 
-    # look up covariates
+    study = Study(id_key=study_id)
     for covariate_defn in covariate_defn_list:
-
         if covariate_defn.name not in row:
             # it's possible to have covariates that aren't in the set
             continue
@@ -323,20 +322,8 @@ def main():
         study_id_to_study_map[row[STUDY_ID]] = fetch_or_create_study(
             session, study_covariate_list, row)
 
-        # create a study with its covariates if it doesn't exist
-        # study_base_to_user_fields <-
-        pass
-
-        # class Study(Base):
-        #     __tablename__ = 'study'
-        #     id_key: Mapped[str] = mapped_column(primary_key=True)
-        #     covariates: Mapped[List[CovariateValue]] = relationship(
-        #         "CovariateValue",
-        #         secondary=covariate_to_study_association,
-        #         back_populates="studies")
-        #     samples: Mapped[List["Sample"]] = relationship(
-        #         "Sample", back_populates="study")
-
+    print(study_id_to_study_map)
+    return
     for index, row in sample_table_df.iterrows():
         print(f'{100*index/len(sample_table_df.index):.2f}%')
         study_id = row[STUDY_ID]
