@@ -71,6 +71,7 @@ class GeolocationName(Base):
     __tablename__ = 'geolocation_name'
     id_key: Mapped[int] = mapped_column(primary_key=True)
     geolocation_name: Mapped[str] = mapped_column(unique=True, index=True)
+    geolocation_type: Mapped[str] = mapped_column(nullable=False, index=True)
     points: Mapped[list["Point"]] = relationship(
         "Point",
         secondary=geolocation_to_point_association,
@@ -102,7 +103,6 @@ class Point(Base):
         return (
             f'<Point(id={self.id_key}, latitude={self.latitude}, '
             f'longitude={self.longitude}, geolocations={self.geolocations}>')
-
 
 
 class CovariateDefn(Base):

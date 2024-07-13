@@ -86,12 +86,14 @@ def fetch_or_create_study(session, covariate_defn_list, row):
     return study
 
 
-def fetch_or_create_geolocation_name(session, name):
+def fetch_or_create_geolocation_name(session, name, geolocation_type):
     try:
         geolocation_name = session.query(GeolocationName).filter_by(
             geolocation_name=name).one()
     except NoResultFound:
-        geolocation_name = GeolocationName(geolocation_name=name)
+        geolocation_name = GeolocationName(
+            geolocation_name=name,
+            geolocation_type=geolocation_type)
         session.add(geolocation_name)
     return geolocation_name
 
@@ -120,7 +122,7 @@ def fetch_or_add_point(
             continent_result.index_right.dropna().astype(int).values[0],
             'CONTINENT']
         continent_geolocation = fetch_or_create_geolocation_name(
-            session, continent_name)
+            session, continent_name, 'CONTINENT')
         geolocation_list.append(continent_geolocation)
     except IndexError:
         raise ValueError(f'could not find a continent for {point_gdf}')
@@ -134,7 +136,7 @@ def fetch_or_add_point(
             country_result.index_right.dropna().astype(int).values[0],
             'nev_name']
         country_geolocation = fetch_or_create_geolocation_name(
-            session, country_name)
+            session, country_name, 'COUNTRY')
         geolocation_list.append(country_geolocation)
     except IndexError:
         raise ValueError(f'could not find a country for {projected_point_gdf}')

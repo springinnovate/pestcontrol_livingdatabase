@@ -6,7 +6,7 @@ import re
 import sys
 
 from database import SessionLocal
-from database_model_definitions import Study, Sample, Point, CovariateDefn, CovariateAssociation
+from database_model_definitions import Study, Sample, Point, CovariateDefn, CovariateValue, CovariateValue, CovariateAssociation, GeolocationName
 from flask import Flask
 from flask import render_template
 from flask import request
@@ -14,6 +14,9 @@ from flask import jsonify
 from sqlalchemy import distinct, func
 from sqlalchemy.engine import Row
 from sqlalchemy.sql import and_, or_
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.sql.functions import GenericFunction
+from sqlalchemy.types import String
 
 
 logging.basicConfig(
@@ -31,32 +34,47 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your_secret_key'
 
 
-UNIQUE_FIELD_VALUES_PKL = 'unique_field_values.pkl'
+UNIQUE_COVARIATE_VALUES_PKL = 'unique_COVARIATE_values.pkl'
+
+
+class group_concat_distinct(GenericFunction):
+    type = String()
+
+
+@compiles(group_concat_distinct, 'sqlite')
+def compile_group_concat_distinct(element, compiler, **kw):
+    return 'GROUP_CONCAT(DISTINCT %s)' % compiler.process(element.clauses)
 
 
 def init_unique_fieldnames():
-    global UNIQUE_FIELD_VALUES
-    UNIQUE_FIELD_VALUES = {}
+    global UNIQUE_COVARIATE_VALUES
+    UNIQUE_COVARIATE_VALUES = {}
     return
-    if os.path.exists(UNIQUE_FIELD_VALUES_PKL):
+
+    if os.path.exists(UNIQUE_COVARIATE_VALUES_PKL):
         # Load data from the pickle file
-        with open(UNIQUE_FIELD_VALUES_PKL, 'rb') as f:
-            UNIQUE_FIELD_VALUES = pickle.load(f)
+        with open(UNIQUE_COVARIATE_VALUES_PKL, 'rb') as f:
+            UNIQUE_COVARIATE_VALUES = pickle.load(f)
         LOGGER.info("Loaded unique field values from pickle file.")
         return
 
     session = SessionLocal()
-    for column in SEARCH_BY_UNIQUE_VAL:
-        LOGGER.debug(f'processing {column}')
-        LOGGER.debug(f'i.e. {column.name}')
-        unique_values = session.query(distinct(column)).all()
-        UNIQUE_FIELD_VALUES[column.name] = [v[0] for v in unique_values]
+
+    covariate_values = (
+        session.query(
+            CovariateDefn.name,
+            func.array_agg(func.distinct(CovariateValue.value)).label('unique_values')
+        )
+        .join(CovariateValue, CovariateDefn.id_key == CovariateValue.covariate_defn_id)
+        .group_by(CovariateDefn.name)
+    ).all()
+    print(covariate_values)
 
     session.close()
 
-    with open(UNIQUE_FIELD_VALUES_PKL, 'wb') as f:
-        pickle.dump(UNIQUE_FIELD_VALUES, f)
-    LOGGER.info(f"Saved unique field values to {UNIQUE_FIELD_VALUES_PKL}.")
+    with open(UNIQUE_COVARIATE_VALUES_PKL, 'wb') as f:
+        pickle.dump(UNIQUE_COVARIATE_VALUES, f)
+    LOGGER.info(f"Saved unique field values to {UNIQUE_COVARIATE_VALUES_PKL}.")
 
 
 init_unique_fieldnames()
@@ -80,35 +98,46 @@ OPERATION_MAP = {
 @app.route('/api/home')
 def home():
     session = SessionLocal()
+
+
+    covariate_values = (
+        session.query(
+            CovariateDefn.name,
+            group_concat_distinct(CovariateValue.value).label('unique_values')
+        )
+        .join(CovariateValue, CovariateDefn.id_key == CovariateValue.covariate_defn_id)
+        .group_by(CovariateDefn.name)
+    ).all()
+    print(covariate_values)
+    print(covariate_values)
+
+
+    searchable_covariates = [
+        x.name for x in session.query(CovariateDefn).filter(
+            CovariateDefn.queryable).order_by(
+            CovariateDefn.display_order,
+            func.lower(CovariateDefn.name)).all()]
+    print(searchable_covariates)
+
     n_samples = session.query(Sample).count()
 
-    response_variables = session.query(distinct(Sample.response_variable)).filter(
-        Sample.response_variable.isnot(None),
-        Sample.response_variable != ''
-    ).all()
-    response_variables = [value[0] for value in response_variables]
-
-    response_types = session.query(distinct(Sample.response_type)).filter(
-        Sample.response_type.isnot(None),
-        Sample.response_type != ''
-    ).all()
-    response_types = [value[0] for value in response_types]
-
-    country_set = session.query(distinct(Point.country)).all()
-    country_set = [value[0] for value in country_set]
-    continent_set = session.query(distinct(Point.continent)).all()
-    continent_set = [value[0] for value in continent_set]
+    country_set = [
+        x[0] for x in session.query(
+            distinct(GeolocationName.geolocation_name)).filter(
+            GeolocationName.geolocation_type == 'COUNTRY').all()]
+    continent_set = [
+        x[0] for x in session.query(
+            distinct(GeolocationName.geolocation_name)).filter(
+            GeolocationName.geolocation_type == 'CONTINENT').all()]
 
     return render_template(
         'query_builder.html',
         status_message=f'Number of samples in db: {n_samples}',
         possible_operations=list(OPERATION_MAP),
-        unique_fields=UNIQUE_FIELD_VALUES.keys(),
-        response_variables=response_variables,
-        response_types=response_types,
+        covariate_list=searchable_covariates,
         country_set=country_set,
         continent_set=continent_set,
-        unique_field_values=UNIQUE_FIELD_VALUES,
+        unique_covariate_values=UNIQUE_COVARIATE_VALUES,
         )
 
 

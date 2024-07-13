@@ -75,15 +75,15 @@
 <form id="queryForm" action="/api/process_query" method="post">
     <div id="queryBuilder">
         <div class="querySection">
-            <div class="section-title" onclick="toggleVisibility('columnQuery')">Query by column</div>
+            <div class="section-title" onclick="toggleVisibility('columnQuery')">Query by covariate value</div>
             <div class="collapsible-content" id="columnQuery">
             <div id="queryRows">
                 <div class="queryRow">
-                    <label for="fieldSelect">Choose a field:</label>
-                    <select name="field" id="fieldSelect" onchange="updateValueOptions(this)">
-                        <option value="" selected>Select field</option>
-                        {% for field in fields %}
-                            <option value="{{ field }}">{{ field }}</option>
+                    <label for="fieldSelect">Choose a covariate variable:</label>
+                    <select name="covariate" id="covariateSelect" onchange="updateValueOptions(this)">
+                        <option value="" selected>Select covariate</option>
+                        {% for covariate in covariate_list %}
+                            <option value="{{ covariate }}">{{ covariate }}</option>
                         {% endfor %}
                     </select>
                     <select name="operation">
@@ -162,36 +162,20 @@
             <div class="section-title" onclick="toggleVisibility('sampleSizeQuery')">Query by minimum sample size</div>
                 <div class="collapsible-content" id="sampleSizeQuery">
                     <div class="query-input-group">
-                        <label for="minObservationsResponseVariable">Min observations in study for given response variable:</label>
-                        <select name="minObservationsResponseVariable" id="minObservationsResponseVariable">
-                            <option value="" selected>Select a response variable</option>
-                            {% for variable in response_variables %}
-                                <option value="{{ variable }}">{{ variable }}</option>
-                            {% endfor %}
-                        </select>
-                        <input type="number" id="minObservationsSampleSize" name="minObservationsSampleSize" min="1">
-                    </div>
-                    <div class="query-input-group">
                         <label for="minSiteYears">Minimum number of site-years in study:</label>
-                        <input type="number" id="minSiteYears" name="minSiteYears" min="1">
+                        <input type="number" id="minSiteYears" name="minSiteYears" value="1" min="1">
                     </div>
                     <div class="query-input-group">
-                        <label for="minSitesResponseType">Minimum number of sites for a response type in study:</label>
-                        <select name="minSitesResponseType" id="minSitesResponseType">
-                            <option value="" selected>Select a response type</option>
-                            {% for variable in response_types %}
-                                <option value="{{ variable }}">{{ variable }}</option>
-                            {% endfor %}
-                        </select>
-                        <input type="number" id="minSitesResponseTypeCount" name="minSitesResponseTypeCount" min="1">
+                        <label for="minSitesResponseType">Minimum number of sites in study:</label>
+                        <input type="number" id="minSitesResponseTypeCount" name="minSitesResponseTypeCount" value="1" min="1">
                     </div>
                     <div class="query-input-group">
                         <label for="sampleSizeMinYears">Minimum number years in a study:</label>
-                        <input type="number" id="sampleSizeMinYears" name="sampleSizeMinYears" min="1">
+                        <input type="number" id="sampleSizeMinYears" name="sampleSizeMinYears" value="1" min="1">
                     </div>
                     <div class="query-input-group">
                         <label for="sampleSizeMinObservationsPerYear">Minimum number of observations within all years of a study:</label>
-                        <input type="number" id="sampleSizeMinObservationsPerYear" name="sampleSizeMinObservationsPerYear" min="1">
+                        <input type="number" id="sampleSizeMinObservationsPerYear" name="sampleSizeMinObservationsPerYear" value="1" min="1">
                     </div>
                 </div>
         </div>
@@ -277,7 +261,7 @@ function resetSpaceInputs() {
 }
 
 const fieldValues = {
-    {% for field, values in unique_field_values.items() %}"{{ field }}": [{% for value in values %}"{{ value }}"{% if not loop.last %}, {% endif %}{% endfor %}],
+    {% for field, values in unique_covariate_values.items() %}"{{ field }}": [{% for value in values %}"{{ value }}"{% if not loop.last %}, {% endif %}{% endfor %}],
     {% endfor %}
 };
 
