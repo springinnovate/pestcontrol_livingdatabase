@@ -109,13 +109,7 @@ def fetch_or_add_point(
     point_gdf = geopandas.GeoDataFrame(
         latlng_df, geometry=geopandas.points_from_xy(
             latlng_df.longitude, latlng_df.latitude), crs='EPSG:4326')
-    if continent_vector.crs.is_geographic:
-        # Reproject continent_vector to a suitable projected CRS (e.g., EPSG:3857 for Web Mercator)
-        projected_crs = 'EPSG:3857'
-        continent_vector = continent_vector.to_crs(projected_crs)
-        projected_point_gdf = point_gdf.to_crs(projected_crs)
-    else:
-        projected_point_gdf = point_gdf
+    projected_point_gdf = point_gdf.to_crs(continent_vector.crs)
 
     geolocation_list = []
     try:
@@ -131,13 +125,7 @@ def fetch_or_add_point(
     except IndexError:
         raise ValueError(f'could not find a continent for {point_gdf}')
 
-    if country_vector.crs.is_geographic:
-        # Reproject country_vector to a suitable projected CRS (e.g., EPSG:3857 for Web Mercator)
-        projected_crs = 'EPSG:3857'
-        country_vector = country_vector.to_crs(projected_crs)
-        projected_point_gdf = point_gdf.to_crs(projected_crs)
-    else:
-        projected_point_gdf = point_gdf
+    projected_point_gdf = point_gdf.to_crs(country_vector.crs)
     try:
         country_name = None
         country_result = geopandas.sjoin_nearest(
@@ -306,6 +294,14 @@ def main():
     country_vector = geopandas.read_file(
         "../../base_data/countries_iso3_md5_6fb2431e911401992e6e56ddf0a9bcda.gpkg")
     continent_vector = geopandas.read_file('../../base_data/continents.gpkg')
+    if continent_vector.crs.is_geographic:
+        # Reproject continent_vector to a suitable projected CRS (e.g., EPSG:3857 for Web Mercator)
+        projected_crs = 'EPSG:3857'
+        continent_vector = continent_vector.to_crs(projected_crs)
+    if country_vector.crs.is_geographic:
+        # Reproject country_vector to a suitable projected CRS (e.g., EPSG:3857 for Web Mercator)
+        projected_crs = 'EPSG:3857'
+        country_vector = country_vector.to_crs(projected_crs)
 
     study_covariate_defn_list = session.query(CovariateDefn).filter(
         CovariateDefn.covariate_association == CovariateAssociation.STUDY).order_by(
