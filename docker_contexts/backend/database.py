@@ -21,6 +21,7 @@ def initialize_covariates():
     OTHER_COVARIATES = [
         (0, 'doi', CovariateType.STRING, CovariateAssociation.STUDY, True, True, None),
         (0, 'study_metadata', CovariateType.STRING, CovariateAssociation.STUDY, True, True, None),
+        (0, 'study_id', CovariateType.STRING, CovariateAssociation.STUDY, True, True, None),
         (1, 'response_type', CovariateType.STRING, CovariateAssociation.SAMPLE, True, True, None),
         (1, 'species', CovariateType.STRING, CovariateAssociation.SAMPLE, True, True, None),
         (1, 'functional_type', CovariateType.STRING, CovariateAssociation.SAMPLE, True, True, None),
