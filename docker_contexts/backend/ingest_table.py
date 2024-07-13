@@ -60,21 +60,16 @@ def fetch_or_create_study(session, covariate_defn_list, row):
     study = session.query(Study).filter(Study.id_key == study_id).first()
     if study is None:
         study = Study(id_key=study_id)
-        session.flush()
 
     # look up covariates
     for covariate_defn in covariate_defn_list:
-        if covariate_defn not in session:
-            print(f"{covariate_defn} is not in the session, adding it back.")
-            #covariate_defn = session.merge(covariate_defn)
-        print(covariate_defn)
+
         if covariate_defn.name not in row:
             # it's possible to have covariates that aren't in the set
             continue
         value = row[covariate_defn.name]
         print(value)
 
-        # TODO: this is where I left off with some sort of error that this covariate value is not in the session
         covariate_value = session.query(CovariateValue).filter(
             CovariateValue.covariate_defn == covariate_defn,
             CovariateValue.value == value).first()
@@ -83,14 +78,11 @@ def fetch_or_create_study(session, covariate_defn_list, row):
                 value=value,
                 covariate_defn=covariate_defn,
                 studies=[study])
+            session.add(covariate_value)
         elif study not in covariate_value.studies:
             covariate_value.studies.append(study)
 
-
     session.add(study)
-    session.flush()
-    print(study)
-    sys.exit()
     return study
 
 

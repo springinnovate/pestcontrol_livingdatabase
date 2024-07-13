@@ -159,7 +159,7 @@ class CovariateValue(Base):
         secondary=covariate_to_study_association,
         back_populates="covariates")
     def __repr__(self):
-        return f'<CovariateValue(id={self.id_key}, covariate_defn={self.covariate_defn}, value={self.value})'
+        return f'<CovariateValue(id={self.id_key}, covariate_defn={self.covariate_defn}, value={self.value})>'
 
 
 class Study(Base):
@@ -173,7 +173,7 @@ class Study(Base):
         "Sample", back_populates="study")
 
     def __repr__(self):
-        return f'<Study(id={self.id_key}, covariates={self.covariates})'
+        return f'<Study(id={self.id_key}, covariates={self.covariates})>'
 
 
 class Sample(Base):
