@@ -6,7 +6,7 @@ import re
 import sys
 
 from database import SessionLocal
-from database_model_definitions import Study, Sample, Point, CovariateDefn, CovariateValue, CovariateValue, CovariateAssociation, GeolocationName
+from database_model_definitions import Study, Sample, Point, CovariateDefn, CovariateValue, CovariateType, CovariateAssociation, GeolocationName
 from flask import Flask
 from flask import render_template
 from flask import request
@@ -46,40 +46,6 @@ def compile_group_concat_distinct(element, compiler, **kw):
     return 'GROUP_CONCAT(DISTINCT %s)' % compiler.process(element.clauses)
 
 
-def init_unique_fieldnames():
-    global UNIQUE_COVARIATE_VALUES
-    UNIQUE_COVARIATE_VALUES = {}
-    return
-
-    if os.path.exists(UNIQUE_COVARIATE_VALUES_PKL):
-        # Load data from the pickle file
-        with open(UNIQUE_COVARIATE_VALUES_PKL, 'rb') as f:
-            UNIQUE_COVARIATE_VALUES = pickle.load(f)
-        LOGGER.info("Loaded unique field values from pickle file.")
-        return
-
-    session = SessionLocal()
-
-    covariate_values = (
-        session.query(
-            CovariateDefn.name,
-            func.array_agg(func.distinct(CovariateValue.value)).label('unique_values')
-        )
-        .join(CovariateValue, CovariateDefn.id_key == CovariateValue.covariate_defn_id)
-        .group_by(CovariateDefn.name)
-    ).all()
-    print(covariate_values)
-
-    session.close()
-
-    with open(UNIQUE_COVARIATE_VALUES_PKL, 'wb') as f:
-        pickle.dump(UNIQUE_COVARIATE_VALUES, f)
-    LOGGER.info(f"Saved unique field values to {UNIQUE_COVARIATE_VALUES_PKL}.")
-
-
-init_unique_fieldnames()
-
-
 @app.route('/api/')
 def index():
     session = SessionLocal()
@@ -99,24 +65,34 @@ OPERATION_MAP = {
 def home():
     session = SessionLocal()
 
-
-    covariate_values = (
+    searchable_unique_covariates = (
         session.query(
             CovariateDefn.name,
             group_concat_distinct(CovariateValue.value).label('unique_values')
-        )
+        ).filter(
+            CovariateDefn.queryable,
+            CovariateDefn.covariate_type == CovariateType.STRING
+            )
         .join(CovariateValue, CovariateDefn.id_key == CovariateValue.covariate_defn_id)
         .group_by(CovariateDefn.name)
     ).all()
-    print(covariate_values)
-    print(covariate_values)
+    searchable_covariates = {
+        row.name: row.unique_values.split(',')
+        for row in searchable_unique_covariates if row.unique_values}
 
+    searchable_continuous_covariates = (
+        session.query(
+            CovariateDefn.name, CovariateDefn.covariate_type
+        ).filter(
+            CovariateDefn.queryable,
+            CovariateDefn.covariate_type != CovariateType.STRING
+        )
+    ).all()
 
-    searchable_covariates = [
-        x.name for x in session.query(CovariateDefn).filter(
-            CovariateDefn.queryable).order_by(
-            CovariateDefn.display_order,
-            func.lower(CovariateDefn.name)).all()]
+    searchable_covariates.update({
+        row.name: str(row.covariate_type)
+        for row in searchable_continuous_covariates})
+
     print(searchable_covariates)
 
     n_samples = session.query(Sample).count()
@@ -134,10 +110,9 @@ def home():
         'query_builder.html',
         status_message=f'Number of samples in db: {n_samples}',
         possible_operations=list(OPERATION_MAP),
-        covariate_list=searchable_covariates,
         country_set=country_set,
         continent_set=continent_set,
-        unique_covariate_values=UNIQUE_COVARIATE_VALUES,
+        unique_covariate_values=searchable_covariates,
         )
 
 

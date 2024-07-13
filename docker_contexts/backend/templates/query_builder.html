@@ -82,7 +82,7 @@
                     <label for="fieldSelect">Choose a covariate variable:</label>
                     <select name="covariate" id="covariateSelect" onchange="updateValueOptions(this)">
                         <option value="" selected>Select covariate</option>
-                        {% for covariate in covariate_list %}
+                        {% for covariate in unique_covariate_values %}
                             <option value="{{ covariate }}">{{ covariate }}</option>
                         {% endfor %}
                     </select>
@@ -91,9 +91,11 @@
                             <option value="{{ op }}">{{ op }}</option>
                         {% endfor %}
                     </select>
-                    <select name="value" class="valueSelect">
-                        <option value="" selected>Select value</option>
-                    </select>
+                    <div class="valueSelectContainer">
+                        <select name="value" class="valueSelect">
+                            <option value="" selected>Select value</option>
+                        </select>
+                    </div>
                     <button type="button" onclick="removeRow(this)">Remove</button>
                 </div>
             </div>
@@ -261,29 +263,52 @@ function resetSpaceInputs() {
 }
 
 const fieldValues = {
-    {% for field, values in unique_covariate_values.items() %}"{{ field }}": [{% for value in values %}"{{ value }}"{% if not loop.last %}, {% endif %}{% endfor %}],
+    {% for field, values in unique_covariate_values.items() %}
+        "{{ field }}": {% if values is iterable and not values is string %}[{% for value in values %}"{{ value }}"{% if not loop.last %}, {% endif %}{% endfor %}] {% else %}"{{ values }}" {% endif %},
     {% endfor %}
 };
 
 function updateValueOptions(fieldSelect) {
     const queryRow = fieldSelect.closest('.queryRow');
-    const valueSelect = queryRow.querySelector('.valueSelect');
+    const valueSelectContainer = queryRow.querySelector('.valueSelectContainer');
     const selectedField = fieldSelect.value;
 
     // Clear previous options
-    valueSelect.innerHTML = '<option value="" selected>Select value</option>';
+    valueSelectContainer.innerHTML = '';
 
     // Populate new options
     if (selectedField in fieldValues) {
         const values = fieldValues[selectedField];
-        values.forEach(value => {
-            const option = document.createElement('option');
-            option.value = value;
-            option.text = value;
-            valueSelect.appendChild(option);
-        });
+
+        if (Array.isArray(values)) {
+            // Create a dropdown
+            const valueSelect = document.createElement('select');
+            valueSelect.name = 'value';
+            valueSelect.classList.add('valueSelect');
+            valueSelect.innerHTML = '<option value="" selected>Select value</option>';
+
+            values.forEach(value => {
+                const option = document.createElement('option');
+                option.value = value;
+                option.text = value;
+                valueSelect.appendChild(option);
+            });
+
+            valueSelectContainer.appendChild(valueSelect);
+        } else {
+            // Create a numerical input box
+            const valueInput = document.createElement('input');
+            valueInput.type = 'number';
+            valueInput.name = 'value';
+            valueInput.classList.add('valueInput');
+            valueInput.value = values; // Set the default value if needed
+
+            valueSelectContainer.appendChild(valueInput);
+        }
     }
 }
+
+
 </script>
 
 </body>
