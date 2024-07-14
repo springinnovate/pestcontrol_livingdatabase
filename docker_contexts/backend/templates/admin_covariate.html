@@ -31,6 +31,7 @@
                     <th>Queryable</th>
                     <th>Always display</th>
                     <th>Condition if conditionally displayed</th>
+                    <th>Hidden</th>
                     <th>update changes</th>
                 </tr>
             </thead>
@@ -68,6 +69,7 @@
                 var always_display = row.querySelector('select[name="always_display"]').value === 'true';
                 var covariate_association = row.querySelector('select[name="covariate_association"]').value;
                 var condition = row.querySelector('input[name="condition"]').value;
+                var hidden = row.querySelector('select[name="hidden"]').value === 'true';
 
                 var covariate = {
                     id_key: id_key,
@@ -77,7 +79,8 @@
                     queryable: queryable,
                     always_display: always_display,
                     covariate_association: covariate_association,
-                    condition: condition
+                    condition: condition,
+                    hidden: hidden
                 };
 
                 covariates.push(covariate);
@@ -132,6 +135,12 @@
                     </td>
 
                     <td><input type="text" name="condition" value="${covariate.condition}" onfocus="this.select()"></td>
+                    <td>
+                        <select name="hidden">
+                            <option value="true" ${covariate.hidden ? 'selected' : ''}>True</option>
+                            <option value="false" ${!covariate.hidden ? 'selected' : ''}>False</option>
+                        </select>
+                    </td>
                     <td>
                         <button class="btn btn-primary btn-sm" onclick="updateCovariates()" disabled>Update</button>
                     </td>

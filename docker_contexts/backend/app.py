@@ -442,7 +442,8 @@ def get_covariates():
         'always_display': c.always_display,
         'queryable': c.queryable,
         'covariate_association': c.covariate_association.value,
-        'condition': c.condition
+        'condition': c.condition,
+        'hidden': c.hidden,
     } for c in covariate_list]
     session.close()
     return jsonify(success=True, covariates=covariates)
@@ -462,6 +463,7 @@ def update_covariate():
         local_covariate.covariate_association = remote_covariate['covariate_association']
         if remote_covariate['condition'] != "None":
             local_covariate.condition = remote_covariate['condition']
+        local_covariate.hidden = remote_covariate['hidden']
     session.commit()
 
     return get_covariates()
