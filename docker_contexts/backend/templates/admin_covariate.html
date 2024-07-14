@@ -30,10 +30,10 @@
         <table class="table table-bordered">
             <thead>
                 <tr>
+                    <th>Covariate association</th>
                     <th>Name</th>
                     <th>Display order (smaller numbers displayed first)</th>
                     <th>Description</th>
-                    <th>Covariate association</th>
                     <th>Queryable</th>
                     <th>Always display</th>
                     <th>Condition if conditionally displayed</th>
@@ -132,13 +132,13 @@
                 }
 
                 row.innerHTML = `
-                    ${nameCell}
-                    <td><input type="number" name="display_order" value="${covariate.display_order}" onfocus="this.select()"></td>
-                    <td><input type="text" name="description" value="${covariate.description}" onfocus="this.select()"></td>
                     <td>
                         ${covariate.covariate_association}
                     </td>
-                    <td>${covariate.queryable}</td>
+                    ${nameCell}
+                    <td><input type="number" name="display_order" value="${covariate.display_order}" onfocus="this.select()"></td>
+                    <td>
+                        <textarea name="description" onfocus="this.select()" style="width:auto; height: auto; min-height: 50px;"> ${covariate.description}</textarea>
                     <td>
                         <select name="queryable"  onchange="applySelectStyles(this)">
                             <option value="true" ${covariate.queryable ? 'selected' : ''}>True</option>
@@ -151,6 +151,7 @@
                             <option value="false" ${!covariate.always_display ? 'selected' : ''}>False</option>
                         </select>
                     </td>
+                    <td><input type="text" name="condition" value="${covariate.condition}" onfocus="this.select()"></td>
                     <td>
                         <select name="hidden"  onchange="applySelectStyles(this)">
                             <option value="true" ${covariate.hidden ? 'selected' : ''}>True</option>
