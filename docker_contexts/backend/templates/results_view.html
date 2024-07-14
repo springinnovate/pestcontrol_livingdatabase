@@ -50,6 +50,7 @@
     </script>
     <div class="container mt-5">
         <h1>Relevant Studies</h1>
+        <button class="download-btn btn btn-primary mb-3" data-filename="studies.csv">Download as CSV</button>
         <table class="table table-bordered">
             <thead>
                 <tr>
@@ -65,6 +66,7 @@
     </div>
     <div class="container mt-5">
         <h1>Samples</h1>
+        <button class="download-btn btn btn-primary mb-3" data-filename="samples.csv">Download as CSV</button>
         <table class="table table-bordered">
             <thead>
                 <tr>
@@ -81,5 +83,39 @@
     {% else %}
     No data matched the filter!
     {% endif %}
+
+    <script type="text/javascript">
+        document.querySelectorAll('.download-btn').forEach(button => {
+            button.addEventListener('click', function () {
+                const tableContainer = this.closest('.container');
+                const table = tableContainer.querySelector('table');
+                const filename = this.getAttribute('data-filename');
+                let csv = [];
+                const rows = table.querySelectorAll('tr');
+
+                for (let i = 0; i < rows.length; i++) {
+                    const row = [], cols = rows[i].querySelectorAll('td, th');
+
+                    for (let j = 0; j < cols.length; j++) {
+                        row.push(cols[j].innerText);
+                    }
+
+                    csv.push(row.join(','));
+                }
+                downloadCSV(csv.join('\n'), 'table.csv');
+            });
+        });
+
+        function downloadCSV(csv, filename) {
+            const csvFile = new Blob([csv], { type: 'text/csv' });
+            const downloadLink = document.createElement('a');
+            downloadLink.download = filename;
+            downloadLink.href = window.URL.createObjectURL(csvFile);
+            downloadLink.style.display = 'none';
+            document.body.appendChild(downloadLink);
+            downloadLink.click();
+            document.body.removeChild(downloadLink);
+        }
+    </script>
 </body>
 </html>
