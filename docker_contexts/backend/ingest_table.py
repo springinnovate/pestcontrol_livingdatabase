@@ -12,7 +12,7 @@ import sys
 from database import SessionLocal, init_db
 from database_model_definitions import CovariateDefn
 from database_model_definitions import CovariateValue
-from database_model_definitions import CovariateAssociation
+from database_model_definitions import CovariateAssociation, CovariateType
 from database_model_definitions import Point
 from database_model_definitions import GeolocationName
 from database_model_definitions import Study
@@ -71,6 +71,8 @@ def fetch_or_create_study(session, covariate_defn_list, row):
         if covariate_defn.name not in row:
             continue
         value = row[covariate_defn.name]
+        if not isinstance(value, str) and numpy.isnan(value):
+            continue
 
         if (covariate_defn, value) in COVARIATE_VALUE_CACHE:
             if study not in COVARIATE_VALUE_CACHE[(covariate_defn, value)].studies:
@@ -87,6 +89,27 @@ def fetch_or_create_study(session, covariate_defn_list, row):
 
 
 GEOLOCATION_CACHE = {}
+
+
+def define_new_covariates(session, table_source_path, covariate_names, covariate_association):
+    for name in covariate_names:
+        existing = session.query(CovariateDefn).filter_by(
+            name=name).first()
+        if existing:
+            continue
+        hidden_covariate = CovariateDefn(
+            display_order=999,
+            name=name,
+            covariate_type=CovariateType.STRING,
+            covariate_association=covariate_association,
+            description=f'found in {table_source_path} but with no mapping to existing covariates',
+            queryable=False,
+            always_display=False,
+            condition=None,
+            hidden=True
+        )
+        session.add(hidden_covariate)
+    session.commit()
 
 
 def fetch_or_create_geolocation_name(session, name, geolocation_type):
@@ -190,25 +213,25 @@ def match_strings(base_list, to_match_list):
 
 def extract_column_matching(matching_df, column_matching_path):
     missing_fields = []
+    unmatched_field = []
     base_to_target_map = {}
     for row in matching_df.iterrows():
         expected_field, user_field = row[1]
-        if any([not isinstance(field_set, str) and (field_set is None or numpy.isnan(field_set))
-                for field_set in [expected_field, user_field]]):
-            continue
-        required = expected_field.startswith('*')
-        expected_field = expected_field.replace('*', '')
-
-        if required and not isinstance(user_field, str):
-            missing_fields.append(expected_field)
-        else:
+        if isinstance(expected_field, str):
+            required = expected_field.startswith('*')
+            expected_field = expected_field.replace('*', '')
+            if required and not isinstance(user_field, str):
+                missing_fields.append(expected_field)
             base_to_target_map[user_field] = expected_field
+        elif isinstance(user_field, str):
+            unmatched_field.append(user_field)
+
     if missing_fields:
         raise ValueError(
             'was expecting the following fields in study table but they were '
             f'undefined: {missing_fields}. Fix by modifying '
             f'`{column_matching_path}` so these fields are defined.')
-    return base_to_target_map
+    return base_to_target_map, unmatched_field
 
 
 def create_matching_table(session, args, column_matching_path):
@@ -283,21 +306,24 @@ def main():
     study_matching_df = pd.read_csv(io.StringIO(''.join(lines[1:sample_table_start_index])))
     sample_matching_df = pd.read_csv(io.StringIO(''.join(lines[sample_table_start_index+1:])))
 
-    study_base_to_user_fields = extract_column_matching(
+    study_base_to_user_fields, raw_study_user_fields = extract_column_matching(
         study_matching_df, column_matching_path)
 
     # read metadata table and rename the columns to expected names, drop
     # NAs
     study_table_df = pd.read_csv(args.study_table_path, low_memory=False)
     study_table_df.rename(columns=study_base_to_user_fields, inplace=True)
-    study_table_df = study_table_df[study_base_to_user_fields.values()].dropna()
+    #study_table_df = study_table_df[study_base_to_user_fields.values()].dropna()
 
-    sample_base_to_user_fields = extract_column_matching(
+    sample_base_to_user_fields, raw_sample_user_fields = extract_column_matching(
         sample_matching_df, column_matching_path)
     sample_table_df = pd.read_csv(args.sample_table_path, low_memory=False, nrows=args.nrows)
     sample_table_df.rename(columns=sample_base_to_user_fields, inplace=True)
     # drop the columns that aren't being used
-    sample_table_df = sample_table_df[sample_base_to_user_fields.values()]
+    #sample_table_df = sample_table_df[sample_base_to_user_fields.values()]
+
+    define_new_covariates(session, args.study_table_path, raw_study_user_fields, CovariateAssociation.STUDY)
+    define_new_covariates(session, args.sample_table_path, raw_sample_user_fields, CovariateAssociation.SAMPLE)
 
     validate_tables(study_table_df, sample_table_df)
 
@@ -321,6 +347,8 @@ def main():
     study_id_to_study_map = {}
     for index, row in study_table_df.iterrows():
         study_id = row[STUDY_ID]
+        if not isinstance(study_id, str) and (study_id is None or numpy.isnan(study_id)):
+            continue
         study_id_to_study_map[row[STUDY_ID]] = fetch_or_create_study(
             session, study_covariate_defn_list, row)
 
@@ -362,7 +390,6 @@ def main():
             value = row[covariate_defn.name]
             if not isinstance(value, str) and numpy.isnan(value):
                 continue
-
             if (covariate_defn, value) in COVARIATE_DEFN_CACHE:
                 covariate_value = COVARIATE_DEFN_CACHE[(covariate_defn, value)]
 

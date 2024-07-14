@@ -78,6 +78,7 @@ def calculate_covariate_display_order(session, query_to_filter, covariate_type):
         session.query(
             CovariateDefn.name,
             CovariateDefn.always_display,
+            CovariateDefn.hidden,
             CovariateDefn.condition)
         .order_by(CovariateDefn.display_order,
                   func.lower(CovariateDefn.name))
@@ -87,9 +88,10 @@ def calculate_covariate_display_order(session, query_to_filter, covariate_type):
     ).all()]
 
     potential_conditional_covariates = set()
-    for _, _, condition in pre_covariate_display_order:
+    for _, _, hidden, condition in pre_covariate_display_order:
+        if hidden:
+            continue
         if condition and (condition != 'null'):
-            LOGGER.debug(f'{type(condition)} {condition}')
             potential_conditional_covariates.add(condition['depends_on'])
 
     unique_values_per_covariate = collections.defaultdict(set)
@@ -108,11 +110,11 @@ def calculate_covariate_display_order(session, query_to_filter, covariate_type):
                 unique_values_per_covariate[
                     covariate.covariate_defn.name].add(True)
 
-    LOGGER.debug(unique_values_per_covariate)
-
     # get all possible conditions
     covariate_display_order = []
-    for name, always_display, condition in pre_covariate_display_order:
+    for name, always_display, hidden, condition in pre_covariate_display_order:
+        if hidden:
+            continue
         if condition is None or condition == 'null':
             if always_display:
                 covariate_display_order.append(name)
@@ -122,7 +124,6 @@ def calculate_covariate_display_order(session, query_to_filter, covariate_type):
         elif condition['value'] in unique_values_per_covariate[condition['depends_on']]:
             covariate_display_order.append(name)
 
-    LOGGER.debug(covariate_display_order)
     display_table = []
     for row in query_to_filter:
         covariate_dict = to_dict(row.covariates)
@@ -376,7 +377,8 @@ def process_query():
             .join(Point, Sample.point_id == Point.id_key)
             .filter(*filters)
         )
-
+        LOGGER.debug(f'sample query: {sample_query}')
+        LOGGER.debug(f'study query: {study_query}')
         # determine what covariate ids are in this query
         study_covariate_ids_to_display = set(REQUIRED_STUDY_FIELDS)
         for study in sample_query:
