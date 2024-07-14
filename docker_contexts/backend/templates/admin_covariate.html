@@ -68,14 +68,27 @@
 
             rows.forEach(function(row) {
                 var id_key = row.getAttribute('data-id');
-                var name = row.querySelector('input[name="name"]').value;
+                var nameElement = row.querySelector('input[name="name"], td[name="name"]');
+                var name;
+                if (nameElement) {
+                    if (nameElement.tagName.toLowerCase() === 'input') {
+                        name = nameElement.value;
+                    } else if (nameElement.tagName.toLowerCase() === 'td') {
+                        name = nameElement.textContent;
+                    }
+                }
                 var displayOrder = row.querySelector('input[name="display_order"]').value;
-                var description = row.querySelector('input[name="description"]').value;
                 var queryable = row.querySelector('select[name="queryable"]').value === 'true';
+                var description = row.querySelector('textarea[name="description"]').value;
                 var always_display = row.querySelector('select[name="always_display"]').value === 'true';
-                var covariate_association = row.querySelector('select[name="covariate_association"]').value;
-                var condition = row.querySelector('input[name="condition"]').value;
                 var hidden = row.querySelector('select[name="hidden"]').value === 'true';
+
+                var condition = row.querySelector('textarea[name="condition"]').value;
+                try {
+                  var conditionDict = JSON.parse(condition);
+                } catch (e) {
+                  var conditionDict = null;
+                }
 
                 var covariate = {
                     id_key: id_key,
@@ -84,8 +97,7 @@
                     description: description,
                     queryable: queryable,
                     always_display: always_display,
-                    covariate_association: covariate_association,
-                    condition: condition,
+                    condition: conditionDict,
                     hidden: hidden
                 };
 
@@ -128,17 +140,17 @@
                 if (covariate.editable_name) {
                     nameCell = `<td><input type="text" name="name" value="${covariate.name}" onfocus="this.select()"></td>`;
                 } else {
-                    nameCell = `<td>${covariate.name}</td>`;
+                    nameCell = `<td name="name">${covariate.name}</td>`;
                 }
 
                 row.innerHTML = `
-                    <td>
+                    <td name="covariate_association">
                         ${covariate.covariate_association}
                     </td>
                     ${nameCell}
                     <td><input type="number" name="display_order" value="${covariate.display_order}" onfocus="this.select()"></td>
                     <td>
-                        <textarea name="description" onfocus="this.select()" style="width:auto; height: auto; min-height: 50px;"> ${covariate.description}</textarea>
+                        <textarea name="description" onfocus="this.select()" style="width:auto; height: auto; min-height: 50px;">${covariate.description}</textarea>
                     <td>
                         <select name="queryable"  onchange="applySelectStyles(this)">
                             <option value="true" ${covariate.queryable ? 'selected' : ''}>True</option>
@@ -151,7 +163,9 @@
                             <option value="false" ${!covariate.always_display ? 'selected' : ''}>False</option>
                         </select>
                     </td>
-                    <td><input type="text" name="condition" value="${covariate.condition}" onfocus="this.select()"></td>
+                    <td>
+                        <textarea name="condition" onfocus="this.select()">${JSON.stringify(covariate.condition)}</textarea>
+                    </td>
                     <td>
                         <select name="hidden"  onchange="applySelectStyles(this)">
                             <option value="true" ${covariate.hidden ? 'selected' : ''}>True</option>
@@ -166,7 +180,7 @@
 
                 tableBody.appendChild(row);
 
-                var inputs = row.querySelectorAll('input, select');
+                var inputs = row.querySelectorAll('input, select, textarea');
                 inputs.forEach(function(input) {
                     input.addEventListener('input', function() {
                         checkForChanges(row);
@@ -180,7 +194,7 @@
             });
 
             function checkForChanges(row) {
-                var inputs = row.querySelectorAll('input, select');
+                var inputs = row.querySelectorAll('input, select, textarea');
                 var hasChanges = false;
 
                 inputs.forEach(function(input) {

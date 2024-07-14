@@ -434,6 +434,8 @@ def get_covariates():
     covariate_list = session.query(CovariateDefn).order_by(
         CovariateDefn.display_order,
         func.lower(CovariateDefn.name)).all()
+    for c in covariate_list:
+        LOGGER.debug(f'condition: {type(c.condition)} {c.condition}')
     covariates = [{
         'id_key': c.id_key,
         'name': c.name,
@@ -461,7 +463,6 @@ def update_covariate():
         local_covariate.description = remote_covariate['description']
         local_covariate.queryable = remote_covariate['queryable']
         local_covariate.always_display = remote_covariate['always_display']
-        local_covariate.covariate_association = remote_covariate['covariate_association']
         if remote_covariate['condition'] != "None":
             local_covariate.condition = remote_covariate['condition']
         local_covariate.hidden = remote_covariate['hidden']
