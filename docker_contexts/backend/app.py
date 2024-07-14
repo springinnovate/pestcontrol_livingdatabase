@@ -6,6 +6,7 @@ import pickle
 import re
 import sys
 
+import numpy
 from database import SessionLocal
 from database_model_definitions import REQUIRED_STUDY_FIELDS, REQUIRED_SAMPLE_INPUT_FIELDS
 from database_model_definitions import Study, Sample, Point, CovariateDefn, CovariateValue, CovariateType, CovariateAssociation, GeolocationName
@@ -69,6 +70,66 @@ def to_dict(covariate_list):
     for covariate in covariate_list:
         covariate_dict[covariate.covariate_defn.name] = covariate.value
     return covariate_dict
+
+
+def calculate_covariate_display_order(session, query_to_filter, covariate_type):
+    pre_covariate_display_order = [x for x in (
+        session.query(
+            CovariateDefn.name,
+            CovariateDefn.always_display,
+            CovariateDefn.condition)
+        .order_by(CovariateDefn.display_order,
+                  func.lower(CovariateDefn.name))
+        .filter(
+            CovariateDefn.covariate_association ==
+            covariate_type)
+    ).all()]
+
+    potential_conditional_covariates = set()
+    for _, _, condition in pre_covariate_display_order:
+        if condition and (condition != 'null'):
+            LOGGER.debug(f'{type(condition)} {condition}')
+            potential_conditional_covariates.add(condition['depends_on'])
+
+    unique_values_per_covariate = collections.defaultdict(set)
+    for row in query_to_filter:
+        for covariate in row.covariates:
+            if not isinstance(covariate.value, str) and (
+                    covariate.value is None or numpy.isnan(covariate.value)):
+                continue
+            if isinstance(covariate.value, str):
+                if covariate.value == 'null':
+                    continue
+                unique_values_per_covariate[
+                    covariate.covariate_defn.name].add(covariate.value)
+            else:
+                # it's a numeric, just note it's defined
+                unique_values_per_covariate[
+                    covariate.covariate_defn.name].add(True)
+
+    LOGGER.debug(unique_values_per_covariate)
+
+    # get all possible conditions
+    covariate_display_order = []
+    for name, always_display, condition in pre_covariate_display_order:
+        if condition is None or condition == 'null':
+            if always_display:
+                covariate_display_order.append(name)
+            elif unique_values_per_covariate[name]:
+                covariate_display_order.append(name)
+
+        elif condition['value'] in unique_values_per_covariate[condition['depends_on']]:
+            covariate_display_order.append(name)
+
+    LOGGER.debug(covariate_display_order)
+    display_table = []
+    for row in query_to_filter:
+        covariate_dict = to_dict(row.covariates)
+        display_table.append([
+            covariate_dict[name]
+            for name in covariate_display_order])
+    return covariate_display_order, display_table
+
 
 
 @app.route('/api/home')
@@ -321,36 +382,10 @@ def process_query():
         for study in sample_query:
             study_covariate_ids_to_display |= set([c.covariate_defn.name for c in study.covariates])
 
-        study_covariate_display_order = [x[0] for x in (
-            session.query(CovariateDefn.name)
-            .order_by(CovariateDefn.display_order,
-                      func.lower(CovariateDefn.name))
-            .filter(
-                CovariateDefn.covariate_association ==
-                CovariateAssociation.STUDY)
-        ).all()]
-        study_table = []
-        for study in study_query:
-            covariate_dict = to_dict(study.covariates)
-            study_table.append([
-                covariate_dict[name]
-                for name in study_covariate_display_order])
-
-
-        sample_covariate_display_order = [x[0] for x in (
-            session.query(CovariateDefn.name)
-            .order_by(CovariateDefn.display_order,
-                      func.lower(CovariateDefn.name))
-            .filter(
-                CovariateDefn.covariate_association ==
-                CovariateAssociation.SAMPLE)
-        ).all()]
-        sample_table = []
-        for sample in sample_query:
-            covariate_dict = to_dict(sample.covariates)
-            sample_table.append([
-                covariate_dict[name]
-                for name in sample_covariate_display_order])
+        study_covariate_display_order, study_table = calculate_covariate_display_order(
+            session, study_query, CovariateAssociation.STUDY)
+        sample_covariate_display_order, sample_table = calculate_covariate_display_order(
+            session, sample_query, CovariateAssociation.SAMPLE)
 
         point_query = (
             session.query(Point)
