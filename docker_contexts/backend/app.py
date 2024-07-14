@@ -242,7 +242,7 @@ def process_query():
                 .join(Point.geolocations)
                 .filter(GeolocationName.geolocation_name == country_select)
             ).subquery()
-            filters.append(Point.id_key.in_(geolocation_subquery))
+            filters.append(Point.id_key.in_(select(geolocation_subquery)))
 
         continent_select = request.form.get('continentSelect')
         if continent_select:
@@ -377,8 +377,6 @@ def process_query():
             .join(Point, Sample.point_id == Point.id_key)
             .filter(*filters)
         )
-        LOGGER.debug(f'sample query: {sample_query}')
-        LOGGER.debug(f'study query: {study_query}')
         # determine what covariate ids are in this query
         study_covariate_ids_to_display = set(REQUIRED_STUDY_FIELDS)
         for study in sample_query:
