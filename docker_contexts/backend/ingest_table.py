@@ -41,19 +41,16 @@ LOGGER = logging.getLogger(__name__)
 
 
 def validate_tables(study_table_df, sample_table_df):
-    error_str = ''
     # all the sample study ids should be in the metadata table
     study_ids_metadata = set(study_table_df['study_id'].unique())
     study_ids_sample = set(sample_table_df['study_id'].unique())
 
     missing_in_sample = study_ids_sample-study_ids_metadata
     if missing_in_sample:
-        error_str += (
-            f'these study ids are in metadata but not in sample: '
+        LOGGER.warning(
+            f'these study ids are in sample but not in metadata: '
             f'{missing_in_sample}')
 
-    if error_str:
-        raise ValueError(error_str)
     return True
 
 
