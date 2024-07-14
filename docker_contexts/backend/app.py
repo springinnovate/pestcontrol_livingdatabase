@@ -304,10 +304,17 @@ def process_query():
                 if samples_per_year >= int(min_observations_per_year)]
             filters.append(Sample.study_id.in_(valid_study_ids))
 
-        sample_query = session.query(Sample).filter(
-            and_(*filters))
-        study_query = session.query(Study).filter(
-            and_(*filters))
+        sample_query = (
+            session.query(Sample)
+            .join(Point, Sample.point_id == Point.id_key)
+            .filter(*filters)
+        )
+        study_query = (
+            session.query(Study)
+            .join(Sample, Study.id_key == Sample.study_id)
+            .join(Point, Sample.point_id == Point.id_key)
+            .filter(*filters)
+        )
 
         # determine what covariate ids are in this query
         study_covariate_ids_to_display = set(REQUIRED_STUDY_FIELDS)
