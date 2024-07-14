@@ -1,4 +1,5 @@
 """Script to take in a CSV table and put it in the database."""
+import time
 from difflib import get_close_matches
 import io
 import os
@@ -54,54 +55,59 @@ def validate_tables(study_table_df, sample_table_df):
     return True
 
 
+STUDY_CACHE = {}
+COVARIATE_VALUE_CACHE = {}
+
+
 def fetch_or_create_study(session, covariate_defn_list, row):
+    global STUDY_CACHE
     study_id = row[STUDY_ID]
-    study = session.query(Study).filter(Study.id_key == study_id).first()
-    if study is not None:
-        return study
+    if study_id in STUDY_CACHE:
+        return STUDY_CACHE[study_id]
 
     study = Study(id_key=study_id)
+    STUDY_CACHE[study_id] = study
     for covariate_defn in covariate_defn_list:
         if covariate_defn.name not in row:
-            # it's possible to have covariates that aren't in the set
             continue
         value = row[covariate_defn.name]
 
-        covariate_value = session.query(CovariateValue).filter(
-            CovariateValue.covariate_defn == covariate_defn,
-            CovariateValue.value == value).first()
-        if covariate_value is None:
+        if (covariate_defn, value) in COVARIATE_VALUE_CACHE:
+            if study not in COVARIATE_VALUE_CACHE[(covariate_defn, value)].studies:
+                COVARIATE_VALUE_CACHE[(covariate_defn, value)].studies.append(
+                    study)
+        else:
             covariate_value = CovariateValue(
                 value=value,
                 covariate_defn=covariate_defn,
                 studies=[study])
-            session.add(covariate_value)
-        elif study not in covariate_value.studies:
-            covariate_value.studies.append(study)
+            COVARIATE_VALUE_CACHE[(covariate_defn, value)] = covariate_value
 
-    session.add(study)
     return study
 
 
+GEOLOCATION_CACHE = {}
+
+
 def fetch_or_create_geolocation_name(session, name, geolocation_type):
-    try:
-        geolocation_name = session.query(GeolocationName).filter_by(
-            geolocation_name=name).one()
-    except NoResultFound:
-        geolocation_name = GeolocationName(
-            geolocation_name=name,
-            geolocation_type=geolocation_type)
-        session.add(geolocation_name)
+    global GEOLOCATION_CACHE
+    if name in GEOLOCATION_CACHE:
+        return GEOLOCATION_CACHE[name]
+    geolocation_name = GeolocationName(
+        geolocation_name=name,
+        geolocation_type=geolocation_type)
+    GEOLOCATION_CACHE[name] = geolocation_name
     return geolocation_name
+
+
+FETCH_OR_ADD_POINT_CACHE = {}
 
 
 def fetch_or_add_point(
         session, continent_vector, country_vector, latitude, longitude):
-    existing_point = session.query(Point).filter_by(
-        latitude=latitude, longitude=longitude).first()
-
-    if existing_point:
-        return existing_point
+    global FETCH_OR_ADD_POINT_CACHE
+    if (latitude, longitude) in FETCH_OR_ADD_POINT_CACHE:
+        return FETCH_OR_ADD_POINT_CACHE[(latitude, longitude)]
 
     latlng_df = pd.DataFrame(
         {'longitude': [longitude], 'latitude': [latitude]})
@@ -143,7 +149,8 @@ def fetch_or_add_point(
         longitude=longitude,
         geolocations=geolocation_list
     )
-    session.add(new_point)
+    #session.add(new_point)
+    FETCH_OR_ADD_POINT_CACHE[(latitude, longitude)] = new_point
     return new_point
 
 
@@ -242,7 +249,11 @@ def create_matching_table(session, args, column_matching_path):
         sample_matching_df.to_csv(f, index=False)
 
 
+COVARIATE_DEFN_CACHE = {}
+
+
 def main():
+    global COVARIATE_DEFN_CACHE
     init_db()
     session = SessionLocal()
     parser = argparse.ArgumentParser(description='parse table')
@@ -312,14 +323,21 @@ def main():
         study_id = row[STUDY_ID]
         study_id_to_study_map[row[STUDY_ID]] = fetch_or_create_study(
             session, study_covariate_defn_list, row)
-    session.flush()
 
     sample_covariate_defn_list = session.query(CovariateDefn).filter(
         CovariateDefn.covariate_association == CovariateAssociation.SAMPLE).order_by(
         CovariateDefn.display_order,
         func.lower(CovariateDefn.name)).all()
+    start_time = time.time()
+    samples_to_add = []
     for index, row in sample_table_df.iterrows():
-        print(f'{100*index/len(sample_table_df.index):.2f}%')
+        if index % 100 == 0:
+            time_so_far = time.time() - start_time
+            time_per_element = time_so_far/(index+1)
+            time_left = (len(sample_table_df.index)-index)*time_per_element
+            print(
+                f'{100*index/len(sample_table_df.index):.2f}% '
+                f'{index}/{len(sample_table_df.index)} time left: {time_left:.2f}s')
         if any([numpy.isnan(row[x]) for x in [LATITUDE, LONGITUDE]]):
             raise ValueError(
                 f'found a row at {index} with no lat or long coordinates: '
@@ -337,8 +355,6 @@ def main():
             study=study,
             observation=row[OBSERVATION]
             )
-        session.add(sample)
-
         for covariate_defn in sample_covariate_defn_list:
             if covariate_defn.name not in row:
                 # it's possible to have covariates that aren't in the set
@@ -347,20 +363,32 @@ def main():
             if not isinstance(value, str) and numpy.isnan(value):
                 continue
 
-            covariate_value = session.query(CovariateValue).filter(
-                CovariateValue.covariate_defn == covariate_defn,
-                CovariateValue.value == value).first()
-            if covariate_value is None:
+            if (covariate_defn, value) in COVARIATE_DEFN_CACHE:
+                covariate_value = COVARIATE_DEFN_CACHE[(covariate_defn, value)]
+
+            else:
                 covariate_value = CovariateValue(
                     value=value,
                     covariate_defn=covariate_defn,
                     samples=[sample])
-                session.add(covariate_value)
-            elif sample not in covariate_value.samples:
+                COVARIATE_DEFN_CACHE[(covariate_defn, value)] = covariate_value
+            if sample not in covariate_value.samples:
                 covariate_value.samples.append(sample)
-        session.add(sample)
-        session.flush()
+        samples_to_add.append(sample)
 
+    # add all samples in samples_to_add
+    print('bulk inserting covariates')
+    session.add_all(COVARIATE_DEFN_CACHE.values())
+    print('bulk inserting studies')
+    session.add_all(STUDY_CACHE.values())
+    print('bulk inserting covariate values')
+    session.add_all(COVARIATE_VALUE_CACHE.values())
+    print('bulk inserting points')
+    session.add_all(FETCH_OR_ADD_POINT_CACHE.values())
+    print('bulk inserting geolocations')
+    session.add_all(GEOLOCATION_CACHE.values())
+    print('bulk inserting samples')
+    session.add_all(samples_to_add)
     print('about to commit ')
     session.commit()
     session.close()
