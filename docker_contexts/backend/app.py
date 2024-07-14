@@ -1,4 +1,5 @@
 import configparser
+import collections
 import logging
 import os
 import pickle
@@ -6,6 +7,7 @@ import re
 import sys
 
 from database import SessionLocal
+from database_model_definitions import REQUIRED_STUDY_FIELDS, REQUIRED_SAMPLE_INPUT_FIELDS
 from database_model_definitions import Study, Sample, Point, CovariateDefn, CovariateValue, CovariateType, CovariateAssociation, GeolocationName
 from flask import Flask
 from flask import render_template
@@ -13,7 +15,7 @@ from flask import request
 from flask import jsonify
 from sqlalchemy import distinct, func
 from sqlalchemy.engine import Row
-from sqlalchemy.sql import and_, or_
+from sqlalchemy.sql import and_, or_, tuple_
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.sql.functions import GenericFunction
 from sqlalchemy.types import String
@@ -59,6 +61,13 @@ OPERATION_MAP = {
     '<': lambda field, value: field < value,
     '>': lambda field, value: field > value
 }
+
+
+def to_dict(covariate_list):
+    covariate_dict = collections.defaultdict(lambda: None)
+    for covariate in covariate_list:
+        covariate_dict[covariate.covariate_defn.name] = covariate.value
+    return covariate_dict
 
 
 @app.route('/api/home')
@@ -114,15 +123,6 @@ def home():
         continent_set=continent_set,
         unique_covariate_values=searchable_covariates,
         )
-
-
-def to_dict(obj):
-    """
-    Convert a SQLAlchemy model object into a dictionary.
-    """
-    if isinstance(obj, Row):
-        return obj._mapping
-    return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
 
 
 @app.route('/api/process_query', methods=['POST'])
@@ -215,8 +215,7 @@ def process_query():
         if min_observations_response_variable:
             min_observations = int(request.form.get('minObservationsSampleSize'))
             studies_with_min_observations = session.query(
-                    Sample.study_id
-                ).filter(Sample.response_variable == min_observations_response_variable).group_by(
+                    Sample.study_id).filter(Sample.response_variable == min_observations_response_variable).group_by(
                 Sample.study_id, Sample.response_variable).having(
                 func.count(Sample.id_key) >= min_observations)
             valid_study_ids = [
@@ -226,16 +225,24 @@ def process_query():
 
         min_site_years = request.form.get('minSiteYears')
         if min_site_years:
-            unique_years_count_query = session.query(
-                Sample.study_id).group_by(
-                Sample.study_id).having(
-                    func.count(distinct(
-                        Sample.year + '_' + Sample.point_id)) >= int(
-                        min_site_years))
+            unique_years_count_query = (
+                session.query(
+                    Sample.study_id,
+                    Sample.point_id,
+                    func.count(func.distinct(CovariateValue.value)).label(
+                        'unique_years')
+                )
+                .join(Sample.covariates)
+                .join(CovariateValue.covariate_defn)
+                .filter(CovariateDefn.name == 'year')
+                .group_by(Sample.study_id, Sample.point_id)
+            )
 
-            valid_study_ids = [
-                row[0] for row in unique_years_count_query.all()]
-            filters.append(Sample.study_id.in_(valid_study_ids))
+            valid_sites = [
+                (row.study_id, row.point_id) for row in unique_years_count_query
+                if row.unique_years >= int(min_site_years)]
+            filters.append(
+                tuple_(Sample.study_id, Sample.point_id).in_(valid_sites))
 
         min_sites_response_type = request.form.get('minSitesResponseType')
         if min_sites_response_type:
@@ -252,84 +259,105 @@ def process_query():
         sample_size_min_years = request.form.get('sampleSizeMinYears')
         LOGGER.debug(f'***** {sample_size_min_years}')
         if sample_size_min_years:
-            unique_years_count_query = session.query(
-                Sample.study_id).group_by(
-                Sample.study_id).having(
-                    func.count(distinct(Sample.year)) >= int(sample_size_min_years))
+            unique_years_count_query = (
+                session.query(
+                    Sample.study_id,
+                    func.count(func.distinct(CovariateValue.value)).label('unique_years')
+                ).join(Sample.covariates)
+                 .join(CovariateValue.covariate_defn)
+                 .filter(CovariateDefn.name == 'year')
+                 .group_by(Sample.study_id))
             valid_study_ids = [
-                row[0] for row in unique_years_count_query.all()]
-            LOGGER.debug(f'********* valid study ids: {valid_study_ids}')
+                row[0] for row in unique_years_count_query.all()
+                if row[1] >= int(sample_size_min_years)]
             filters.append(Sample.study_id.in_(valid_study_ids))
 
         min_observations_per_year = request.form.get('sampleSizeMinObservationsPerYear')
         if min_observations_per_year:
-            unique_years_count_query = session.query(
-                Sample.study_id,
-                func.count(Sample.study_id).label('sample_count')).group_by(
-                Sample.study_id, Sample.year).subquery()
-            min_samples_per_study_query = session.query(
-                unique_years_count_query.c.study_id).group_by(
-                unique_years_count_query.c.study_id).having(
-                func.min(unique_years_count_query.c.sample_count) >=
-                int(min_observations_per_year))
+            query = (
+                session.query(
+                    Sample.study_id,
+                    CovariateValue.value,
+                    func.count(Sample.study_id).label('count_per_year')
+                )
+                .join(Sample.covariates)
+                .join(CovariateValue.covariate_defn)
+                .filter(CovariateDefn.name == 'year')
+                .group_by(Sample.study_id, CovariateValue.value)
+            )
+            study_obs_per_year = {}
+            for study_id, year, samples_per_year in query:
+                if study_id not in study_obs_per_year or samples_per_year < study_obs_per_year[study_id][1]:
+                    study_obs_per_year[study_id] = (year, samples_per_year)
             valid_study_ids = [
-                row[0] for row in min_samples_per_study_query.all()]
+                study_id for study_id, (year, samples_per_year)
+                in study_obs_per_year.items()
+                if samples_per_year >= int(min_observations_per_year)]
             filters.append(Sample.study_id.in_(valid_study_ids))
 
-        study_query = session.query(Study).join(
-            Sample, Sample.study_id == Study.id_key).join(
-            Point, Sample.point_id == Point.id_key).filter(
+        sample_query = session.query(Sample).filter(
+            and_(*filters))
+        study_query = session.query(Study).filter(
             and_(*filters))
 
-        # determine what response types are in this query
-        filtered_response_types = session.query(
-            distinct(Sample.response_type)).join(
-            Study, Sample.study_id == Study.id_key).join(
-            Point, Sample.point_id == Point.id_key).filter(
-            and_(*filters)
-        ).filter(Sample.response_type.isnot(None)).all()
+        # determine what covariate ids are in this query
+        study_covariate_ids_to_display = set(REQUIRED_STUDY_FIELDS)
+        for study in sample_query:
+            study_covariate_ids_to_display |= set([c.covariate_defn.name for c in study.covariates])
 
-        fields_to_select = SAMPLE_DISPLAY_FIELDS.copy()
-        for response_type, fields in FIELDS_BY_RESPONSE_TYPE.items():
-            LOGGER.debug(f'testing if {response_type} is in {filtered_response_types}')
-            if response_type.lower() in [
-                    rt[0].lower() for rt in filtered_response_types]:
-                LOGGER.debug(f'because of {filtered_response_types} extending these field {fields}')
-                fields_to_select.extend(fields)
+        study_covariate_display_order = [x[0] for x in (
+            session.query(CovariateDefn.name)
+            .order_by(CovariateDefn.display_order,
+                      func.lower(CovariateDefn.name))
+            .filter(
+                CovariateDefn.covariate_association ==
+                CovariateAssociation.STUDY)
+        ).all()]
+        LOGGER.debug(study_covariate_display_order)
+        study_table = []
+        for study in study_query:
+            covariate_dict = to_dict(study.covariates)
+            study_table.append([
+                covariate_dict[name]
+                for name in study_covariate_display_order])
 
-        LOGGER.debug(f'about to query the samples, here are the filters: {filters}')
-        sample_query = session.query(*fields_to_select).join(
-            Study, Sample.study_id == Study.id_key).join(
-            Point, Sample.point_id == Point.id_key).filter(
-            and_(*filters))
 
-        study_query_result = [to_dict(s) for s in study_query.all()]
-        sample_query_result = [to_dict(s) for s in sample_query.all()]
+        sample_covariate_display_order = [x[0] for x in (
+            session.query(CovariateDefn.name)
+            .order_by(CovariateDefn.display_order,
+                      func.lower(CovariateDefn.name))
+            .filter(
+                CovariateDefn.covariate_association ==
+                CovariateAssociation.SAMPLE)
+        ).all()]
+        sample_table = []
+        for sample in sample_query:
+            covariate_dict = to_dict(sample.covariates)
+            sample_table.append([
+                covariate_dict[name]
+                for name in sample_covariate_display_order])
 
-        key_sets = [set(d.keys()) for d in sample_query_result]
-        all_keys = set().union(*key_sets)
-        common_keys = set(key_sets[0]).intersection(*key_sets[1:])
-        not_in_all_keys = all_keys - common_keys
-        LOGGER.debug(f'these are the common keys: {common_keys}')
-        LOGGER.debug(f'these are the disjoint keys: {not_in_all_keys}')
+        point_query = (
+            session.query(Point)
+            .join(Sample, Point.id_key == Sample.point_id)
+            .filter(Sample.id_key.in_([s.id_key for s in sample_query]))
+            .distinct()
+        ).all()
+        print(point_query)
 
-        point_set = set([
-            (s['latitude'], s['longitude'])
-            for s in sample_query_result])
         points = [
-            {"lat": s[0], "lng": s[1]}
-            for s in point_set]
-        LOGGER.debug(
-            f'samples: {len(sample_query_result)} points: {len(points)}')
-        LOGGER.debug(f'keys: {sample_query_result[0]}')
-        LOGGER.debug(f'keys: {sample_query_result[1]}')
+            {"lat": p.latitude, "lng": p.longitude}
+            for p in point_query]
 
         session.close()
         return render_template(
             'results_view.html',
-            studies=study_query_result,
-            samples=sample_query_result,
-            points=points)
+            study_headers=study_covariate_display_order,
+            study_table=study_table,
+            sample_headers=sample_covariate_display_order,
+            sample_table=sample_table,
+            points=points
+            )
     except Exception as e:
         LOGGER.exception(f'error with {e}')
         raise

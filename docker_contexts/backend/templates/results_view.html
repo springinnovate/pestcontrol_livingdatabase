@@ -11,7 +11,9 @@
     </style>
 </head>
 <body>
-    {% if studies|length > 0 %}
+
+
+    {% if study_table|length > 0 %}
     <div id="map"></div>
 
     <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
@@ -42,26 +44,26 @@
     <table border="1">
         <thead>
             <tr>
-                {% for key in studies[0].keys() %}<th>{{ key }}</th>{% endfor %}
+                {% for study_header in study_headers %}<th>{{ study_header }}</th>{% endfor %}
             </tr>
         </thead>
         <tbody>
-            {% for study in studies %}
-            <tr>{% for value in study.values() %}<td>{{ value }}</td>{% endfor %}</tr>
+            {% for study_vals in study_table %}
+            <tr>{% for value in study_vals %}<td>{{ value }}</td>{% endfor %}</tr>
             {% endfor %}
         </tbody>
     </table>
     <table border="1">
-    <thead>
-        <tr>
-            {% for key in samples[0].keys() %}<th>{{ key }}</th>{% endfor %}
-        </tr>
-    </thead>
-    <tbody>
-        {% for sample in samples %}
-        <tr>{% for key, value in sample.items() %}<td>{{ value }}</td>{% endfor %}</tr>
-        {% endfor %}
-    </tbody>
+        <thead>
+            <tr>
+                {% for sample_header in sample_headers %}<th>{{ sample_header }}</th>{% endfor %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for sample_vals in sample_table %}
+            <tr>{% for value in sample_vals %}<td>{{ value }}</td>{% endfor %}</tr>
+            {% endfor %}
+        </tbody>
     </table>
     {% else %}
     No data matched the filter!
