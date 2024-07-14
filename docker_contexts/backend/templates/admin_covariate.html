@@ -15,6 +15,13 @@
        .uncommitted-edit {
             background-color: #ffffcc; /* light yellow background */
         }
+        option[value="true"], select.true {
+            background-color: #d4edda; /* Light green for true */
+        }
+
+        option[value="false"], select.false {
+            background-color: #f8d7da; /* Light red for false */
+        }
     </style>
 </head>
 <body>
@@ -27,7 +34,6 @@
                     <th>Display order (smaller numbers displayed first)</th>
                     <th>Description</th>
                     <th>Covariate association</th>
-                    <th>debug</th>
                     <th>Queryable</th>
                     <th>Always display</th>
                     <th>Condition if conditionally displayed</th>
@@ -101,6 +107,16 @@
             });
         }
 
+        function applySelectStyles(selectElement) {
+            if (selectElement.value === "true") {
+                selectElement.classList.add('true');
+                selectElement.classList.remove('false');
+            } else {
+                selectElement.classList.add('false');
+                selectElement.classList.remove('true');
+            }
+        }
+
         function updateTable(covariates) {
             var tableBody = document.getElementById('covariate-table-body');
             tableBody.innerHTML = ''; // Clear existing rows
@@ -109,34 +125,34 @@
                 var row = document.createElement('tr');
                 row.setAttribute('data-id', covariate.id_key);
 
+                if (covariate.editable_name) {
+                    nameCell = `<td><input type="text" name="name" value="${covariate.name}" onfocus="this.select()"></td>`;
+                } else {
+                    nameCell = `<td>${covariate.name}</td>`;
+                }
+
                 row.innerHTML = `
-                    <td><input type="text" name="name" value="${covariate.name}" onfocus="this.select()"></td>
+                    ${nameCell}
                     <td><input type="number" name="display_order" value="${covariate.display_order}" onfocus="this.select()"></td>
                     <td><input type="text" name="description" value="${covariate.description}" onfocus="this.select()"></td>
                     <td>
-                        <select name="covariate_association">
-                            {% for state in covariate_association_states %}
-                            <option value="{{ state }}" ${covariate.covariate_association === "{{ state }}" ? 'selected' : ''}>{{ state }}</option>
-                            {% endfor %}
-                        </select>
+                        ${covariate.covariate_association}
                     </td>
                     <td>${covariate.queryable}</td>
                     <td>
-                        <select name="queryable">
+                        <select name="queryable"  onchange="applySelectStyles(this)">
                             <option value="true" ${covariate.queryable ? 'selected' : ''}>True</option>
                             <option value="false" ${!covariate.queryable ? 'selected' : ''}>False</option>
                         </select>
                     </td>
                     <td>
-                        <select name="always_display">
+                        <select name="always_display"  onchange="applySelectStyles(this)">
                             <option value="true" ${covariate.always_display ? 'selected' : ''}>True</option>
                             <option value="false" ${!covariate.always_display ? 'selected' : ''}>False</option>
                         </select>
                     </td>
-
-                    <td><input type="text" name="condition" value="${covariate.condition}" onfocus="this.select()"></td>
                     <td>
-                        <select name="hidden">
+                        <select name="hidden"  onchange="applySelectStyles(this)">
                             <option value="true" ${covariate.hidden ? 'selected' : ''}>True</option>
                             <option value="false" ${!covariate.hidden ? 'selected' : ''}>False</option>
                         </select>
@@ -145,6 +161,7 @@
                         <button class="btn btn-primary btn-sm" onclick="updateCovariates()" disabled>Update</button>
                     </td>
                 `;
+                row.querySelectorAll('select[name="queryable"], select[name="always_display"], select[name="hidden"]').forEach(applySelectStyles);
 
                 tableBody.appendChild(row);
 

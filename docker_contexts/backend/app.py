@@ -444,6 +444,7 @@ def get_covariates():
         'covariate_association': c.covariate_association.value,
         'condition': c.condition,
         'hidden': c.hidden,
+        'editable_name': c.editable_name,
     } for c in covariate_list]
     session.close()
     return jsonify(success=True, covariates=covariates)

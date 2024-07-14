@@ -109,6 +109,7 @@ class CovariateDefn(Base):
     __tablename__ = 'covariate_defn'
     id_key: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(unique=True, index=True)
+    editable_name: Mapped[bool] = mapped_column(index=True, nullable=False)
     display_order: Mapped[float] = mapped_column(default=0)
     description: Mapped[Optional[str]] = mapped_column(
         String, default='no description provided')

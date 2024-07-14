@@ -100,9 +100,10 @@ def define_new_covariates(session, table_source_path, covariate_names, covariate
         hidden_covariate = CovariateDefn(
             display_order=999,
             name=name,
+            editable_name=True,
             covariate_type=CovariateType.STRING,
             covariate_association=covariate_association,
-            description=f'found in {table_source_path} but with no mapping to existing covariates',
+            description=f'uncorrelated with existing covariates during ingestion. found in {table_source_path}',
             queryable=False,
             always_display=False,
             condition=None,
