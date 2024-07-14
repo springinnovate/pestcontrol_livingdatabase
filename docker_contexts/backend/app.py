@@ -9,6 +9,7 @@ import sys
 import numpy
 from database import SessionLocal
 from database_model_definitions import REQUIRED_STUDY_FIELDS, REQUIRED_SAMPLE_INPUT_FIELDS
+from database_model_definitions import OBSERVATION, LATITUDE, LONGITUDE
 from database_model_definitions import Study, Sample, Point, CovariateDefn, CovariateValue, CovariateType, CovariateAssociation, GeolocationName
 from flask import Flask
 from flask import render_template
@@ -129,7 +130,6 @@ def calculate_covariate_display_order(session, query_to_filter, covariate_type):
             covariate_dict[name]
             for name in covariate_display_order])
     return covariate_display_order, display_table
-
 
 
 @app.route('/api/home')
@@ -386,6 +386,15 @@ def process_query():
             session, study_query, CovariateAssociation.STUDY)
         sample_covariate_display_order, sample_table = calculate_covariate_display_order(
             session, sample_query, CovariateAssociation.SAMPLE)
+
+        # add the lat/lng points and observation to the sample
+        sample_covariate_display_order = [
+            OBSERVATION, LATITUDE, LONGITUDE] + sample_covariate_display_order
+        for sample_row, display_row in zip(sample_query, sample_table):
+            display_row[:] = [
+                sample_row.observation,
+                sample_row.point.latitude,
+                sample_row.point.longitude] + display_row
 
         point_query = (
             session.query(Point)
