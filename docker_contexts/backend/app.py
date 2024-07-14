@@ -13,6 +13,7 @@ from flask import Flask
 from flask import render_template
 from flask import request
 from flask import jsonify
+from sqlalchemy import select
 from sqlalchemy import distinct, func
 from sqlalchemy.engine import Row
 from sqlalchemy.sql import and_, or_, tuple_
@@ -102,8 +103,6 @@ def home():
         row.name: str(row.covariate_type)
         for row in searchable_continuous_covariates})
 
-    print(searchable_covariates)
-
     n_samples = session.query(Sample).count()
 
     country_set = [
@@ -176,10 +175,21 @@ def process_query():
 
         country_select = request.form.get('countrySelect')
         if country_select:
-            filters.append(Point.country == country_select)
+            geolocation_subquery = (
+                session.query(Point.id_key)
+                .join(Point.geolocations)
+                .filter(GeolocationName.geolocation_name == country_select)
+            ).subquery()
+            filters.append(Point.id_key.in_(geolocation_subquery))
+
         continent_select = request.form.get('continentSelect')
         if continent_select:
-            filters.append(Point.continent == continent_select)
+            geolocation_subquery = (
+                session.query(Point.id_key)
+                .join(Point.geolocations)
+                .filter(GeolocationName.geolocation_name == continent_select)
+            ).subquery()
+            filters.append(Point.id_key.in_(geolocation_subquery))
 
         if ul_lat is not None:
             filters.append(Point.latitude <= ul_lat)
@@ -257,7 +267,6 @@ def process_query():
             filters.append(Sample.study_id.in_(valid_study_ids))
 
         sample_size_min_years = request.form.get('sampleSizeMinYears')
-        LOGGER.debug(f'***** {sample_size_min_years}')
         if sample_size_min_years:
             unique_years_count_query = (
                 session.query(
@@ -313,7 +322,6 @@ def process_query():
                 CovariateDefn.covariate_association ==
                 CovariateAssociation.STUDY)
         ).all()]
-        LOGGER.debug(study_covariate_display_order)
         study_table = []
         for study in study_query:
             covariate_dict = to_dict(study.covariates)
@@ -343,7 +351,6 @@ def process_query():
             .filter(Sample.id_key.in_([s.id_key for s in sample_query]))
             .distinct()
         ).all()
-        print(point_query)
 
         points = [
             {"lat": p.latitude, "lng": p.longitude}
