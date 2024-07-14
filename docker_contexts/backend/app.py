@@ -87,13 +87,6 @@ def calculate_covariate_display_order(session, query_to_filter, covariate_type):
             covariate_type)
     ).all()]
 
-    potential_conditional_covariates = set()
-    for _, _, hidden, condition in pre_covariate_display_order:
-        if hidden:
-            continue
-        if condition and (condition != 'null'):
-            potential_conditional_covariates.add(condition['depends_on'])
-
     unique_values_per_covariate = collections.defaultdict(set)
     for row in query_to_filter:
         for covariate in row.covariates:
@@ -103,8 +96,9 @@ def calculate_covariate_display_order(session, query_to_filter, covariate_type):
             if isinstance(covariate.value, str):
                 if covariate.value == 'null':
                     continue
+                # TODO: test if value is numeric as a string
                 unique_values_per_covariate[
-                    covariate.covariate_defn.name].add(covariate.value)
+                    covariate.covariate_defn.name].add(covariate.value.lower())
             else:
                 # it's a numeric, just note it's defined
                 unique_values_per_covariate[
@@ -112,16 +106,15 @@ def calculate_covariate_display_order(session, query_to_filter, covariate_type):
 
     # get all possible conditions
     covariate_display_order = []
+
     for name, always_display, hidden, condition in pre_covariate_display_order:
         if hidden:
             continue
         if condition is None or condition == 'null':
-            if always_display:
-                covariate_display_order.append(name)
-            elif unique_values_per_covariate[name]:
+            if always_display or unique_values_per_covariate[name]:
                 covariate_display_order.append(name)
 
-        elif condition['value'] in unique_values_per_covariate[condition['depends_on']]:
+        elif condition['value'].lower() in unique_values_per_covariate[condition['depends_on']]:
             covariate_display_order.append(name)
 
     display_table = []
