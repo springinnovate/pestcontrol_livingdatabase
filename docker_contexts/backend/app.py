@@ -208,7 +208,8 @@ def process_query():
         if center_point is not None:
             center_point = center_point.strip()
             if center_point != '':
-                m = re.match(r"[(]?([^, ]+)[, ]*([^, )]+)[\)]?", center_point)
+                m = re.match(r"[(]?([^, \t]+)[, \t]+([^, )]+)[\)]?", center_point)
+                LOGGER.debug(f'MATCH {m}')
                 lat, lng = [float(v) for v in m.group(1, 2)]
                 center_point_buffer = float(
                     request.form.get('centerPointBuffer').strip())/2

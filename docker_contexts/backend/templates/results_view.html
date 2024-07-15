@@ -64,6 +64,20 @@
                 attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             }).addTo(map);
 
+            function copyCoordsToClipboard(text) {
+                navigator.clipboard.writeText(text).then(function() {
+                    const copyNotification = $('#copy-notification');
+                    copyNotification.text('coordinates ('+text+') copied to clipboard').fadeIn(200).delay(1000).fadeOut(200);
+                });
+            }
+
+            // Add click event listener to the map
+            map.on('click', function(e) {
+                var latlng = e.latlng;
+                var coordinates = latlng.lat + ', ' + latlng.lng;
+                copyCoordsToClipboard(coordinates);
+            });
+
             var points = {{ points | tojson }};
             var latLngs = [];
             points.forEach(function(point) {
@@ -167,7 +181,7 @@
                     }, 200);
 
                     // Show copy notification
-                    copyNotification.fadeIn(200).delay(1000).fadeOut(200);
+                    copyNotification.text('copied "'+cellText+'" to clipboard').fadeIn(200).delay(1000).fadeOut(200);
                 }).catch(function(err) {
                     console.error('Could not copy text: ', err);
                 });
