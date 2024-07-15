@@ -134,7 +134,7 @@ class CovariateDefn(Base):
 covariate_to_sample_association = Table(
     'covariate_to_sample_association', Base.metadata,
     Column(
-        'covariate_defn_id',
+        'covariate_value_id',
         ForeignKey('covariate_value.id_key'),
         primary_key=True),
     Column(
@@ -146,7 +146,7 @@ covariate_to_sample_association = Table(
 covariate_to_study_association = Table(
     'covariate_to_study_association', Base.metadata,
     Column(
-        'covariate_defn_id',
+        'covariate_value_id',
         ForeignKey('covariate_value.id_key'),
         primary_key=True),
     Column(

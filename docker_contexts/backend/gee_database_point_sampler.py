@@ -10,6 +10,7 @@ import os
 import re
 import sys
 
+from database import SessionLocal
 import ee
 import pandas
 import numpy
@@ -760,9 +761,6 @@ def main():
     parser.add_argument(
         '--dataset_table_path', required=True, help='path to data table')
     parser.add_argument(
-        '--point_table_path', help='path to point sample locations',
-        required=True)
-    parser.add_argument(
         '--n_dataset_rows', nargs='+', type=int, help='limit csv read to this many rows')
     parser.add_argument(
         '--n_point_rows', type=int, help='limit csv read to this many rows')
@@ -772,8 +770,6 @@ def main():
     parser.add_argument(
         '--max_workers', type=int, default=MAX_WORKERS,
         help=f'how many datasets to process in parallel, defaults to {MAX_WORKERS}')
-    # 2) the natural habitat eo characteristics in and out of polygon
-    # 3) proportion of area outside of polygon
 
     args = parser.parse_args()
     if args.generate_templates:
@@ -797,6 +793,24 @@ def main():
     dataset_table[PIXEL_FN_OP] = None
     dataset_table = process_data_table(dataset_table, args)
     LOGGER.info(f'loaded {args.dataset_table_path}')
+
+    session = SessionLocal()
+
+    # TODO: check to see if the covariates already exist (make them if they don't)
+    # TODO: get a list of points for where they don't for each covariate
+
+    query = (
+        session.query(
+            Point,
+            func.count(func.distinct(CovariateValue.value)).label('unique_years')
+        )
+        .join(Sample.covariates)
+        .join(CovariateValue.covariate_defn)
+        .filter(CovariateDefn.name == 'year')
+        .group_by(Sample.study_id)
+    )
+
+
     point_table = pandas.read_csv(
         args.point_table_path,
         skip_blank_lines=True,

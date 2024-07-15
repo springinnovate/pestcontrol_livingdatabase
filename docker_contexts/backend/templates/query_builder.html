@@ -113,7 +113,6 @@
                     <option value="continent">Continent</option>
                 </select>
 
-                <!-- Central Point Input -->
                 <div id="centerPointInputs" style="display: block;">
                     <label for="centerPoint">Central Point (latitude, longitude):</label>
                     <input type="text" id="centerPoint" name="centerPoint" placeholder="(latitude, longitude)">
@@ -307,6 +306,10 @@ function updateValueOptions(fieldSelect) {
         }
     }
 }
+
+window.addEventListener("pageshow", function() {
+    toggleSpaceQueryType();
+});
 </script>
 </body>
 </html>

@@ -22,7 +22,7 @@ from sqlalchemy.sql import and_, or_, tuple_
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.sql.functions import GenericFunction
 from sqlalchemy.types import String
-
+from sqlalchemy.orm import subqueryload
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -44,19 +44,12 @@ UNIQUE_COVARIATE_VALUES_PKL = 'unique_COVARIATE_values.pkl'
 
 class group_concat_distinct(GenericFunction):
     type = String()
+    inherit_cache = True  # Enable caching if the superclass supports it
 
 
 @compiles(group_concat_distinct, 'sqlite')
 def compile_group_concat_distinct(element, compiler, **kw):
     return 'GROUP_CONCAT(DISTINCT %s)' % compiler.process(element.clauses)
-
-
-@app.route('/api/')
-def index():
-    session = SessionLocal()
-    # Example: Fetch all records from ExampleModel
-    samples = session.query(Sample).all()
-    return 'Number of samples: ' + str(len(samples))
 
 
 OPERATION_MAP = {
@@ -88,7 +81,7 @@ def calculate_covariate_display_order(session, query_to_filter, covariate_type):
     ).all()]
 
     unique_values_per_covariate = collections.defaultdict(set)
-    for row in query_to_filter:
+    for index, row in enumerate(query_to_filter):
         for covariate in row.covariates:
             if not isinstance(covariate.value, str) and (
                     covariate.value is None or numpy.isnan(covariate.value)):
@@ -133,8 +126,8 @@ def calculate_covariate_display_order(session, query_to_filter, covariate_type):
     return covariate_display_order, display_table
 
 
-@app.route('/api/home')
-def home():
+@app.route('/pcld')
+def pcld():
     session = SessionLocal()
 
     searchable_unique_covariates = (
@@ -366,11 +359,15 @@ def process_query():
                 if samples_per_year >= int(min_observations_per_year)]
             filters.append(Sample.study_id.in_(valid_study_ids))
 
+        LOGGER.info(f'about to query on samples {filters}')
         sample_query = (
             session.query(Sample)
+            .options(subqueryload(Sample.covariates))
             .join(Point, Sample.point_id == Point.id_key)
             .filter(*filters)
         )
+
+        LOGGER.info(f'about to query on study {filters}')
         study_query = (
             session.query(Study)
             .join(Sample, Study.id_key == Sample.study_id)
@@ -378,12 +375,15 @@ def process_query():
             .filter(*filters)
         )
         # determine what covariate ids are in this query
+        LOGGER.info('determine study covariates to display')
         study_covariate_ids_to_display = set(REQUIRED_STUDY_FIELDS)
-        for study in sample_query:
+        for study in study_query:
             study_covariate_ids_to_display |= set([c.covariate_defn.name for c in study.covariates])
 
+        LOGGER.info('calculate covariate display order for study')
         study_covariate_display_order, study_table = calculate_covariate_display_order(
             session, study_query, CovariateAssociation.STUDY)
+        LOGGER.info('calculate covariate display order for sample')
         sample_covariate_display_order, sample_table = calculate_covariate_display_order(
             session, sample_query, CovariateAssociation.SAMPLE)
 
@@ -396,6 +396,7 @@ def process_query():
                 sample_row.point.latitude,
                 sample_row.point.longitude] + display_row
 
+        LOGGER.info(f'about to query on points')
         point_query = (
             session.query(Point)
             .join(Sample, Point.id_key == Sample.point_id)
@@ -428,7 +429,7 @@ def admin_covariate():
         covariate_association_states=[x.value for x in CovariateAssociation],)
 
 
-@app.route('/get_covariates', methods=['GET'])
+@app.route('/api/get_covariates', methods=['GET'])
 def get_covariates():
     session = SessionLocal()
     covariate_list = session.query(CovariateDefn).order_by(
@@ -450,7 +451,7 @@ def get_covariates():
     return jsonify(success=True, covariates=covariates)
 
 
-@app.route('/update_covariate', methods=['POST'])
+@app.route('/api/update_covariate', methods=['POST'])
 def update_covariate():
     session = SessionLocal()
     data = request.json

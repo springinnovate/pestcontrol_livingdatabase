@@ -368,9 +368,9 @@ def main():
                 f'{100*index/len(sample_table_df.index):.2f}% '
                 f'{index}/{len(sample_table_df.index)} time left: {time_left:.2f}s')
         if any([numpy.isnan(row[x]) for x in [LATITUDE, LONGITUDE]]):
-            raise ValueError(
+            LOGGER.warning(
                 f'found a row at {index} with no lat or long coordinates: '
-                f'{row}')
+                f'{row}, skipping')
             continue
         point = fetch_or_add_point(
             session, continent_vector, country_vector,
