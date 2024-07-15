@@ -15,10 +15,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 3G
+          memory: 2G
           cpus: '2'
         reservations:
-          memory: 2G
+          memory: 1G
           cpus: '2'
     tty: true
     entrypoint: [
