@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
 <style>
 #queryForm {
     display: grid;
@@ -71,12 +72,13 @@
 <title>Dynamic Query Builder</title>
 </head>
 <body>
-
 <form id="queryForm" action="/api/process_query" method="post">
     <div id="queryBuilder">
         <div class="querySection">
-            <div class="section-title" onclick="toggleVisibility('columnQuery')">Query by covariate value</div>
+            <div class="section-title" onclick="toggleVisibility('columnQuery')">Query by covariate value
+            </div>
             <div class="collapsible-content" id="columnQuery">
+            <p><a href="{{ url_for('view_covariate') }}" class="btn btn-link" target="_blank">Inspect covariate definitions</a></p>
             <div id="queryRows">
                 <div class="queryRow">
                     <label for="fieldSelect">Choose a covariate variable:</label>
@@ -96,10 +98,10 @@
                             <option value="" selected>Select value</option>
                         </select>
                     </div>
-                    <button type="button" onclick="removeRow(this)">Remove</button>
+                    <button type="button" class="btn btn-secondary" onclick="removeRow(this)">Remove</button>
                 </div>
             </div>
-            <button type="button" onclick="addRow()">Add Column</button>
+            <button type="button" class="btn btn-secondary" onclick="addRow()">Add Column</button>
         </div>
         </div>
         <div class="querySection">
@@ -180,9 +182,19 @@
                     </div>
                 </div>
         </div>
+        <div class="querySection">
+            <div class="section-title" onclick="toggleVisibility('maxSample')">Maximum Query Size</div>
+                <div class="collapsible-content" id="maxSample">
+                    <p>This is a prototype, Rich didn't optimize REALLY big queries yet, so if you make this number too big it will really hurt the server and you'll be confused because you won't get a result.</p>
+                    <div class="query-input-group">
+                        <label for="maxSampleSize">Maximum number of samples to fetch:</label>
+                        <input type="number" id="maxSampleSize" name="maxSampleSize" value="1000" min="1">
+                    </div>
+                </div>
+        </div>
     </div>
 
-    <input type="submit">
+    <input type="submit" class="btn btn-primary">
 </form>
 
 <script>

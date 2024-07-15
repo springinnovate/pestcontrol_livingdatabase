@@ -185,6 +185,7 @@ def process_query():
         fields = request.form.getlist('field')
         operations = request.form.getlist('operation')
         values = request.form.getlist('value')
+        max_sample_size = request.form.get('max_sample_size')
 
         # Example of how you might process these queries
         filters = []
@@ -366,6 +367,7 @@ def process_query():
             .options(subqueryload(Sample.covariates))
             .join(Point, Sample.point_id == Point.id_key)
             .filter(*filters)
+            .limit(max_sample_size)
         )
 
         LOGGER.info(f'about to query on study {filters}')
