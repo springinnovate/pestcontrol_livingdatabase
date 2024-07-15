@@ -9,8 +9,30 @@
             height: 600px;
             width: 100%;
         }
-        .parent-element .container {
+        .container {
             margin-left: 0;
+        }
+        tr:hover {
+            background-color: #f2f2f2; /* Row highlight color */
+        }
+
+        td:hover {
+            background-color: #ffa; /* Cell highlight color */
+        }
+        .tableTooltip {
+            position: absolute;
+            display: none;
+            background-color: #f2f2f2;
+            color: #000;
+            padding: 5px;
+            border-radius: 4px;
+            pointer-events: none;
+            z-index: 1000;
+            font-size: 14px;
+            font-weight: bold;
+            max-width: 200px;
+            border: 2px solid #000;
+            white-space: nowrap;
         }
     </style>
 </head>
@@ -59,7 +81,11 @@
             </thead>
             <tbody>
                 {% for study_vals in study_table %}
-                <tr>{% for value in study_vals %}<td>{{ value }}</td>{% endfor %}</tr>
+                <tr>
+                    {% for i in range(study_vals|length) %}
+                        <td data-col-name="{{ study_headers[i] }}">{{ study_vals[i] }}</td>
+                    {% endfor %}
+                </tr>
                 {% endfor %}
             </tbody>
         </table>
@@ -75,16 +101,57 @@
             </thead>
             <tbody>
                 {% for sample_vals in sample_table %}
-                <tr>{% for value in sample_vals %}<td>{{ value }}</td>{% endfor %}</tr>
+                <tr>
+                    {% for i in range(sample_vals|length) %}
+                        <td data-col-name="{{ sample_headers[i] }}">{{ sample_vals[i] }}</td>
+                    {% endfor %}
+                </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
+    <div id="tableTooltip" class="tableTooltip"></div>
     {% else %}
     No data matched the filter!
     {% endif %}
 
     <script type="text/javascript">
+        document.addEventListener("DOMContentLoaded", function() {
+            const tableTooltip = document.getElementById('tableTooltip');
+
+            const tableRows = document.querySelectorAll("tbody tr");
+            tableRows.forEach(row => {
+                row.addEventListener("mouseover", function() {
+                    row.style.backgroundColor = "#f2f2f2"; // Row highlight color
+                });
+                row.addEventListener("mouseout", function() {
+                    row.style.backgroundColor = ""; // Reset row highlight
+                });
+            });
+
+            const tableCells = document.querySelectorAll("tbody td");
+            tableCells.forEach(cell => {
+                cell.addEventListener("mouseover", function(event) {
+                    event.stopPropagation(); // Prevent row highlight from overriding cell highlight
+                    cell.style.backgroundColor = "#ffa"; // Cell highlight color
+                    const colName = cell.getAttribute('data-col-name');
+                    tableTooltip.textContent = colName;
+                    tableTooltip.style.display = 'block';
+                });
+                cell.addEventListener("mouseout", function() {
+                    cell.style.backgroundColor = ""; // Reset cell highlight
+
+                    // Hide tableTooltip
+                    tableTooltip.style.display = 'none';
+                });
+                cell.addEventListener("mousemove", function(event) {
+                    // Move tableTooltip with mouse
+                    tableTooltip.style.left = event.pageX + 10 + 'px';
+                    tableTooltip.style.top = event.pageY + 10 + 'px';
+                });
+            });
+        });
+
         document.querySelectorAll('.download-btn').forEach(button => {
             button.addEventListener('click', function () {
                 const tableContainer = this.closest('.container');

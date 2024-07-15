@@ -96,9 +96,15 @@ def calculate_covariate_display_order(session, query_to_filter, covariate_type):
             if isinstance(covariate.value, str):
                 if covariate.value == 'null':
                     continue
-                # TODO: test if value is numeric as a string
-                unique_values_per_covariate[
-                    covariate.covariate_defn.name].add(covariate.value.lower())
+                try:
+                    # see if it could be numeric, if so just put true
+                    float(covariate.value)
+                    unique_values_per_covariate[
+                        covariate.covariate_defn.name].add(True)
+                except ValueError:
+                    unique_values_per_covariate[
+                        covariate.covariate_defn.name].add(
+                            covariate.value.lower())
             else:
                 # it's a numeric, just note it's defined
                 unique_values_per_covariate[
@@ -114,7 +120,8 @@ def calculate_covariate_display_order(session, query_to_filter, covariate_type):
             if always_display or unique_values_per_covariate[name]:
                 covariate_display_order.append(name)
 
-        elif condition['value'].lower() in unique_values_per_covariate[condition['depends_on']]:
+        elif condition['value'].lower() in unique_values_per_covariate[
+                condition['depends_on']]:
             covariate_display_order.append(name)
 
     display_table = []
@@ -427,8 +434,6 @@ def get_covariates():
     covariate_list = session.query(CovariateDefn).order_by(
         CovariateDefn.display_order,
         func.lower(CovariateDefn.name)).all()
-    for c in covariate_list:
-        LOGGER.debug(f'condition: {type(c.condition)} {c.condition}')
     covariates = [{
         'id_key': c.id_key,
         'name': c.name,
