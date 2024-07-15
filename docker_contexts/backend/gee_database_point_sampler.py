@@ -17,6 +17,20 @@ import numpy
 from parsimonious.grammar import Grammar
 from parsimonious.nodes import NodeVisitor
 
+from database import SessionLocal
+from database_model_definitions import Study, Sample, Point, CovariateDefn, CovariateValue, CovariateType, CovariateAssociation, GeolocationName
+from flask import Flask
+from flask import render_template
+from flask import request
+from flask import jsonify
+from sqlalchemy import distinct, func
+from sqlalchemy.engine import Row
+from sqlalchemy.sql import and_, or_
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.sql.functions import GenericFunction
+from sqlalchemy.types import String
+
+
 logging.basicConfig(
     level=logging.DEBUG,
     stream=sys.stdout,
@@ -793,21 +807,27 @@ def main():
     dataset_table[PIXEL_FN_OP] = None
     dataset_table = process_data_table(dataset_table, args)
     LOGGER.info(f'loaded {args.dataset_table_path}')
+    LOGGER.info(dataset_table)
 
     session = SessionLocal()
 
     # TODO: check to see if the covariates already exist (make them if they don't)
     # TODO: get a list of points for where they don't for each covariate
-
+    # TODO: do remote sensed sampling for those points
+    # TODO: put the remote sensed values back in the database
     query = (
         session.query(
             Point,
             func.count(func.distinct(CovariateValue.value)).label('unique_years')
         )
+        .join(Sample, Sample.point_id == Point.id_key)
         .join(Sample.covariates)
         .join(CovariateValue.covariate_defn)
-        .filter(CovariateDefn.name == 'year')
-        .group_by(Sample.study_id)
+        .join(YearCovariateDefn, CovariateDefn.id_key == YearCovariateDefn.id_key)
+        .filter(YearCovariateDefn.name == 'year')
+        .join(OtherCovariateDefn, CovariateValue.covariate_defn_id == OtherCovariateDefn.id_key)
+        .filter(OtherCovariateDefn.name == arbitrary_covariate_name)
+        .group_by(Point.id_key)
     )
 
 

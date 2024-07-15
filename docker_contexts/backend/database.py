@@ -1,10 +1,13 @@
 """Database definitions for news articles and their classifications."""
+import os
+
 from database_model_definitions import Base, CovariateDefn, CovariateType, CovariateAssociation
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-
 DATABASE_URI = 'sqlite:///instance/living_database.db'
+#DATABASE_URI = os.getenv('DATABASE_URL', 'postgresql://postgres:password@db:5432/mydatabase')
+
 engine = create_engine(DATABASE_URI, echo=False)
 
 SessionLocal = sessionmaker(bind=engine)

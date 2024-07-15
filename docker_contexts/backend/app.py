@@ -10,7 +10,7 @@ import numpy
 from database import SessionLocal
 from database_model_definitions import REQUIRED_STUDY_FIELDS, REQUIRED_SAMPLE_INPUT_FIELDS
 from database_model_definitions import OBSERVATION, LATITUDE, LONGITUDE
-from database_model_definitions import Study, Sample, Point, CovariateDefn, CovariateValue, CovariateType, CovariateAssociation, GeolocationName
+from database_model_definitions import Study, Sample, Point, CovariateDefn, CovariateValue, CovariateType, CovariateAssociation, Geolocation
 from flask import Flask
 from flask import render_template
 from flask import request
@@ -50,6 +50,10 @@ class group_concat_distinct(GenericFunction):
 @compiles(group_concat_distinct, 'sqlite')
 def compile_group_concat_distinct(element, compiler, **kw):
     return 'GROUP_CONCAT(DISTINCT %s)' % compiler.process(element.clauses)
+
+@compiles(group_concat_distinct, 'postgresql')
+def compile_group_concat_distinct_pg(element, compiler, **kw):
+    return 'STRING_AGG(DISTINCT %s, \',\')' % compiler.process(element.clauses)
 
 
 OPERATION_MAP = {
@@ -162,12 +166,12 @@ def pcld():
 
     country_set = [
         x[0] for x in session.query(
-            distinct(GeolocationName.geolocation_name)).filter(
-            GeolocationName.geolocation_type == 'COUNTRY').all()]
+            distinct(Geolocation.geolocation_name)).filter(
+            Geolocation.geolocation_type == 'COUNTRY').all()]
     continent_set = [
         x[0] for x in session.query(
-            distinct(GeolocationName.geolocation_name)).filter(
-            GeolocationName.geolocation_type == 'CONTINENT').all()]
+            distinct(Geolocation.geolocation_name)).filter(
+            Geolocation.geolocation_type == 'CONTINENT').all()]
 
     return render_template(
         'query_builder.html',
@@ -236,7 +240,7 @@ def process_query():
             geolocation_subquery = (
                 session.query(Point.id_key)
                 .join(Point.geolocations)
-                .filter(GeolocationName.geolocation_name == country_select)
+                .filter(Geolocation.geolocation_name == country_select)
             ).subquery()
             filters.append(Point.id_key.in_(select(geolocation_subquery)))
 
@@ -245,7 +249,7 @@ def process_query():
             geolocation_subquery = (
                 session.query(Point.id_key)
                 .join(Point.geolocations)
-                .filter(GeolocationName.geolocation_name == continent_select)
+                .filter(Geolocation.geolocation_name == continent_select)
             ).subquery()
             filters.append(Point.id_key.in_(geolocation_subquery))
 

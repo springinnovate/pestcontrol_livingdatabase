@@ -67,7 +67,7 @@ geolocation_to_point_association = Table(
 )
 
 
-class GeolocationName(Base):
+class Geolocation(Base):
     __tablename__ = 'geolocation_name'
     id_key: Mapped[int] = mapped_column(primary_key=True)
     geolocation_name: Mapped[str] = mapped_column(unique=True, index=True)
@@ -79,7 +79,7 @@ class GeolocationName(Base):
 
     def __repr__(self):
         return (
-            f'<GeolocationName(id={self.id_key}, '
+            f'<Geolocation(id={self.id_key}, '
             f'geolocation_name={self.geolocation_name}>')
 
 
@@ -94,8 +94,8 @@ class Point(Base):
     longitude: Mapped[float] = mapped_column(index=True)
     samples: Mapped[List["Sample"]] = relationship(
         "Sample", back_populates="point")
-    geolocations: Mapped[List[GeolocationName]] = relationship(
-        "GeolocationName",
+    geolocations: Mapped[List[Geolocation]] = relationship(
+        "Geolocation",
         secondary=geolocation_to_point_association,
         back_populates="points")
 
@@ -108,7 +108,7 @@ class Point(Base):
 class CovariateDefn(Base):
     __tablename__ = 'covariate_defn'
     id_key: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(unique=True, index=True)
+    name: Mapped[str] = mapped_column(unique=True, index=True, nullable=False)
     editable_name: Mapped[bool] = mapped_column(index=True, nullable=False)
     display_order: Mapped[float] = mapped_column(default=0)
     description: Mapped[Optional[str]] = mapped_column(
@@ -124,6 +124,7 @@ class CovariateDefn(Base):
         Enum(CovariateType), nullable=False, index=True)
     covariate_association: Mapped[CovariateAssociation] = mapped_column(
         Enum(CovariateAssociation), nullable=False, index=True)
+
     covariate_values: Mapped[List["CovariateValue"]] = relationship(
         "CovariateValue", back_populates="covariate_defn")
 
@@ -131,68 +132,47 @@ class CovariateDefn(Base):
         return f'<CovariateDefn(id={self.id_key}, name={self.name})'
 
 
-covariate_to_sample_association = Table(
-    'covariate_to_sample_association', Base.metadata,
-    Column(
-        'covariate_value_id',
-        ForeignKey('covariate_value.id_key'),
-        primary_key=True),
-    Column(
-        'sample_id',
-        ForeignKey('sample.id_key'),
-        primary_key=True)
-)
-
-covariate_to_study_association = Table(
-    'covariate_to_study_association', Base.metadata,
-    Column(
-        'covariate_value_id',
-        ForeignKey('covariate_value.id_key'),
-        primary_key=True),
-    Column(
-        'study_id',
-        ForeignKey('study.id_key'),
-        primary_key=True)
-)
-
-
 class CovariateValue(Base):
     __tablename__ = 'covariate_value'
     id_key: Mapped[int] = mapped_column(primary_key=True)
+    value: Mapped[str] = mapped_column(String, nullable=False, index=True)
+
     covariate_defn_id: Mapped[int] = mapped_column(
         ForeignKey('covariate_defn.id_key'))
-    value: Mapped[str] = mapped_column(nullable=False, index=True)
     covariate_defn: Mapped[CovariateDefn] = relationship(
         "CovariateDefn", back_populates="covariate_values")
-    samples: Mapped[List["Sample"]] = relationship(
-        "Sample",
-        secondary=covariate_to_sample_association,
-        back_populates="covariates")
-    studies: Mapped[List["Study"]] = relationship(
-        "Study",
-        secondary=covariate_to_study_association,
-        back_populates="covariates")
+
+    study_id: Mapped[Optional[int]] = mapped_column(ForeignKey('study.id_key'))
+    study: Mapped[Optional['Study']] = relationship("Study", back_populates="covariates")
+
+    sample_id: Mapped[Optional[int]] = mapped_column(ForeignKey('sample.id_key'))
+    sample: Mapped[Optional['Sample']] = relationship("Sample", back_populates="covariates")
+
     def __repr__(self):
         return f'<CovariateValue(id={self.id_key}, covariate_defn={self.covariate_defn}, value={self.value})>'
 
 
 class Study(Base):
     __tablename__ = 'study'
-    id_key: Mapped[str] = mapped_column(primary_key=True)
+    id_key: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(unique=True, index=True)
     covariates: Mapped[List[CovariateValue]] = relationship(
-        "CovariateValue",
-        secondary=covariate_to_study_association,
-        back_populates="studies")
+        "CovariateValue", back_populates="study")
     samples: Mapped[List["Sample"]] = relationship(
         "Sample", back_populates="study")
 
     def __repr__(self):
-        return f'<Study(id={self.id_key}, covariates={self.covariates})>'
+        return f'<Study(id={self.id_key}/{self.name}, covariates={self.covariates})>'
 
 
 class Sample(Base):
     __tablename__ = 'sample'
     id_key: Mapped[int] = mapped_column(primary_key=True)
+
+    observation: Mapped[float] = mapped_column(index=True)
+
+    covariates: Mapped[List[CovariateValue]] = relationship(
+        "CovariateValue", back_populates="sample")
 
     point_id: Mapped[int] = mapped_column(
         ForeignKey('point.id_key'), index=True)
@@ -204,12 +184,6 @@ class Sample(Base):
     study: Mapped[Study] = relationship(
         "Study", back_populates="samples")
 
-    observation: Mapped[float] = mapped_column(index=True)
-
-    covariates: Mapped[List[CovariateValue]] = relationship(
-        "CovariateValue",
-        secondary=covariate_to_sample_association,
-        back_populates="samples")
 
     def __repr__(self):
         return (

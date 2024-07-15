@@ -14,7 +14,7 @@ from database_model_definitions import CovariateDefn
 from database_model_definitions import CovariateValue
 from database_model_definitions import CovariateAssociation, CovariateType
 from database_model_definitions import Point
-from database_model_definitions import GeolocationName
+from database_model_definitions import Geolocation
 from database_model_definitions import Study
 from database_model_definitions import Sample
 from database_model_definitions import REQUIRED_SAMPLE_INPUT_FIELDS
@@ -29,7 +29,9 @@ import pandas as pd
 
 
 TABLE_MAPPING_PATH = 'table_mapping.csv'
-
+TO_ADD_BUFFER = []
+OBJECT_CACHE = {}
+STUDY_CACHE = {}
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -40,7 +42,7 @@ logging.basicConfig(
 logging.getLogger('taskgraph').setLevel(logging.INFO)
 LOGGER = logging.getLogger(__name__)
 
-
+#@profile
 def validate_tables(study_table_df, sample_table_df):
     # all the sample study ids should be in the metadata table
     study_ids_metadata = set(study_table_df['study_id'].unique())
@@ -55,42 +57,55 @@ def validate_tables(study_table_df, sample_table_df):
     return True
 
 
-STUDY_CACHE = {}
-COVARIATE_VALUE_CACHE = {}
-
-
+#@profile
 def fetch_or_create_study(session, covariate_defn_list, row):
+    global OBJECT_CACHE
     global STUDY_CACHE
+    global TO_ADD_BUFFER
     study_id = row[STUDY_ID]
+    study = None
     if study_id in STUDY_CACHE:
-        return STUDY_CACHE[study_id]
+        study = STUDY_CACHE[study_id]
+    else:
+        study = session.query(Study).filter(
+            Study.name == study_id).first()
+        if study is not None:
+            STUDY_CACHE[study_id] = study
+            return study
 
-    study = Study(id_key=study_id)
+    study = Study(name=study_id)
+    session.add(study)
     STUDY_CACHE[study_id] = study
     for covariate_defn in covariate_defn_list:
+        covariate_name = covariate_defn.name
         if covariate_defn.name not in row:
             continue
-        value = row[covariate_defn.name]
-        if not isinstance(value, str) and numpy.isnan(value):
-            continue
 
-        if (covariate_defn, value) in COVARIATE_VALUE_CACHE:
-            if study not in COVARIATE_VALUE_CACHE[(covariate_defn, value)].studies:
-                COVARIATE_VALUE_CACHE[(covariate_defn, value)].studies.append(
-                    study)
+        covariate_value = str(row[covariate_name])
+
+        covariate_id_tuple = (covariate_name, covariate_value)
+        if covariate_id_tuple in OBJECT_CACHE:
+            covariate_value_obj = OBJECT_CACHE[covariate_id_tuple]
         else:
-            covariate_value = CovariateValue(
-                value=value,
-                covariate_defn=covariate_defn,
-                studies=[study])
-            COVARIATE_VALUE_CACHE[(covariate_defn, value)] = covariate_value
-
+            covariate_value_obj = (
+                session.query(CovariateValue)
+                .join(CovariateDefn)
+                .filter(CovariateDefn.name == covariate_name,
+                        CovariateValue.value == covariate_value).first())
+            if covariate_value_obj is not None:
+                OBJECT_CACHE[covariate_id_tuple] = covariate_value_obj
+            else:
+                covariate_value_obj = CovariateValue(
+                    value=covariate_value,
+                    covariate_defn=covariate_defn)
+                OBJECT_CACHE[covariate_id_tuple] = covariate_value_obj
+                session.add(covariate_value_obj)
+        if covariate_value_obj not in study.covariates:
+            study.covariates.append(covariate_value_obj)
     return study
 
 
-GEOLOCATION_CACHE = {}
-
-
+#@profile
 def define_new_covariates(session, table_source_path, covariate_names, covariate_association):
     for name in covariate_names:
         existing = session.query(CovariateDefn).filter_by(
@@ -111,27 +126,45 @@ def define_new_covariates(session, table_source_path, covariate_names, covariate
         )
         session.add(hidden_covariate)
     session.commit()
+    session.flush()
 
-
+#@profile
 def fetch_or_create_geolocation_name(session, name, geolocation_type):
-    global GEOLOCATION_CACHE
-    if name in GEOLOCATION_CACHE:
-        return GEOLOCATION_CACHE[name]
-    geolocation_name = GeolocationName(
+    global OBJECT_CACHE
+    global TO_ADD_BUFFER
+    geolocation_id_tuple = (name, geolocation_type)
+    if geolocation_id_tuple in OBJECT_CACHE:
+        return OBJECT_CACHE[geolocation_id_tuple]
+    geolocation = (
+        session.query(Geolocation)
+        .filter(Geolocation.geolocation_name == name,
+                Geolocation.geolocation_type == geolocation_type)).first()
+    if geolocation is not None:
+        OBJECT_CACHE[geolocation_id_tuple] = geolocation
+        return geolocation
+    geolocation = Geolocation(
         geolocation_name=name,
         geolocation_type=geolocation_type)
-    GEOLOCATION_CACHE[name] = geolocation_name
-    return geolocation_name
+    OBJECT_CACHE[geolocation_id_tuple] = geolocation
+    TO_ADD_BUFFER.append(geolocation)
+    return geolocation
 
 
-FETCH_OR_ADD_POINT_CACHE = {}
-
-
+#@profile
 def fetch_or_add_point(
         session, continent_vector, country_vector, latitude, longitude):
-    global FETCH_OR_ADD_POINT_CACHE
-    if (latitude, longitude) in FETCH_OR_ADD_POINT_CACHE:
-        return FETCH_OR_ADD_POINT_CACHE[(latitude, longitude)]
+    global OBJECT_CACHE
+    global TO_ADD_BUFFER
+    lat_lng_tuple = (latitude, longitude)
+    if lat_lng_tuple in OBJECT_CACHE:
+        return OBJECT_CACHE[lat_lng_tuple]
+    point = (
+        session.query(Point)
+        .filter(Point.latitude == latitude,
+                Point.longitude == longitude).first())
+    if point:
+        OBJECT_CACHE[lat_lng_tuple] = point
+        return point
 
     latlng_df = pd.DataFrame(
         {'longitude': [longitude], 'latitude': [latitude]})
@@ -171,22 +204,23 @@ def fetch_or_add_point(
     new_point = Point(
         latitude=latitude,
         longitude=longitude,
-        geolocations=geolocation_list
+        geolocations=geolocation_list,
+        samples=[],
     )
-    #session.add(new_point)
-    FETCH_OR_ADD_POINT_CACHE[(latitude, longitude)] = new_point
+    OBJECT_CACHE[lat_lng_tuple] = new_point
+    TO_ADD_BUFFER.append(new_point)
     return new_point
 
-
+#@profile
 def load_column_names(table_path):
     df = pd.read_csv(table_path, nrows=0)
     return df.columns.tolist()
 
-
+#@profile
 def rootbasename(path):
     return os.path.splitext(os.path.basename(path))[0]
 
-
+#@profile
 def match_strings(base_list, to_match_list):
     match_result = []
     matched_so_far = set()
@@ -211,7 +245,7 @@ def match_strings(base_list, to_match_list):
             item[0] == '',
             item[0].lower()))
 
-
+#@profile
 def extract_column_matching(matching_df, column_matching_path):
     missing_fields = []
     unmatched_field = []
@@ -234,7 +268,7 @@ def extract_column_matching(matching_df, column_matching_path):
             f'`{column_matching_path}` so these fields are defined.')
     return base_to_target_map, unmatched_field
 
-
+#@profile
 def create_matching_table(session, args, column_matching_path):
     study_covariate_list = session.query(CovariateDefn).filter(
         CovariateDefn.covariate_association == CovariateAssociation.STUDY).order_by(
@@ -273,20 +307,32 @@ def create_matching_table(session, args, column_matching_path):
         sample_matching_df.to_csv(f, index=False)
 
 
-COVARIATE_DEFN_CACHE = {}
+TO_ADD_BUFFER = []
 
-
+#@profile
 def main():
-    global COVARIATE_DEFN_CACHE
+    global OBJECT_CACHE
+    global TO_ADD_BUFFER
+    global STUDY_CACHE
     init_db()
     session = SessionLocal()
     parser = argparse.ArgumentParser(description='parse table')
     parser.add_argument('study_table_path', help='Path to study table for studies in samples')
     parser.add_argument('sample_table_path', help='Path to table of samples on each row')
     parser.add_argument('--column_matching_table_path', help='Path to column matching table.')
-    parser.add_argument('--nrows', type=int, default=None, help='to limit the number of rows for testing')
+    parser.add_argument('--n_dataset_rows', type=int, nargs='+', default=None, help='to limit the number of rows for testing')
 
     args = parser.parse_args()
+
+    if args.n_dataset_rows is None:
+        skiprows = None
+        nrows = None
+    elif len(args.n_dataset_rows) == 1:
+        skiprows = None
+        nrows = args.n_dataset_rows[0]
+    elif len(args.n_dataset_rows) == 2:
+        skiprows = lambda x: x > 0 and x < args.n_dataset_rows[0]
+        nrows = args.n_dataset_rows[1]-args.n_dataset_rows[0]+1
 
     column_matching_path = (
         f'{rootbasename(args.study_table_path)}_'
@@ -314,23 +360,22 @@ def main():
     # NAs
     study_table_df = pd.read_csv(args.study_table_path, low_memory=False)
     study_table_df.rename(columns=study_base_to_user_fields, inplace=True)
-    #study_table_df = study_table_df[study_base_to_user_fields.values()].dropna()
 
     sample_base_to_user_fields, raw_sample_user_fields = extract_column_matching(
         sample_matching_df, column_matching_path)
-    sample_table_df = pd.read_csv(args.sample_table_path, low_memory=False, nrows=args.nrows)
+    sample_table_df = pd.read_csv(
+        args.sample_table_path, low_memory=False, skiprows=skiprows, nrows=nrows)
+
     sample_table_df.rename(columns=sample_base_to_user_fields, inplace=True)
     # drop the columns that aren't being used
-    #sample_table_df = sample_table_df[sample_base_to_user_fields.values()]
 
     define_new_covariates(session, args.study_table_path, raw_study_user_fields, CovariateAssociation.STUDY)
     define_new_covariates(session, args.sample_table_path, raw_sample_user_fields, CovariateAssociation.SAMPLE)
-
     validate_tables(study_table_df, sample_table_df)
 
     country_vector = geopandas.read_file(
-        "../../base_data/countries_iso3_md5_6fb2431e911401992e6e56ddf0a9bcda.gpkg")
-    continent_vector = geopandas.read_file('../../base_data/continents.gpkg')
+        "./base_data/countries_iso3_md5_6fb2431e911401992e6e56ddf0a9bcda.gpkg")
+    continent_vector = geopandas.read_file('./base_data/continents.gpkg')
     if continent_vector.crs.is_geographic:
         # Reproject continent_vector to a suitable projected CRS (e.g., EPSG:3857 for Web Mercator)
         projected_crs = 'EPSG:3857'
@@ -340,6 +385,7 @@ def main():
         projected_crs = 'EPSG:3857'
         country_vector = country_vector.to_crs(projected_crs)
 
+    session.commit()
     study_covariate_defn_list = session.query(CovariateDefn).filter(
         CovariateDefn.covariate_association == CovariateAssociation.STUDY).order_by(
         CovariateDefn.display_order,
@@ -358,15 +404,19 @@ def main():
         CovariateDefn.display_order,
         func.lower(CovariateDefn.name)).all()
     start_time = time.time()
-    samples_to_add = []
     for index, row in sample_table_df.iterrows():
-        if index % 100 == 0:
+        if index % 1000 == 0 and index > 1:
             time_so_far = time.time() - start_time
             time_per_element = time_so_far/(index+1)
             time_left = (len(sample_table_df.index)-index)*time_per_element
             print(
                 f'{100*index/len(sample_table_df.index):.2f}% '
                 f'{index}/{len(sample_table_df.index)} time left: {time_left:.2f}s')
+            session.add_all(TO_ADD_BUFFER)
+            session.flush()
+            session.commit()
+            OBJECT_CACHE = {}
+            TO_ADD_BUFFER[:] = []
         if any([numpy.isnan(row[x]) for x in [LATITUDE, LONGITUDE]]):
             LOGGER.warning(
                 f'found a row at {index} with no lat or long coordinates: '
@@ -378,45 +428,41 @@ def main():
             row[LONGITUDE])
 
         study_id = row[STUDY_ID]
-        study = study_id_to_study_map[study_id]
+        study = STUDY_CACHE[study_id]
+
         sample = Sample(
             point=point,
             study=study,
             observation=row[OBSERVATION]
             )
+        session.add(sample)
         for covariate_defn in sample_covariate_defn_list:
-            if covariate_defn.name not in row:
+            covariate_name = covariate_defn.name
+            if covariate_name not in row:
                 # it's possible to have covariates that aren't in the set
                 continue
-            value = row[covariate_defn.name]
-            if not isinstance(value, str) and numpy.isnan(value):
+            covariate_value = row[covariate_name]
+            if not isinstance(covariate_value, str) and numpy.isnan(
+                    covariate_value):
                 continue
-            if (covariate_defn, value) in COVARIATE_DEFN_CACHE:
-                covariate_value = COVARIATE_DEFN_CACHE[(covariate_defn, value)]
-
+            covariate_id_tuple = (covariate_name, covariate_value)
+            if covariate_id_tuple in OBJECT_CACHE:
+                covariate_value_obj = OBJECT_CACHE[covariate_id_tuple]
             else:
-                covariate_value = CovariateValue(
-                    value=value,
-                    covariate_defn=covariate_defn,
-                    samples=[sample])
-                COVARIATE_DEFN_CACHE[(covariate_defn, value)] = covariate_value
-            if sample not in covariate_value.samples:
-                covariate_value.samples.append(sample)
-        samples_to_add.append(sample)
+                covariate_value_obj = CovariateValue(
+                    value=str(covariate_value),
+                    covariate_defn=covariate_defn)
+                OBJECT_CACHE[covariate_id_tuple] = covariate_value_obj
+                session.add(covariate_value_obj)
+                #TO_ADD_BUFFER.append(covariate_value_obj)
+
+            if covariate_value_obj not in sample.covariates:
+                sample.covariates.append(covariate_value_obj)
 
     # add all samples in samples_to_add
-    print('bulk inserting covariates')
-    session.add_all(COVARIATE_DEFN_CACHE.values())
-    print('bulk inserting studies')
-    session.add_all(STUDY_CACHE.values())
-    print('bulk inserting covariate values')
-    session.add_all(COVARIATE_VALUE_CACHE.values())
-    print('bulk inserting points')
-    session.add_all(FETCH_OR_ADD_POINT_CACHE.values())
-    print('bulk inserting geolocations')
-    session.add_all(GEOLOCATION_CACHE.values())
-    print('bulk inserting samples')
-    session.add_all(samples_to_add)
+    print('bulk inserting remainder')
+    session.add_all(TO_ADD_BUFFER)
+    del TO_ADD_BUFFER
     print('about to commit ')
     session.commit()
     session.close()

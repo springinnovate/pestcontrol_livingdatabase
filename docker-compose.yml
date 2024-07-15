@@ -1,10 +1,6 @@
 version: '3.6'
 
 services:
-  frontend:
-    container_name: frontend
-    build: docker_contexts/frontend
-    tty: true
   backend:
     container_name: backend
     hostname: backend_api
@@ -30,9 +26,38 @@ services:
     ]
     ports:
       - 80:5000
-  nginx:
-    image: nginx:latest
+    depends_on:
+      - db
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@db:5432/mydatabase
+
+  db:
+    image: postgres:13
+    container_name: postgres
+    environment:
+      POSTGRES_DB: mydatabase
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
     volumes:
-      - ./docker_contexts/nginx/nginx.conf:/etc/nginx/nginx.conf
+      - pgdata:/var/lib/postgresql/data
+
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin
     ports:
-      - 80:80
+      - 8080:80
+    depends_on:
+      - db
+
+  # nginx:
+  #   image: nginx:latest
+  #   volumes:
+  #     - ./docker_contexts/nginx/nginx.conf:/etc/nginx/nginx.conf
+  #   ports:
+  #     - 80:80
+
+volumes:
+  pgdata:
