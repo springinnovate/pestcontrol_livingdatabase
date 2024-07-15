@@ -70,7 +70,7 @@ geolocation_to_point_association = Table(
 class Geolocation(Base):
     __tablename__ = 'geolocation_name'
     id_key: Mapped[int] = mapped_column(primary_key=True)
-    geolocation_name: Mapped[str] = mapped_column(unique=True, index=True)
+    geolocation_name: Mapped[str] = mapped_column(nullable=False, index=True)
     geolocation_type: Mapped[str] = mapped_column(nullable=False, index=True)
     points: Mapped[list["Point"]] = relationship(
         "Point",
