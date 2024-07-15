@@ -96,17 +96,19 @@
         });
     </script>
     <div class="container mt-5">
-        <h1>Relevant Studies</h1>
+        <h1>Relevant Studies ({{ study_table | length }})</h1>
         <button class="download-btn btn btn-primary mb-3" data-filename="studies.csv">Download as CSV</button>
         <table class="table table-bordered">
             <thead>
                 <tr>
+                    <th>Row</th>
                     {% for study_header in study_headers %}<th>{{ study_header }}</th>{% endfor %}
                 </tr>
             </thead>
             <tbody>
                 {% for study_vals in study_table %}
                 <tr>
+                    <td>{{ loop.index }}</td>
                     {% for i in range(study_vals|length) %}
                         <td data-col-name="{{ study_headers[i] }}">{{ study_vals[i] }}</td>
                     {% endfor %}
@@ -116,17 +118,19 @@
         </table>
     </div>
     <div class="container mt-5">
-        <h1>Samples</h1>
+        <h1>Samples ({{ sample_table | length }})</h1>
         <button class="download-btn btn btn-primary mb-3" data-filename="samples.csv">Download as CSV</button>
         <table class="table table-bordered">
             <thead>
                 <tr>
+                    <th>Row</th>
                     {% for sample_header in sample_headers %}<th>{{ sample_header }}</th>{% endfor %}
                 </tr>
             </thead>
             <tbody>
                 {% for sample_vals in sample_table %}
                 <tr>
+                    <td>{{ loop.index }}</td>
                     {% for i in range(sample_vals|length) %}
                         <td data-col-name="{{ sample_headers[i] }}">{{ sample_vals[i] }}</td>
                     {% endfor %}

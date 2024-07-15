@@ -82,7 +82,6 @@ def calculate_covariate_display_order(session, query_to_filter, covariate_type):
 
     unique_values_per_covariate = collections.defaultdict(set)
     for index, row in enumerate(query_to_filter):
-        print(index)
         for covariate in row.covariates:
             if not isinstance(covariate.value, str) and (
                     covariate.value is None or numpy.isnan(covariate.value)):
@@ -447,6 +446,7 @@ def view_covariate():
 def get_covariates():
     session = SessionLocal()
     covariate_list = session.query(CovariateDefn).order_by(
+        CovariateDefn.covariate_association,
         CovariateDefn.display_order,
         func.lower(CovariateDefn.name)).all()
     covariates = [{
