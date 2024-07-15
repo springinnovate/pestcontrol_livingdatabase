@@ -26,8 +26,6 @@ services:
     ]
     ports:
       - 80:5000
-    depends_on:
-      - db
     environment:
       - DATABASE_URL=postgresql://postgres:password@db:5432/mydatabase
 
