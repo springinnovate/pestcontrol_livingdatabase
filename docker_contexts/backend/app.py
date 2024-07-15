@@ -430,6 +430,13 @@ def admin_covariate():
         covariate_association_states=[x.value for x in CovariateAssociation],)
 
 
+@app.route('/view/covariate', methods=['GET'])
+def view_covariate():
+    return render_template(
+        'covariate_view.html',
+        covariate_association_states=[x.value for x in CovariateAssociation],)
+
+
 @app.route('/api/get_covariates', methods=['GET'])
 def get_covariates():
     session = SessionLocal()

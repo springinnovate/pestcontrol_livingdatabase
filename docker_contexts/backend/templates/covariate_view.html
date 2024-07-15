@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Covariates</title>
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <style>
+        .btn:disabled {
+            background-color: #d3d3d3;
+            border-color: #d3d3d3;
+            color: #808080;
+        }
+       .uncommitted-edit {
+            background-color: #ffffcc; /* light yellow background */
+        }
+        option[value="true"], select.true {
+            background-color: #d4edda; /* Light green for true */
+        }
+
+        option[value="false"], select.false {
+            background-color: #f8d7da; /* Light red for false */
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <h1>Inspect Covariates</h1>
+        <table class="table table-bordered">
+            <thead>
+                <tr>
+                    <th>Covariate association</th>
+                    <th>Name</th>
+                    <th>Display order (smaller numbers displayed first)</th>
+                    <th>Description</th>
+                    <th>Queryable</th>
+                    <th>Always display</th>
+                    <th>Condition if conditionally displayed</th>
+                    <th>Hidden</th>
+                </tr>
+            </thead>
+            <tbody id="covariate-table-body">
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            $.ajax({
+                url: '{{ url_for("get_covariates") }}',
+                type: 'GET',
+                contentType: 'application/json',
+                success: function(response) {
+                    if (response.success) {
+                        updateTable(response.covariates);
+                    } else {
+                        alert('Failed to load covariates.');
+                    }
+                }
+            });
+        });
+
+        function updateTable(covariates) {
+            var tableBody = document.getElementById('covariate-table-body');
+            tableBody.innerHTML = ''; // Clear existing rows
+            covariates.forEach(function(covariate) {
+                if (covariate.hidden) {
+                    return;
+                }
+                var row = document.createElement('tr');
+                row.setAttribute('data-id', covariate.id_key);
+                row.innerHTML = `
+                    <td name="covariate_association">
+                        ${covariate.covariate_association}
+                    </td>
+                    <td name="name">${covariate.name}</td>
+                    <td>${covariate.display_order}</td>
+                    <td>
+                        <textarea name="description" onfocus="this.select()" style="width:auto; height: auto; min-height: 50px;">${covariate.description}</textarea>
+                    <td>
+                        ${covariate.queryable}
+                    </td>
+                    <td>
+                        ${covariate.always_display}
+                    </td>
+                    <td>
+                        ${JSON.stringify(covariate.condition)}
+                    </td>
+                    <td>
+                        ${covariate.hidden}
+                    </td>`;
+                tableBody.appendChild(row);
+            });
+        }
+    </script>
+</body>
+</html>
