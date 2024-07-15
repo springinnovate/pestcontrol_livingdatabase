@@ -68,135 +68,146 @@
     border-radius: 5px; /* Add rounded corners */
     background-color: #f9f9f9; /* Light background color */
 }
+.submit-container {
+    display: flex;
+    justify-content: center;
+    margin-top: 20px;
+}
+.btn-primary {
+    width: auto;  /* Ensure the button is not too wide */
+    height: auto; /* Ensure the button is not too tall */
+}
 </style>
 <title>Dynamic Query Builder</title>
 </head>
 <body>
-<form id="queryForm" action="/api/process_query" method="post">
-    <div id="queryBuilder">
-        <div class="querySection">
-            <div class="section-title" onclick="toggleVisibility('columnQuery')">Query by covariate value
+<div class="container mt-5">
+    <form id="queryForm" action="/api/process_query" method="post">
+        <div id="queryBuilder">
+            <div class="querySection">
+                <div class="section-title" onclick="toggleVisibility('columnQuery')">Query by covariate value
+                </div>
+                <div class="collapsible-content" id="columnQuery">
+                <p><a href="{{ url_for('view_covariate') }}" class="btn btn-link" target="_blank">Inspect covariate definitions</a></p>
+                <div id="queryRows">
+                    <div class="queryRow">
+                        <label for="fieldSelect">Choose a covariate variable:</label>
+                        <select name="covariate" id="covariateSelect" onchange="updateValueOptions(this)">
+                            <option value="" selected>Select covariate</option>
+                            {% for covariate in unique_covariate_values %}
+                                <option value="{{ covariate }}">{{ covariate }}</option>
+                            {% endfor %}
+                        </select>
+                        <select name="operation">
+                            {% for op in possible_operations %}
+                                <option value="{{ op }}">{{ op }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="valueSelectContainer">
+                            <select name="value" class="valueSelect">
+                                <option value="" selected>Select value</option>
+                            </select>
+                        </div>
+                        <button type="button" class="btn btn-secondary" onclick="removeRow(this)">Remove</button>
+                    </div>
+                </div>
+                <button type="button" class="btn btn-secondary" onclick="addRow()">Add Column</button>
             </div>
-            <div class="collapsible-content" id="columnQuery">
-            <p><a href="{{ url_for('view_covariate') }}" class="btn btn-link" target="_blank">Inspect covariate definitions</a></p>
-            <div id="queryRows">
-                <div class="queryRow">
-                    <label for="fieldSelect">Choose a covariate variable:</label>
-                    <select name="covariate" id="covariateSelect" onchange="updateValueOptions(this)">
-                        <option value="" selected>Select covariate</option>
-                        {% for covariate in unique_covariate_values %}
-                            <option value="{{ covariate }}">{{ covariate }}</option>
-                        {% endfor %}
+            </div>
+            <div class="querySection">
+                <div class="section-title" onclick="toggleVisibility('spaceQuery')">Query by space</div>
+                <div class="collapsible-content" id="spaceQuery">
+                    <label>Select query type:</label>
+                    <select id="spaceQueryType" onchange="toggleSpaceQueryType()">
+                        <option value="centerPoint">Central Point</option>
+                        <option value="cornerPoints">Corner Coordinates</option>
+                        <option value="country">Country</option>
+                        <option value="continent">Continent</option>
                     </select>
-                    <select name="operation">
-                        {% for op in possible_operations %}
-                            <option value="{{ op }}">{{ op }}</option>
-                        {% endfor %}
-                    </select>
-                    <div class="valueSelectContainer">
-                        <select name="value" class="valueSelect">
-                            <option value="" selected>Select value</option>
+
+                    <div id="centerPointInputs" style="display: block;">
+                        <label for="centerPoint">Central Point (latitude, longitude):</label>
+                        <input type="text" id="centerPoint" name="centerPoint" placeholder="(latitude, longitude)">
+                        <label for="centerPointBuffer">Size of bounding box edges in degrees</label>
+                        <input type="text" id="centerPointBuffer" name="centerPointBuffer" placeholder="0.25">
+                    </div>
+
+                    <div id="cornerPointsInputs" style="display: none; position: relative; border: 2px solid #ccc; height: 200px; margin-top: 20px;">
+                        <div style="position: absolute; top: 15px; left: 15px;">
+                            <label for="upperLeft">Upper Left (latitude, longitude)</label>
+                            <input type="text" id="upperLeft" name="upperLeft" placeholder="(latitude, longitude)">
+                        </div>
+                        <div style="position: absolute; bottom: 15px; right: 15px; text-align: right;">
+                            <label for="lowerRight">Lower Right (latitude, longitude)</label>
+                            <input type="text" id="lowerRight" name="lowerRight" placeholder="(latitude, longitude)">
+                        </div>
+                    </div>
+                    <div id="countrySelectInput" style="display: none;">
+                        <label for="countrySelect">Country:</label>
+                        <select name="countrySelect" id="countrySelect">
+                            <option value="" selected>Select a country</option>
+                            {% for variable in country_set %}
+                                <option value="{{ variable }}">{{ variable }}</option>
+                            {% endfor %}
                         </select>
                     </div>
-                    <button type="button" class="btn btn-secondary" onclick="removeRow(this)">Remove</button>
+                    <div id="continentSelectInput" style="display: none;">
+                        <label for="continentSelect">Continent:</label>
+                        <select name="continentSelect" id="continentSelect">
+                            <option value="" selected>Select a continent</option>
+                            {% for variable in continent_set %}
+                                <option value="{{ variable }}">{{ variable }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
                 </div>
             </div>
-            <button type="button" class="btn btn-secondary" onclick="addRow()">Add Column</button>
-        </div>
-        </div>
-        <div class="querySection">
-            <div class="section-title" onclick="toggleVisibility('spaceQuery')">Query by space</div>
-            <div class="collapsible-content" id="spaceQuery">
-                <label>Select query type:</label>
-                <select id="spaceQueryType" onchange="toggleSpaceQueryType()">
-                    <option value="centerPoint">Central Point</option>
-                    <option value="cornerPoints">Corner Coordinates</option>
-                    <option value="country">Country</option>
-                    <option value="continent">Continent</option>
-                </select>
-
-                <div id="centerPointInputs" style="display: block;">
-                    <label for="centerPoint">Central Point (latitude, longitude):</label>
-                    <input type="text" id="centerPoint" name="centerPoint" placeholder="(latitude, longitude)">
-                    <label for="centerPointBuffer">Size of bounding box edges in degrees</label>
-                    <input type="text" id="centerPointBuffer" name="centerPointBuffer" placeholder="0.25">
+            <div class="querySection">
+                <div class="section-title" onclick="toggleVisibility('timeQuery')">Query by time</div>
+                <div class="collapsible-content" id="timeQuery">
+                    <p>Please enter a year, a comma-separated list of years, or a range using a hyphen (e.g., 1990-1995).</p>
+                    <label for="yearRange">Enter year(s):</label>
+                    <input type="text" id="yearRange" name="yearRange" placeholder="e.g., 1990, 1992, 1995-2000">
                 </div>
-
-                <div id="cornerPointsInputs" style="display: none; position: relative; border: 2px solid #ccc; height: 200px; margin-top: 20px;">
-                    <div style="position: absolute; top: 15px; left: 15px;">
-                        <label for="upperLeft">Upper Left (latitude, longitude)</label>
-                        <input type="text" id="upperLeft" name="upperLeft" placeholder="(latitude, longitude)">
+            </div>
+            <div class="querySection">
+                <div class="section-title" onclick="toggleVisibility('sampleSizeQuery')">Query by minimum sample size</div>
+                    <div class="collapsible-content" id="sampleSizeQuery">
+                        <div class="query-input-group">
+                            <label for="minSiteYears">Minimum number of site-years in study:</label>
+                            <input type="number" id="minSiteYears" name="minSiteYears" value="1" min="1">
+                        </div>
+                        <div class="query-input-group">
+                            <label for="minSitesResponseType">Minimum number of sites in study:</label>
+                            <input type="number" id="minSitesResponseTypeCount" name="minSitesResponseTypeCount" value="1" min="1">
+                        </div>
+                        <div class="query-input-group">
+                            <label for="sampleSizeMinYears">Minimum number years in a study:</label>
+                            <input type="number" id="sampleSizeMinYears" name="sampleSizeMinYears" value="1" min="1">
+                        </div>
+                        <div class="query-input-group">
+                            <label for="sampleSizeMinObservationsPerYear">Minimum number of observations within all years of a study:</label>
+                            <input type="number" id="sampleSizeMinObservationsPerYear" name="sampleSizeMinObservationsPerYear" value="1" min="1">
+                        </div>
                     </div>
-                    <div style="position: absolute; bottom: 15px; right: 15px; text-align: right;">
-                        <label for="lowerRight">Lower Right (latitude, longitude)</label>
-                        <input type="text" id="lowerRight" name="lowerRight" placeholder="(latitude, longitude)">
+            </div>
+            <div class="querySection">
+                <div class="section-title" onclick="toggleVisibility('maxSample')">Maximum Query Size</div>
+                    <div class="collapsible-content" id="maxSample">
+                        <p>This is a prototype, Rich didn't optimize REALLY big queries yet, so if you make this number too big it will really hurt the server and you'll be confused because you won't get a result.</p>
+                        <div class="query-input-group">
+                            <label for="maxSampleSize">Maximum number of samples to fetch:</label>
+                            <input type="number" id="maxSampleSize" name="maxSampleSize" value="1000" min="1">
+                        </div>
                     </div>
-                </div>
-                <div id="countrySelectInput" style="display: none;">
-                    <label for="countrySelect">Country:</label>
-                    <select name="countrySelect" id="countrySelect">
-                        <option value="" selected>Select a country</option>
-                        {% for variable in country_set %}
-                            <option value="{{ variable }}">{{ variable }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-                <div id="continentSelectInput" style="display: none;">
-                    <label for="continentSelect">Continent:</label>
-                    <select name="continentSelect" id="continentSelect">
-                        <option value="" selected>Select a continent</option>
-                        {% for variable in continent_set %}
-                            <option value="{{ variable }}">{{ variable }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
-
             </div>
         </div>
-        <div class="querySection">
-            <div class="section-title" onclick="toggleVisibility('timeQuery')">Query by time</div>
-            <div class="collapsible-content" id="timeQuery">
-                <p>Please enter a year, a comma-separated list of years, or a range using a hyphen (e.g., 1990-1995).</p>
-                <label for="yearRange">Enter year(s):</label>
-                <input type="text" id="yearRange" name="yearRange" placeholder="e.g., 1990, 1992, 1995-2000">
-            </div>
+        <div class="submit-container">
+            <input type="submit" class="btn btn-primary">
         </div>
-        <div class="querySection">
-            <div class="section-title" onclick="toggleVisibility('sampleSizeQuery')">Query by minimum sample size</div>
-                <div class="collapsible-content" id="sampleSizeQuery">
-                    <div class="query-input-group">
-                        <label for="minSiteYears">Minimum number of site-years in study:</label>
-                        <input type="number" id="minSiteYears" name="minSiteYears" value="1" min="1">
-                    </div>
-                    <div class="query-input-group">
-                        <label for="minSitesResponseType">Minimum number of sites in study:</label>
-                        <input type="number" id="minSitesResponseTypeCount" name="minSitesResponseTypeCount" value="1" min="1">
-                    </div>
-                    <div class="query-input-group">
-                        <label for="sampleSizeMinYears">Minimum number years in a study:</label>
-                        <input type="number" id="sampleSizeMinYears" name="sampleSizeMinYears" value="1" min="1">
-                    </div>
-                    <div class="query-input-group">
-                        <label for="sampleSizeMinObservationsPerYear">Minimum number of observations within all years of a study:</label>
-                        <input type="number" id="sampleSizeMinObservationsPerYear" name="sampleSizeMinObservationsPerYear" value="1" min="1">
-                    </div>
-                </div>
-        </div>
-        <div class="querySection">
-            <div class="section-title" onclick="toggleVisibility('maxSample')">Maximum Query Size</div>
-                <div class="collapsible-content" id="maxSample">
-                    <p>This is a prototype, Rich didn't optimize REALLY big queries yet, so if you make this number too big it will really hurt the server and you'll be confused because you won't get a result.</p>
-                    <div class="query-input-group">
-                        <label for="maxSampleSize">Maximum number of samples to fetch:</label>
-                        <input type="number" id="maxSampleSize" name="maxSampleSize" value="1000" min="1">
-                    </div>
-                </div>
-        </div>
-    </div>
-
-    <input type="submit" class="btn btn-primary">
-</form>
-
+    </form>
+</div>
 <script>
 function addRow() {
     const queryRows = document.getElementById("queryRows");

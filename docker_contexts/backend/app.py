@@ -82,6 +82,7 @@ def calculate_covariate_display_order(session, query_to_filter, covariate_type):
 
     unique_values_per_covariate = collections.defaultdict(set)
     for index, row in enumerate(query_to_filter):
+        print(index)
         for covariate in row.covariates:
             if not isinstance(covariate.value, str) and (
                     covariate.value is None or numpy.isnan(covariate.value)):
@@ -185,7 +186,8 @@ def process_query():
         fields = request.form.getlist('field')
         operations = request.form.getlist('operation')
         values = request.form.getlist('value')
-        max_sample_size = request.form.get('max_sample_size')
+        max_sample_size = request.form.get('maxSampleSize')
+        LOGGER.debug(f'************ {max_sample_size}')
 
         # Example of how you might process these queries
         filters = []
@@ -376,6 +378,7 @@ def process_query():
             .join(Sample, Study.id_key == Sample.study_id)
             .join(Point, Sample.point_id == Point.id_key)
             .filter(*filters)
+            .limit(max_sample_size)
         )
         # determine what covariate ids are in this query
         LOGGER.info('determine study covariates to display')
@@ -412,6 +415,7 @@ def process_query():
             for p in point_query]
 
         session.close()
+        LOGGER.info(f'all done, sending to results view...')
         return render_template(
             'results_view.html',
             study_headers=study_covariate_display_order,
