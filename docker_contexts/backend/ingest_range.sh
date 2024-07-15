@@ -7,15 +7,7 @@ step_size=10000
 input_csv1="./base_data/BioControlDatabaseMetadata.csv"
 input_csv2="./base_data/abundance_template_rbound.csv"
 
-current_start=$lower_bound
-
-while [ $current_start -lt $upper_bound ]; do
-    current_end=$((current_start + step_size))
-    if [ $current_end -gt $upper_bound ]; then
-        current_end=$upper_bound
-    fi
-
-    echo python3 ingest_table.py "$input_csv1" "$input_csv2" --n_dataset_rows "$current_start" "$current_end"
-
-    current_start=$((current_end + 1))
+for ((i=lower_bound; i<upper_bound; i+=step_size)); do
+    next_bound=$((i + step_size))
+    python3 ingest_table.py "$input_csv1" "$input_csv2" --n_dataset_rows "$i" "$next_bound"
 done

@@ -332,7 +332,7 @@ def main():
         nrows = args.n_dataset_rows[0]
     elif len(args.n_dataset_rows) == 2:
         skiprows = lambda x: x > 0 and x < args.n_dataset_rows[0]
-        nrows = args.n_dataset_rows[1]-args.n_dataset_rows[0]+1
+        nrows = args.n_dataset_rows[1]-args.n_dataset_rows[0]
 
     column_matching_path = (
         f'{rootbasename(args.study_table_path)}_'
