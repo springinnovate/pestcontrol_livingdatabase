@@ -51,6 +51,7 @@ class group_concat_distinct(GenericFunction):
 def compile_group_concat_distinct(element, compiler, **kw):
     return 'GROUP_CONCAT(DISTINCT %s)' % compiler.process(element.clauses)
 
+
 @compiles(group_concat_distinct, 'postgresql')
 def compile_group_concat_distinct_pg(element, compiler, **kw):
     return 'STRING_AGG(DISTINCT %s, \',\')' % compiler.process(element.clauses)
@@ -200,28 +201,44 @@ def n_samples():
 @app.route('/api/process_query', methods=['POST'])
 def process_query():
     try:
-        fields = request.form.getlist('field')
+        fields = request.form.getlist('covariate')
         operations = request.form.getlist('operation')
         values = request.form.getlist('value')
         max_sample_size = request.form.get('maxSampleSize')
-        LOGGER.debug(f'************ {max_sample_size}')
 
+        session = SessionLocal()
         # Example of how you might process these queries
         filters = []
         for field, operation, value in zip(fields, operations, values):
             if not field:
                 continue
-            if hasattr(Study, field):
-                column = getattr(Study, field)
-            elif hasattr(Sample, field):
-                column = getattr(Sample, field)
-            else:
-                raise AttributeError(f"Field '{field}' not found in Study or Sample.")
-            if operation == '=' and '*' in value:
-                value = value.replace('*', '%')
-            filter_condition = OPERATION_MAP[operation](column, value)
-            filters.append(filter_condition)
-        session = SessionLocal()
+            covariate_type = session.query(
+                CovariateDefn.covariate_association).filter(
+                CovariateDefn.name == field).first()[0]
+            if covariate_type == CovariateAssociation.STUDY:
+                valid_ids = session.query(
+                    Study.id_key
+                ).join(
+                    CovariateValue, Study.id_key == CovariateValue.study_id
+                ).join(
+                    CovariateDefn, CovariateValue.covariate_defn_id == CovariateDefn.id_key
+                ).filter(
+                    CovariateDefn.name == field,
+                    OPERATION_MAP[operation](CovariateValue.value, value)
+                ).all()
+                filters.append(Study.id_key.in_([x[0] for x in valid_ids]))
+            elif covariate_type == CovariateAssociation.SAMPLE:
+                valid_ids = session.query(
+                    Sample.id_key
+                ).join(
+                    CovariateValue, Sample.id_key == CovariateValue.sample_id
+                ).join(
+                    CovariateDefn, CovariateValue.covariate_defn_id == CovariateDefn.id_key
+                ).filter(
+                    CovariateDefn.name == field,
+                    OPERATION_MAP[operation](CovariateValue.value, value)
+                ).all()
+                filters.append(Sample.id_key.in_([x[0] for x in valid_ids]))
 
         ul_lat = None
         center_point = request.form.get('centerPoint')
