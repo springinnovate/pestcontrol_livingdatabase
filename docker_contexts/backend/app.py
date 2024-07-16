@@ -183,6 +183,20 @@ def pcld():
         )
 
 
+@app.route('/api/n_samples', methods=['POST'])
+def n_samples():
+    session = SessionLocal()
+    sample_count = session.query(func.count(Sample.id_key)).scalar()
+    study_count = session.query(func.count(Study.id_key)).scalar()
+    covariate_count = session.query(func.count(CovariateDefn.id_key)).scalar()
+    session.close()
+    return jsonify({
+        'sample_count': sample_count,
+        'study_count': study_count,
+        'covariate_count': covariate_count,
+        })
+
+
 @app.route('/api/process_query', methods=['POST'])
 def process_query():
     try:

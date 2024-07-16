@@ -82,6 +82,11 @@
 </head>
 <body>
 <div class="container mt-5">
+    <div class="info-box alert alert-info" role="alert">
+        Number of Samples: <span id="sampleCount">Loading...</span><br/>
+        Number of Studies: <span id="studyCount">Loading...</span><br/>
+        Number of Covariates: <span id="covariateCount">Loading...</span>
+    </div>
     <form id="queryForm" action="/api/process_query" method="post">
         <div id="queryBuilder">
             <div class="querySection">
@@ -333,6 +338,16 @@ function updateValueOptions(fieldSelect) {
 window.addEventListener("pageshow", function() {
     toggleSpaceQueryType();
 });
+fetch('/api/n_samples', {
+    method: 'POST'
+})
+.then(response => response.json())
+.then(data => {
+    document.getElementById('sampleCount').innerText = data.sample_count;
+    document.getElementById('studyCount').innerText = data.study_count;
+    document.getElementById('covariateCount').innerText = data.covariate_count;
+})
+.catch(error => console.error('Error fetching sample count:', error));
 </script>
 </body>
 </html>
