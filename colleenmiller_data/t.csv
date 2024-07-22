@@ -1,3 +1,0 @@
-Dataset ID,Band Name,Spatiotemporal Aggregation Function,Pixel Value Transform,Notes,GEE link,Description,Historical Range,Seasonal Range,Spatial Range,Valid Years
-MODIS/061/MCD12Q2,Dormancy_1,"years_mean(-5, 0; spatial_mean(1000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,Dormancy Day of Year,5 years prior,year,,
-MODIS/061/MCD12Q2,Senescence_2,"years_mean(-5, 0; spatial_sd(10000))",NA,NA,https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2,,,year,,

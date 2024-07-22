@@ -207,37 +207,34 @@ def process_query():
         max_sample_size = request.form.get('maxSampleSize')
 
         session = SessionLocal()
-        # Example of how you might process these queries
         filters = []
+
+        base_covariate_query = session.query(
+                Study.id_key
+            ).join(
+                CovariateValue, Study.id_key == CovariateValue.study_id
+            ).join(
+                CovariateDefn, CovariateValue.covariate_defn_id == CovariateDefn.id_key
+            )
+
         for field, operation, value in zip(fields, operations, values):
             if not field:
                 continue
             covariate_type = session.query(
                 CovariateDefn.covariate_association).filter(
                 CovariateDefn.name == field).first()[0]
+            valid_ids = []
             if covariate_type == CovariateAssociation.STUDY:
-                valid_ids = session.query(
-                    Study.id_key
-                ).join(
-                    CovariateValue, Study.id_key == CovariateValue.study_id
-                ).join(
-                    CovariateDefn, CovariateValue.covariate_defn_id == CovariateDefn.id_key
-                ).filter(
+                valid_ids = base_covariate_query.filter(
                     CovariateDefn.name == field,
                     OPERATION_MAP[operation](CovariateValue.value, value)
                 ).all()
-                filters.append(Study.id_key.in_([x[0] for x in valid_ids]))
             elif covariate_type == CovariateAssociation.SAMPLE:
-                valid_ids = session.query(
-                    Sample.id_key
-                ).join(
-                    CovariateValue, Sample.id_key == CovariateValue.sample_id
-                ).join(
-                    CovariateDefn, CovariateValue.covariate_defn_id == CovariateDefn.id_key
-                ).filter(
+                valid_ids = base_covariate_query.filter(
                     CovariateDefn.name == field,
                     OPERATION_MAP[operation](CovariateValue.value, value)
                 ).all()
+            if valid_ids:
                 filters.append(Sample.id_key.in_([x[0] for x in valid_ids]))
 
         ul_lat = None
@@ -289,27 +286,6 @@ def process_query():
             filters.append(Point.latitude >= lr_lat)
             filters.append(Point.longitude <= ul_lng)
             filters.append(Point.longitude >= lr_lng)
-
-        year_range = request.form.get('yearRange')
-        if year_range is not None:
-            year_range = year_range.strip()
-            if year_range != '':
-                m = [
-                    v.group() for v in
-                    re.finditer(r"(\d+ ?- ?\d+)|(?:(\d+))", year_range)]
-                year_filters = []
-                for year_group in m:
-                    if '-' not in year_group:
-                        year = int(year_group.strip())
-                        year_filters.append(Sample.year == year)
-                    else:
-                        start_year, end_year = [
-                            int(v.strip()) for v in year_group.split('-')]
-                        year_filters.append(
-                            and_(
-                                Sample.year >= start_year,
-                                Sample.year <= end_year))
-                filters.append(or_(*year_filters))
 
         # add filters for the min observation side
         min_observations_response_variable = request.form.get(
