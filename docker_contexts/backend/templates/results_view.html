@@ -50,6 +50,10 @@
     </style>
 </head>
 <body>
+    <div class="container mt-5">
+        <h3>Compiled query for debugging</h3>
+        <p>{{ compiled_query }}</p>
+    </div>
     {% if study_table|length > 0 %}
     <div class="container mt-5">
         <h1>Sample Locations</h1>
@@ -140,9 +144,13 @@
         </table>
     </div>
     <div id="tableTooltip" class="tableTooltip"></div>
-    <div id="copy-notification" class="copy-notification">Cell copied to clipboard</div>
+    <div id="copy-notification" class="copy-notification">
+        Cell copied to clipboard
+    </div>
     {% else %}
-    No data matched the filter!
+    <div class="container mt-5">
+        <h2>No data matched the filter given below</h2>
+    </div>
     {% endif %}
 
     <script type="text/javascript">

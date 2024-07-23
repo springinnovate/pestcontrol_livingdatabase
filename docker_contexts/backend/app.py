@@ -23,6 +23,7 @@ from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.sql.functions import GenericFunction
 from sqlalchemy.types import String
 from sqlalchemy.orm import subqueryload
+from sqlalchemy.dialects import postgresql
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -216,10 +217,11 @@ def process_query():
             ).join(
                 CovariateDefn, CovariateValue.covariate_defn_id == CovariateDefn.id_key
             )
-
+        filter_text = ''
         for field, operation, value in zip(fields, operations, values):
             if not field:
                 continue
+            filter_text += f'{field} {operation} {value}\n'
             covariate_type = session.query(
                 CovariateDefn.covariate_association).filter(
                 CovariateDefn.name == field).first()[0]
@@ -252,6 +254,8 @@ def process_query():
                 ul_lng = lng+center_point_buffer/2
                 lr_lng = lng-center_point_buffer/2
 
+                filter_text += f'center point at ({lat},{lng}) + +/-{center_point_buffer}\n'
+
         upper_left_point = request.form.get('upperLeft')
         if upper_left_point is not None:
             upper_left_point = request.form.get('upperLeft').strip()
@@ -263,6 +267,8 @@ def process_query():
                 m = re.match(r"[(]?([^, ]+)[, ]*([^, )]+)[\)]?", lower_right_point)
                 lr_lat, lr_lng = [float(v) for v in m.group(1, 2)]
 
+                filter_text += f'bounding box ({ul_lat},{ul_lng}) ({lr_lat},{lr_lng})\n'
+
         country_select = request.form.get('countrySelect')
         if country_select:
             geolocation_subquery = (
@@ -271,6 +277,7 @@ def process_query():
                 .filter(Geolocation.geolocation_name == country_select)
             ).subquery()
             filters.append(Point.id_key.in_(select(geolocation_subquery)))
+            filter_text += f'country is {country_select}\n'
 
         continent_select = request.form.get('continentSelect')
         if continent_select:
@@ -280,6 +287,7 @@ def process_query():
                 .filter(Geolocation.geolocation_name == continent_select)
             ).subquery()
             filters.append(Point.id_key.in_(geolocation_subquery))
+            filter_text += f'continent is {continent_select}\n'
 
         if ul_lat is not None:
             filters.append(Point.latitude <= ul_lat)
@@ -287,23 +295,9 @@ def process_query():
             filters.append(Point.longitude <= ul_lng)
             filters.append(Point.longitude >= lr_lng)
 
-        # add filters for the min observation side
-        min_observations_response_variable = request.form.get(
-            'minObservationsResponseVariable')
-
-        if min_observations_response_variable:
-            min_observations = int(request.form.get('minObservationsSampleSize'))
-            studies_with_min_observations = session.query(
-                    Sample.study_id).filter(Sample.response_variable == min_observations_response_variable).group_by(
-                Sample.study_id, Sample.response_variable).having(
-                func.count(Sample.id_key) >= min_observations)
-            valid_study_ids = [
-                row[0] for row in studies_with_min_observations.all()]
-            filters.append(
-                Sample.study_id.in_(valid_study_ids))
-
-        min_site_years = request.form.get('minSiteYears')
-        if min_site_years:
+        min_site_years = int(request.form.get('minSiteYears'))
+        if min_site_years > 0:
+            filter_text += f'min site years={min_site_years}\n'
             unique_years_count_query = (
                 session.query(
                     Sample.study_id,
@@ -319,7 +313,7 @@ def process_query():
 
             valid_sites = [
                 (row.study_id, row.point_id) for row in unique_years_count_query
-                if row.unique_years >= int(min_site_years)]
+                if row.unique_years >= min_site_years]
             filters.append(
                 tuple_(Sample.study_id, Sample.point_id).in_(valid_sites))
 
@@ -327,6 +321,7 @@ def process_query():
         if min_sites_response_type:
             min_sites_per_response_type_count = int(
                 request.form.get('minSitesResponseTypeCount'))
+            filter_text += f'min sites per response type {min_sites_per_response_type_count}\n'
             min_sites = session.query(
                 Sample.study_id).filter(
                 Sample.response_type == min_sites_response_type).group_by(
@@ -335,8 +330,8 @@ def process_query():
             valid_study_ids = [row[0] for row in min_sites.all()]
             filters.append(Sample.study_id.in_(valid_study_ids))
 
-        sample_size_min_years = request.form.get('sampleSizeMinYears')
-        if sample_size_min_years:
+        sample_size_min_years = int(request.form.get('sampleSizeMinYears'))
+        if sample_size_min_years > 0:
             unique_years_count_query = (
                 session.query(
                     Sample.study_id,
@@ -347,11 +342,11 @@ def process_query():
                  .group_by(Sample.study_id))
             valid_study_ids = [
                 row[0] for row in unique_years_count_query.all()
-                if row[1] >= int(sample_size_min_years)]
+                if row[1] >= sample_size_min_years]
             filters.append(Sample.study_id.in_(valid_study_ids))
 
-        min_observations_per_year = request.form.get('sampleSizeMinObservationsPerYear')
-        if min_observations_per_year:
+        min_observations_per_year = int(request.form.get('sampleSizeMinObservationsPerYear'))
+        if min_observations_per_year > 0:
             query = (
                 session.query(
                     Sample.study_id,
@@ -412,27 +407,33 @@ def process_query():
                 sample_row.point.latitude,
                 sample_row.point.longitude] + display_row
 
-        LOGGER.info(f'about to query on points')
+        LOGGER.info('about to query on points')
         point_query = (
             session.query(Point)
             .join(Sample, Point.id_key == Sample.point_id)
             .filter(Sample.id_key.in_([s.id_key for s in sample_query]))
             .distinct()
-        ).all()
+        )
 
         points = [
             {"lat": p.latitude, "lng": p.longitude}
             for p in point_query]
 
+        str_filter_list = []
+        for f in filters:
+            compiled_filter = f.compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
+            str_filter_list.append(str(compiled_filter))
+
         session.close()
-        LOGGER.info(f'all done, sending to results view...')
+        LOGGER.info('all done, sending to results view...')
         return render_template(
             'results_view.html',
             study_headers=study_covariate_display_order,
             study_table=study_table,
             sample_headers=sample_covariate_display_order,
             sample_table=sample_table,
-            points=points
+            points=points,
+            compiled_query=f'{filter_text}\n\n{str(str_filter_list)}'
             )
     except Exception as e:
         LOGGER.exception(f'error with {e}')
