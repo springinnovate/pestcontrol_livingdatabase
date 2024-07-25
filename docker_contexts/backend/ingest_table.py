@@ -122,7 +122,8 @@ def define_new_covariates(session, table_source_path, covariate_names, covariate
             queryable=False,
             always_display=False,
             condition=None,
-            hidden=True
+            hidden=True,
+            show_in_point_table=False,
         )
         session.add(hidden_covariate)
     session.commit()
@@ -439,25 +440,16 @@ def main():
         for covariate_defn in sample_covariate_defn_list:
             covariate_name = covariate_defn.name
             if covariate_name not in row:
-                # it's possible to have covariates that aren't in the set
                 continue
             covariate_value = row[covariate_name]
             if not isinstance(covariate_value, str) and numpy.isnan(
                     covariate_value):
                 continue
-            covariate_id_tuple = (covariate_name, covariate_value)
-            if covariate_id_tuple in OBJECT_CACHE:
-                covariate_value_obj = OBJECT_CACHE[covariate_id_tuple]
-            else:
-                covariate_value_obj = CovariateValue(
-                    value=str(covariate_value),
-                    covariate_defn=covariate_defn)
-                OBJECT_CACHE[covariate_id_tuple] = covariate_value_obj
-                session.add(covariate_value_obj)
-                #TO_ADD_BUFFER.append(covariate_value_obj)
-
-            if covariate_value_obj not in sample.covariates:
-                sample.covariates.append(covariate_value_obj)
+            covariate_value_obj = CovariateValue(
+                value=str(covariate_value),
+                covariate_defn=covariate_defn)
+            session.add(covariate_value_obj)
+            sample.covariates.append(covariate_value_obj)
 
     # add all samples in samples_to_add
     print('bulk inserting remainder')

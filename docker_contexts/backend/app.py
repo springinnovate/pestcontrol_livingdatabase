@@ -84,7 +84,7 @@ def calculate_sample_display_table(session, query_to_filter):
             CovariateDefn.condition)
         .filter(
             or_(CovariateDefn.covariate_association == CovariateAssociation.SAMPLE,
-                CovariateDefn.show_in_all_columns == 1))
+                CovariateDefn.show_in_point_table == 1))
         .order_by(
             CovariateDefn.display_order,
             func.lower(CovariateDefn.name))).all()]
@@ -93,11 +93,11 @@ def calculate_sample_display_table(session, query_to_filter):
 
     unique_values_per_covariate = collections.defaultdict(set)
     sample_covariate_list = []
-    for index, sample in enumerate(query_to_filter):
+    for index, (sample, study) in enumerate(query_to_filter):
         sample_covariates = sample.covariates
         study_covariates = [
-            cov for cov in sample.study.covariates
-            if cov.covariate_defn.show_in_all_columns == 1
+            cov for cov in study.covariates
+            if cov.covariate_defn.show_in_point_table == 1
         ]
         all_covariates = sample_covariates + study_covariates
         sample_covariate_list.append((sample, all_covariates))
@@ -156,7 +156,7 @@ def calculate_study_display_order(
             CovariateDefn.condition)
         .filter(
             or_(CovariateDefn.covariate_association == CovariateAssociation.STUDY,
-                CovariateDefn.show_in_all_columns == 1))
+                CovariateDefn.show_in_point_table == 1))
         .order_by(
             CovariateDefn.display_order,
             func.lower(CovariateDefn.name))).all()]
@@ -456,13 +456,9 @@ def process_query():
             filters.append(Sample.study_id.in_(valid_study_ids))
 
         sample_query = (
-            session.query(Sample)
+            session.query(Sample, Study)
             .join(Sample.study)
             .join(Sample.point)
-            .options(
-                joinedload(Sample.covariates),
-                joinedload(Sample.study).joinedload(Study.covariates).joinedload(CovariateValue.covariate_defn)
-            )
             .filter(*filters)
             .limit(max_sample_size)
         )
@@ -486,7 +482,7 @@ def process_query():
         # add the lat/lng points and observation to the sample
         sample_covariate_display_order = [
             OBSERVATION, LATITUDE, LONGITUDE] + sample_covariate_display_order
-        for sample_row, display_row in zip(sample_query, sample_table):
+        for (sample_row, _), display_row in zip(sample_query, sample_table):
             display_row[:] = [
                 sample_row.observation,
                 sample_row.point.latitude,
@@ -496,7 +492,7 @@ def process_query():
         point_query = (
             session.query(Point)
             .join(Sample, Point.id_key == Sample.point_id)
-            .filter(Sample.id_key.in_([s.id_key for s in sample_query]))
+            .filter(Sample.id_key.in_([s.id_key for s, _ in sample_query]))
             .distinct()
         )
         point_query_compiled = str(

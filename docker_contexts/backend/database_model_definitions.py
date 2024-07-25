@@ -119,7 +119,7 @@ class CovariateDefn(Base):
         Boolean, nullable=False, index=True)
     hidden: Mapped[bool] = mapped_column(
         Boolean, nullable=False, index=True)
-    show_in_all_columns: Mapped[bool] = mapped_column(
+    show_in_point_table: Mapped[bool] = mapped_column(
         Boolean, nullable=False, index=True)
     condition: Mapped[dict] = mapped_column(JSON, default=None)
     covariate_type: Mapped[CovariateType] = mapped_column(
