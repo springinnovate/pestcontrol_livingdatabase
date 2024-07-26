@@ -50,10 +50,6 @@
     </style>
 </head>
 <body>
-    <div class="container mt-5">
-        <h3>Compiled query for debugging</h3>
-        <p>{{ compiled_query | safe }}</p>
-    </div>
     {% if study_table|length > 0 %}
     <div class="container mt-5">
         <h1>Sample Locations</h1>
@@ -149,9 +145,13 @@
     </div>
     {% else %}
     <div class="container mt-5">
-        <h2>No data matched the filter given below</h2>
+        <h2>No data matched the filter</h2>
     </div>
     {% endif %}
+    <div class="container mt-5">
+        <h3>Compiled query for debugging</h3>
+        <p>{{ compiled_query | safe }}</p>
+    </div>
 
     <script type="text/javascript">
         $(document).ready(function() {

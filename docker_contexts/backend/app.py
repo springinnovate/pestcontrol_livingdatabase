@@ -65,14 +65,33 @@ OPERATION_MAP = {
     '>': lambda field, value: field > value
 }
 
+
 def nl2br(value):
     return value.replace('\n', '<br>\n')
+
 
 def to_dict(covariate_list):
     covariate_dict = collections.defaultdict(lambda: None)
     for covariate in covariate_list:
         covariate_dict[covariate.covariate_defn.name] = covariate.value
     return covariate_dict
+
+
+def extract_years(year_string):
+    """Process a comma/space separated string of years into year set."""
+    years = set()
+    parts = re.split(r'[,\s]+', year_string)
+
+    for part in parts:
+        part = part.strip()  # Remove leading and trailing whitespace
+
+        if '-' in part:  # Check if the part is a range
+            start_year, end_year = map(int, part.split('-'))
+            years.update(range(start_year, end_year + 1))  # Add all years in the range
+        else:
+            years.add(int(part))  # Add individual year
+
+    return sorted(years)
 
 
 def calculate_sample_display_table(session, query_to_filter):
@@ -455,11 +474,26 @@ def process_query():
                 if samples_per_year >= int(min_observations_per_year)]
             filters.append(Sample.study_id.in_(valid_study_ids))
 
+        year_range = request.form.get('yearRange')
+        if year_range:
+            year_set = extract_years(year_range)
+            year_subquery = (
+                session.query(CovariateValue.sample_id)
+                .join(CovariateValue.covariate_defn)
+                .filter(
+                    and_(CovariateDefn.name == 'year',
+                         CovariateValue.value.in_(year_set))
+                ).subquery())
+            filters.append(
+                Sample.id_key.in_(session.query(year_subquery.c.sample_id)))
+
         sample_query = (
             session.query(Sample, Study)
             .join(Sample.study)
             .join(Sample.point)
-            .filter(*filters)
+            .filter(
+                *filters
+            )
             .limit(max_sample_size)
         )
 
