@@ -467,17 +467,12 @@ def process_query():
         sample_covariate_display_order, sample_table = calculate_sample_display_table(
             session, sample_query)
 
-        study_query = (
-            session.query(Study)
-            .join(Sample, Study.id_key == Sample.study_id)
-            .filter(*filters)
-            .limit(max_sample_size)
-        )
+        unique_studies = {sample[1] for sample in sample_query}
 
         # determine what covariate ids are in this query
         LOGGER.info('calculate covariate display order for study')
         study_covariate_display_order, study_table = calculate_study_display_order(
-            session, study_query)
+            session, unique_studies)
 
         # add the lat/lng points and observation to the sample
         sample_covariate_display_order = [
@@ -495,11 +490,12 @@ def process_query():
             .filter(Sample.id_key.in_([s.id_key for s, _ in sample_query]))
             .distinct()
         )
+        unique_points = {sample[0].point for sample in sample_query}
         point_query_compiled = str(
             point_query)
         points = [
             {"lat": p.latitude, "lng": p.longitude}
-            for p in point_query]
+            for p in unique_points]
 
         str_filter_list = []
         for f in filters:
