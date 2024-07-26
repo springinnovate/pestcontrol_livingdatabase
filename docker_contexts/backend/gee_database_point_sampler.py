@@ -18,7 +18,7 @@ from parsimonious.grammar import Grammar
 from parsimonious.nodes import NodeVisitor
 
 from database import SessionLocal
-from database_model_definitions import Study, Sample, Point, CovariateDefn, CovariateValue, CovariateType, CovariateAssociation, GeolocationName
+from database_model_definitions import Study, Sample, Point, CovariateDefn, CovariateValue, CovariateType, CovariateAssociation, Geolocation
 from flask import Flask
 from flask import render_template
 from flask import request
@@ -777,8 +777,6 @@ def main():
     parser.add_argument(
         '--n_dataset_rows', nargs='+', type=int, help='limit csv read to this many rows')
     parser.add_argument(
-        '--n_point_rows', type=int, help='limit csv read to this many rows')
-    parser.add_argument(
         '--batch_size', type=int, default=BATCH_SIZE,
         help=f'how many points to process per batch, defaults to {BATCH_SIZE}')
     parser.add_argument(
@@ -808,58 +806,30 @@ def main():
     dataset_table = process_data_table(dataset_table, args)
     LOGGER.info(f'loaded {args.dataset_table_path}')
     LOGGER.info(dataset_table)
+    return
 
     session = SessionLocal()
-
-    # TODO: check to see if the covariates already exist (make them if they don't)
-    # TODO: get a list of points for where they don't for each covariate
-    # TODO: do remote sensed sampling for those points
-    # TODO: put the remote sensed values back in the database
     query = (
-        session.query(
-            Point,
-            func.count(func.distinct(CovariateValue.value)).label('unique_years')
-        )
-        .join(Sample, Sample.point_id == Point.id_key)
-        .join(Sample.covariates)
-        .join(CovariateValue.covariate_defn)
-        .join(YearCovariateDefn, CovariateDefn.id_key == YearCovariateDefn.id_key)
-        .filter(YearCovariateDefn.name == 'year')
-        .join(OtherCovariateDefn, CovariateValue.covariate_defn_id == OtherCovariateDefn.id_key)
-        .filter(OtherCovariateDefn.name == arbitrary_covariate_name)
-        .group_by(Point.id_key)
+        session.query(Sample, CovariateValue, Point.latitude, Point.longitude)
+        .join(CovariateValue, Sample.covariates)
+        .join(Point)
+        .join(CovariateDefn, CovariateValue.covariate_defn)
+        .filter(CovariateDefn.name == 'year')
     )
-
-
-    point_table = pandas.read_csv(
-        args.point_table_path,
-        skip_blank_lines=True,
-        converters={
-            LNG_FIELD: lambda x: None if x == '' else float(x),
-            LAT_FIELD: lambda x: None if x == '' else float(x),
-        },
-        nrows=args.n_point_rows).dropna(how='all')
-
-    # Explode out the YYYY-YYYY column to individual rows
-    point_table = pandas.DataFrame(point_table.apply(
-        expand_year_range(YEAR_FIELD), axis=1).sum())
-    point_table[YEAR_FIELD] = point_table[YEAR_FIELD].astype(int)
+    point_year_to_sample_list = collections.defaultdict(list)
+    print('loading samples')
+    for sample, year, latitude, longitude in query:
+        lat_lng_year_tuple = (latitude, longitude, int(float(year.value)))
+        point_year_to_sample_list[lat_lng_year_tuple].append(sample)
+    print(len(point_year_to_sample_list))
 
     LOGGER.info(f'loaded {args.point_table_path}')
-    target_point_table_path = (
-        f'{os.path.basename(os.path.splitext(args.dataset_table_path)[0])}_'
-        f'{os.path.basename(os.path.splitext(args.point_table_path)[0])}')
-
     point_batch_list = []
     point_unique_id_per_year_list = []
     n_points = 0
-    # initialize for first step
     batch_index = -1
     current_batch_size = args.batch_size
-    for index, (year, lon, lat) in enumerate(zip(
-            point_table[YEAR_FIELD],
-            point_table[LNG_FIELD],
-            point_table[LAT_FIELD])):
+    for index, (year, lat, lon) in enumerate(point_year_to_sample_list):
         if current_batch_size == args.batch_size:
             batch_index += 1
             point_batch_list.append(collections.defaultdict(list))
@@ -930,10 +900,29 @@ def main():
                 LOGGER.exception(f'{dataset_index} generated an exception: {exc}')
                 point_table[key] = [str(exc)] * n_points
 
-    point_table.to_csv(
-        f'sampled_points_of_{target_point_table_path}.csv', index=False)
-    LOGGER.info(f'all done to {target_point_table_path}!')
+
+def create_covariates_for_samples():
+    session = SessionLocal()
+    # Get all samples
+    query = (
+        session.query(Sample, CovariateValue, Point.latitude, Point.longitude)
+        .join(CovariateValue, Sample.covariates)
+        .join(Point)
+        .join(CovariateDefn, CovariateValue.covariate_defn)
+        .filter(CovariateDefn.name == 'year')
+    )
+
+    point_year_to_sample_list = collections.defaultdict(list)
+    print('loading samples')
+    for sample, year, latitude, longitude in query:
+        lat_lng_year_tuple = (latitude, longitude, int(float(year.value)))
+        print(lat_lng_year_tuple)
+        point_year_to_sample_list[lat_lng_year_tuple].append(sample)
+    print(len(point_year_to_sample_list))
+
+    session.commit()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
+    #create_covariates_for_samples()
     main()
