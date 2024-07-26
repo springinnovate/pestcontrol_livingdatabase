@@ -77,6 +77,19 @@
     width: auto;  /* Ensure the button is not too wide */
     height: auto; /* Ensure the button is not too tall */
 }
+#loadingOverlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(255, 255, 255, 0.8);
+    z-index: 1000;
+    text-align: center;
+    padding-top: 20%;
+    font-size: 24px;
+}
 </style>
 <title>Dynamic Query Builder</title>
 </head>
@@ -212,7 +225,13 @@
         </div>
     </form>
 </div>
+<div id="loadingOverlay">Processing, sometimes this takes a couple of minutes...</div>
+
 <script>
+function showLoadingOverlay() {
+    const loadingOverlay = document.getElementById('loadingOverlay');
+    loadingOverlay.style.display = 'block';
+}
 function addRow() {
     const queryRows = document.getElementById("queryRows");
     const newRow = queryRows.firstElementChild.cloneNode(true);
@@ -351,6 +370,9 @@ fetch('/api/n_samples', {
     document.getElementById('covariateCount').innerText = data.covariate_count;
 })
 .catch(error => console.error('Error fetching sample count:', error));
+document.getElementById('queryForm').addEventListener('submit', function(event) {
+    showLoadingOverlay();
+});
 </script>
 </body>
 </html>

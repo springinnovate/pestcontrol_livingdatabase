@@ -392,6 +392,7 @@ def process_query():
                 Point.longitude <= ul_lng,
                 Point.longitude >= lr_lng))
 
+        LOGGER.debug(request.form)
         min_site_years = int(request.form.get('minSiteYears'))
         if min_site_years > 0:
             filter_text += f'min site years={min_site_years}\n'
