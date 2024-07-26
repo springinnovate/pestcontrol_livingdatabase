@@ -484,23 +484,10 @@ def process_query():
                 sample_row.point.longitude] + display_row
 
         LOGGER.info('about to query on points')
-        point_query = (
-            session.query(Point)
-            .join(Sample, Point.id_key == Sample.point_id)
-            .filter(Sample.id_key.in_([s.id_key for s, _ in sample_query]))
-            .distinct()
-        )
         unique_points = {sample[0].point for sample in sample_query}
-        point_query_compiled = str(
-            point_query)
         points = [
             {"lat": p.latitude, "lng": p.longitude}
             for p in unique_points]
-
-        str_filter_list = []
-        for f in filters:
-            compiled_filter = f.compile(dialect=sqlite.dialect(), compile_kwargs={"literal_binds": True})
-            str_filter_list.append(str(compiled_filter))
 
         session.close()
         LOGGER.info('all done, sending to results view...')
@@ -511,7 +498,7 @@ def process_query():
             sample_headers=sample_covariate_display_order,
             sample_table=sample_table,
             points=points,
-            compiled_query=f'<pre>Filter as text: {filter_text}\nFilter from sqlalchemy: {str(str_filter_list)}\n\nSample query: {str(sample_query)}\n\nPoint query: {point_query_compiled}\n\nSample query result: {sample_query.all()}</pre>'
+            compiled_query=f'<pre>Filter as text: {filter_text}</pre>'
             )
     except Exception as e:
         LOGGER.exception(f'error with {e}')
