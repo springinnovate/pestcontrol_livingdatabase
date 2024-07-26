@@ -464,7 +464,7 @@ def main():
         if any([numpy.isnan(row[x]) for x in [LATITUDE, LONGITUDE, OBSERVATION]]):
             LOGGER.warning(
                 f'found a row at {index} with no lat/long/or observation value: '
-                f'{row}, skipping')
+                f'{[(x, row[x]) for x in [LATITUDE, LONGITUDE, OBSERVATION]]}, skipping')
             continue
         point = fetch_or_add_point(
             session, continent_vector, country_vector,
