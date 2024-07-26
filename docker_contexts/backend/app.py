@@ -311,37 +311,29 @@ def process_query():
             covariate_type = session.query(
                 CovariateDefn.covariate_association).filter(
                 CovariateDefn.name == field).first()[0]
-            valid_ids = []
             filter_text += f'{field}({covariate_type}) {operation} {value}\n'
 
             if covariate_type == CovariateAssociation.STUDY:
-                base_covariate_query = session.query(
-                        Study.id_key
-                    ).join(
-                        CovariateValue, Study.id_key == CovariateValue.study_id
-                    ).join(
-                        CovariateDefn, CovariateValue.covariate_defn_id == CovariateDefn.id_key
-                    )
-                valid_ids = base_covariate_query.filter(
-                    CovariateDefn.name == field,
-                    OPERATION_MAP[operation](CovariateValue.value, value)
-                ).all()
-                if valid_ids:
-                    filters.append(Study.id_key.in_([x[0] for x in valid_ids]))
+                covariate_subquery = (
+                    session.query(CovariateValue.study_id)
+                    .join(CovariateValue.covariate_defn)
+                    .filter(
+                        and_(CovariateDefn.name == field,
+                             OPERATION_MAP[operation](CovariateValue.value, value))
+                    ).subquery())
+                filters.append(
+                    Study.id_key.in_(session.query(covariate_subquery.c.study_id)))
+
             elif covariate_type == CovariateAssociation.SAMPLE:
-                base_covariate_query = session.query(
-                        Sample.id_key
-                    ).join(
-                        CovariateValue, Sample.id_key == CovariateValue.study_id
-                    ).join(
-                        CovariateDefn, CovariateValue.covariate_defn_id == CovariateDefn.id_key
-                    )
-                valid_ids = base_covariate_query.filter(
-                    CovariateDefn.name == field,
-                    OPERATION_MAP[operation](CovariateValue.value, value)
-                ).all()
-                if valid_ids:
-                    filters.append(Sample.id_key.in_([x[0] for x in valid_ids]))
+                covariate_subquery = (
+                    session.query(CovariateValue.sample_id)
+                    .join(CovariateValue.covariate_defn)
+                    .filter(
+                        and_(CovariateDefn.name == field,
+                             OPERATION_MAP[operation](CovariateValue.value, value))
+                    ).subquery())
+                filters.append(
+                    Sample.id_key.in_(session.query(covariate_subquery.c.sample_id)))
 
         ul_lat = None
         center_point = request.form.get('centerPoint')
@@ -394,10 +386,11 @@ def process_query():
             filter_text += f'continent is {continent_select}\n'
 
         if ul_lat is not None:
-            filters.append(Point.latitude <= ul_lat)
-            filters.append(Point.latitude >= lr_lat)
-            filters.append(Point.longitude <= ul_lng)
-            filters.append(Point.longitude >= lr_lng)
+            filters.append(and_(
+                Point.latitude <= ul_lat,
+                Point.latitude >= lr_lat,
+                Point.longitude <= ul_lng,
+                Point.longitude >= lr_lng))
 
         min_site_years = int(request.form.get('minSiteYears'))
         if min_site_years > 0:
