@@ -290,7 +290,7 @@ function resetSpaceInputs() {
 
 const fieldValues = {
     {% for field, values in unique_covariate_values.items() %}
-        "{{ field }}": {% if values is iterable and not values is string %}[{% for value in values %}"{{ value.replace('\n', ' ') }}"{% if not loop.last %}, {% endif %}{% endfor %}] {% else %}"{{ values.replace('\n', ' ') }}" {% endif %},
+        "{{ field }}": {% if values is iterable and not values is string %}[{% for value in values %}"{{ value.replace('\n', '\\n') }}"{% if not loop.last %}, {% endif %}{% endfor %}] {% else %}"{{ values.replace('\n', '\\n') }}" {% endif %},
     {% endfor %}
 };
 
