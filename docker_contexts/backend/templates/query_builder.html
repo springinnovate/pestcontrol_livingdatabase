@@ -336,6 +336,10 @@ function updateValueOptions(fieldSelect) {
 
 window.addEventListener("pageshow", function() {
     toggleSpaceQueryType();
+    var selectElement = document.getElementById('covariateSelect');
+    if (selectElement.value) {
+        updateValueOptions(selectElement);
+    }
 });
 fetch('/api/n_samples', {
     method: 'POST'
