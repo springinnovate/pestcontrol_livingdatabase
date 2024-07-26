@@ -1,11 +1,13 @@
 #!/bin/bash
 
 lower_bound=0
-upper_bound=750007
+upper_bound=506186
 step_size=10000
 
-input_csv1="./base_data/BioControlDatabaseMetadata.csv"
-input_csv2="./base_data/abundance_template_rbound.csv"
+
+
+input_csv1="./base_data/filled_template_metadata_RAIF.csv"
+input_csv2="./base_data/RAIF_dataset.csv"
 
 for ((i=lower_bound; i<upper_bound; i+=step_size)); do
     next_bound=$((i + step_size))
