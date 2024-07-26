@@ -9,6 +9,7 @@ import numpy
 import logging
 import sys
 
+import chardet
 from database import SessionLocal, init_db
 from database_model_definitions import CovariateDefn
 from database_model_definitions import CovariateValue
@@ -55,6 +56,49 @@ def validate_tables(study_table_df, sample_table_df):
             f'{missing_in_sample}')
 
     return True
+
+
+def read_csv_with_detected_encoding(file_path, **kwargs):
+    # Detect the encoding
+    if not isinstance(file_path, str):
+        return read_csv_with_detected_encoding_from_stringio(file_path, **kwargs)
+    with open(file_path, 'rb') as f:
+        raw_data = f.read(10000)  # Read the first 10,000 bytes
+        result = chardet.detect(raw_data)
+        encoding = result['encoding']
+
+    if not encoding:
+        raise ValueError("Failed to detect encoding")
+
+    # Read the CSV file with the detected encoding
+    try:
+        df = pd.read_csv(file_path, encoding=encoding, **kwargs)
+        print(f"Successfully read the file with detected encoding: {encoding}")
+        return df
+    except UnicodeDecodeError as e:
+        raise ValueError(f"Failed to read the file with detected encoding: {encoding}") from e
+
+
+def read_csv_with_detected_encoding_from_stringio(stringio_obj, nrows=None):
+    # Convert StringIO to BytesIO
+    stringio_obj.seek(0)
+    raw_data = stringio_obj.read().encode()  # Encode the string to bytes
+    bytesio_obj = io.BytesIO(raw_data)
+
+    # Detect the encoding
+    bytesio_obj.seek(0)
+    sample = bytesio_obj.read(10000)  # Read the first 10,000 bytes
+    result = chardet.detect(sample)
+    encoding = result['encoding']
+
+    if not encoding:
+        raise ValueError("Failed to detect encoding")
+
+    # Use the detected encoding to read the CSV data
+    stringio_obj.seek(0)
+    df = pd.read_csv(stringio_obj, encoding=encoding, nrows=nrows)
+    print(f"Successfully read the file with detected encoding: {encoding}")
+    return df
 
 
 #@profile
@@ -214,7 +258,7 @@ def fetch_or_add_point(
 
 #@profile
 def load_column_names(table_path):
-    df = pd.read_csv(table_path, nrows=0)
+    df = read_csv_with_detected_encoding(table_path, nrows=0)
     return df.columns.tolist()
 
 #@profile
@@ -320,7 +364,6 @@ def main():
     parser = argparse.ArgumentParser(description='parse table')
     parser.add_argument('study_table_path', help='Path to study table for studies in samples')
     parser.add_argument('sample_table_path', help='Path to table of samples on each row')
-    parser.add_argument('--column_matching_table_path', help='Path to column matching table.')
     parser.add_argument('--n_dataset_rows', type=int, nargs='+', default=None, help='to limit the number of rows for testing')
 
     args = parser.parse_args()
@@ -351,20 +394,20 @@ def main():
         (i for i, s in enumerate(lines)
          if s.startswith('SAMPLE TABLE')), -1)
 
-    study_matching_df = pd.read_csv(io.StringIO(''.join(lines[1:sample_table_start_index])))
-    sample_matching_df = pd.read_csv(io.StringIO(''.join(lines[sample_table_start_index+1:])))
+    study_matching_df = read_csv_with_detected_encoding(io.StringIO(''.join(lines[1:sample_table_start_index])))
+    sample_matching_df = read_csv_with_detected_encoding(io.StringIO(''.join(lines[sample_table_start_index+1:])))
 
     study_base_to_user_fields, raw_study_user_fields = extract_column_matching(
         study_matching_df, column_matching_path)
 
     # read metadata table and rename the columns to expected names, drop
     # NAs
-    study_table_df = pd.read_csv(args.study_table_path, low_memory=False)
+    study_table_df = read_csv_with_detected_encoding(args.study_table_path, low_memory=False)
     study_table_df.rename(columns=study_base_to_user_fields, inplace=True)
 
     sample_base_to_user_fields, raw_sample_user_fields = extract_column_matching(
         sample_matching_df, column_matching_path)
-    sample_table_df = pd.read_csv(
+    sample_table_df = read_csv_with_detected_encoding(
         args.sample_table_path, low_memory=False, skiprows=skiprows, nrows=nrows)
 
     sample_table_df.rename(columns=sample_base_to_user_fields, inplace=True)
