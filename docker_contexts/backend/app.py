@@ -421,18 +421,22 @@ def process_query():
             filters.append(
                 tuple_(Sample.study_id, Sample.point_id).in_(valid_sites))
 
-        min_sites_response_type = request.form.get('minSitesResponseType')
-        if min_sites_response_type:
-            min_sites_per_response_type_count = int(
-                request.form.get('minSitesResponseTypeCount'))
-            filter_text += f'min sites per response type {min_sites_per_response_type_count}\n'
-            min_sites = session.query(
-                Sample.study_id).filter(
-                Sample.response_type == min_sites_response_type).group_by(
-                Sample.study_id).having(func.count(
-                    distinct(Sample.point_id)) >= min_sites_per_response_type_count)
-            valid_study_ids = [row[0] for row in min_sites.all()]
-            filters.append(Sample.study_id.in_(valid_study_ids))
+        min_sites_per_study = int(request.form.get('minSitesPerStudy'))
+        if min_sites_per_study:
+            min_sites_per_study = int(min_sites_per_study)
+            filter_text += f'min sites per study {min_sites_per_study}\n'
+            min_sites_per_study_subquery = (
+                session.query(
+                    Study.id_key,
+                    func.count(func.distinct(Sample.point_id))
+                )
+                .join(Study.samples)
+                .group_by(Study.id_key)
+                .having(func.count(func.distinct(Sample.point_id)) >= min_sites_per_study)
+                .subquery()
+            )
+            filters.append(
+                Study.id_key == min_sites_per_study_subquery.c.id_key)
 
         sample_size_min_years = int(request.form.get('sampleSizeMinYears'))
         if sample_size_min_years > 0:
