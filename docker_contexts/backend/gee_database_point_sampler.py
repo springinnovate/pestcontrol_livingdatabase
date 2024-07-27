@@ -24,12 +24,21 @@ from flask import render_template
 from flask import request
 from flask import jsonify
 from sqlalchemy import distinct, func
+from sqlalchemy import update, insert, create_engine
 from sqlalchemy.engine import Row
 from sqlalchemy.sql import and_, or_
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.sql.functions import GenericFunction
 from sqlalchemy.types import String
+from sqlalchemy.orm import sessionmaker, scoped_session
+from database import DATABASE_URI
 
+engine = create_engine(DATABASE_URI, echo=False)
+Session = scoped_session(sessionmaker(bind=engine))
+session_factory = sessionmaker(bind=engine)
+
+
+DB_COMMIT_LOCK = Lock()
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -483,8 +492,7 @@ def process_gee_dataset(
         point_list_by_year,
         point_unique_id_per_year,
         pixel_op_transform,
-        spatiotemporal_commands,
-        target_point_table_path):
+        spatiotemporal_commands):
     """Apply the commands in the `commands` list to generate the appropriate result"""
     # make sure that the final opeation is a spatial one if not alreay defined
     LOGGER.info(
@@ -546,7 +554,7 @@ def process_gee_dataset(
                     f'"{pixel_op_fn}" is not a valid function in '
                     f'{PIXEL_TRANSFORM_ALLOWED_FUNCTIONS} for {dataset_id} - {band_name}')
         n_points = len(point_list_by_year[current_year])
-        LOGGER.info(f'processing {n_points} points on {dataset_id} {band_name} {pixel_op_transform} {spatiotemporal_commands} {current_year} over {year_range} on {os.path.basename(target_point_table_path)}')
+        LOGGER.info(f'processing {n_points} points on {dataset_id} {band_name} {pixel_op_transform} {spatiotemporal_commands} {current_year} over {year_range}')
         for index, (spatiotemp_flag, op_type, args) in enumerate(spatiotemporal_commands):
             point_list = ee.FeatureCollection(point_list_by_year[current_year])
             if spatiotemp_flag in applied_functions:
@@ -806,9 +814,30 @@ def main():
     dataset_table = process_data_table(dataset_table, args)
     LOGGER.info(f'loaded {args.dataset_table_path}')
     LOGGER.info(dataset_table)
-    return
 
-    session = SessionLocal()
+    session = session_factory()
+
+    for dataset_index, dataset_row in dataset_table.iterrows():
+        covariate_name = dataset_row['Name']
+        existing_defn = (
+            session.query(CovariateDefn)
+            .filter(CovariateDefn.name == covariate_name)).first()
+        if not existing_defn:
+            new_covariate = CovariateDefn(
+                name=covariate_name,
+                editable_name=True,
+                display_order=999,
+                description=f'GEE extracted value from {dataset_row}',
+                queryable=True,
+                always_display=False,
+                hidden=False,
+                show_in_point_table=False,
+                condition=None,
+                covariate_type=CovariateType.FLOAT,
+                covariate_association=CovariateAssociation.SAMPLE)
+            session.add(new_covariate)
+    session.commit()
+
     query = (
         session.query(Sample, CovariateValue, Point.latitude, Point.longitude)
         .join(CovariateValue, Sample.covariates)
@@ -819,16 +848,16 @@ def main():
     point_year_to_sample_list = collections.defaultdict(list)
     print('loading samples')
     for sample, year, latitude, longitude in query:
-        lat_lng_year_tuple = (latitude, longitude, int(float(year.value)))
+        lat_lng_year_tuple = (int(float(year.value)), latitude, longitude)
         point_year_to_sample_list[lat_lng_year_tuple].append(sample)
-    print(len(point_year_to_sample_list))
 
-    LOGGER.info(f'loaded {args.point_table_path}')
+    LOGGER.info(f'loaded {len(point_year_to_sample_list)} points')
     point_batch_list = []
     point_unique_id_per_year_list = []
     n_points = 0
     batch_index = -1
     current_batch_size = args.batch_size
+    sample_set_by_index = {}
     for index, (year, lat, lon) in enumerate(point_year_to_sample_list):
         if current_batch_size == args.batch_size:
             batch_index += 1
@@ -840,18 +869,28 @@ def main():
             ee.Feature(ee.Geometry.Point(
                 [lon, lat], 'EPSG:4326'), {UNIQUE_ID: index}))
         point_unique_id_per_year_list[batch_index][year].append(index)
+        sample_set_by_index[index] = point_year_to_sample_list[
+            (year, lat, lon)]
         n_points += 1
         current_batch_size += 1
 
     def process_dataset_row(dataset_index, dataset_row):
+        session = session_factory()
+        covariate_defn = (
+            session.query(
+                CovariateDefn)
+            .filter(
+                CovariateDefn.name == dataset_row['Name'])
+        ).one()
+
         key = (
             f'{dataset_row[DATASET_ID]}_'
             f'{dataset_row[BAND_NAME]}_'
             f'{dataset_row[SP_TM_AGG_FUNC]}_'
             f'{dataset_row[TRANSFORM_FUNC]}')
         key = _scrub_key(key)
-        result_by_index = {}
-        for batch_index, (point_features_by_year, point_unique_id_per_year) in enumerate(zip(point_batch_list, point_unique_id_per_year_list)):
+        for batch_index, (point_features_by_year, point_unique_id_per_year) in enumerate(
+                zip(point_batch_list, point_unique_id_per_year_list)):
             LOGGER.debug(f'BATCH INDEX {batch_index}')
             n_attempts = 0
             while True:
@@ -862,8 +901,7 @@ def main():
                         point_features_by_year,
                         point_unique_id_per_year,
                         dataset_row[PIXEL_FN_OP],
-                        dataset_row[SP_TM_AGG_OP],
-                        target_point_table_path)
+                        dataset_row[SP_TM_AGG_OP])
                     break
                 except Exception:
                     if n_attempts == MAX_ATTEMPTS:
@@ -873,13 +911,44 @@ def main():
                         n_attempts += 1
                         LOGGER.exception(f'trying attempt number {n_attempts+1} of {MAX_ATTEMPTS} ON {key}')
             LOGGER.debug(f'completed BATCH {batch_index+1} of {len(point_batch_list)}')
-            for point_index, point_result in point_collection_by_year:
-                result_by_index[point_index] = point_result
-        result_by_order = [
-            'n/a' if index not in result_by_index
-            else result_by_index[index] for index in range(n_points)]
+            for point_index, covariate_value in point_collection_by_year:
+                # get all the sample ids to set
+                sample_ids = set(
+                    sample.id_key for sample in
+                    sample_set_by_index[point_index])
 
-        return key, result_by_order
+                # update any existing covariates with the new value
+                session.execute(
+                    update(CovariateValue)
+                    .where(
+                        CovariateValue.sample_id.in_(sample_ids),
+                        CovariateValue.covariate_defn == covariate_defn
+                    )
+                    .values(value=covariate_value)
+                )
+
+                # find all the samples that don't have a covariate
+                subquery = (
+                    session.query(CovariateValue.sample_id)
+                    .filter(CovariateValue.covariate_defn_id == covariate_defn.id_key)
+                    .subquery()
+                )
+                samples_without_covariate = (
+                    session.query(Sample)
+                    .outerjoin(subquery, Sample.id_key == subquery.c.sample_id)
+                    .filter(
+                        subquery.c.sample_id == None,
+                        Sample.id_key.in_(sample_ids))
+                    .all()
+                )
+                # create a new covariate value for them
+                for sample in samples_without_covariate:
+                    sample.covariates.append(
+                        CovariateValue(
+                            value=covariate_value,
+                            covariate_defn=covariate_defn))
+            session.commit()
+        return key
 
     with ThreadPoolExecutor(max_workers=args.max_workers) as executor:
         # Submitting tasks to the executor
@@ -893,16 +962,15 @@ def main():
         for future in futures:
             dataset_index = futures[future]
             try:
-                key, result_by_order = future.result()
-                point_table[key] = result_by_order
+                key = future.result()
                 LOGGER.info(f'{key} just finished!!')
             except Exception as exc:
                 LOGGER.exception(f'{dataset_index} generated an exception: {exc}')
-                point_table[key] = [str(exc)] * n_points
+                raise
 
 
 def create_covariates_for_samples():
-    session = SessionLocal()
+    session = session_factory()
     # Get all samples
     query = (
         session.query(Sample, CovariateValue, Point.latitude, Point.longitude)
