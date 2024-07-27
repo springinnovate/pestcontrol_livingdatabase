@@ -33,7 +33,7 @@ from sqlalchemy.types import String
 from sqlalchemy.orm import sessionmaker, scoped_session
 from database import DATABASE_URI
 
-engine = create_engine(DATABASE_URI, echo=False)
+engine = create_engine(DATABASE_URI, echo=False, connect_args={'timeout': 30})
 Session = scoped_session(sessionmaker(bind=engine))
 session_factory = sessionmaker(bind=engine)
 
@@ -54,7 +54,7 @@ for lib_name in LIBS_TO_SILENCE:
     logging.getLogger(lib_name).setLevel(logging.WARN)
 
 MAX_WORKERS = 10
-BATCH_SIZE = 100
+BATCH_SIZE = 2500
 DEFAULT_SCALE = 30
 MAX_ATTEMPTS = 5
 DATATABLE_TEMPLATE_PATH = 'template_datatable.csv'

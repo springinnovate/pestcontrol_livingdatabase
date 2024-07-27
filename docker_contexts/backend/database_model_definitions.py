@@ -186,7 +186,6 @@ class Sample(Base):
     study: Mapped[Study] = relationship(
         "Study", back_populates="samples")
 
-
     def __repr__(self):
         return (
             f'<Sample(id={self.id_key}, point={self.point}, '
