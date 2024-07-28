@@ -373,6 +373,14 @@ fetch('/api/n_samples', {
 document.getElementById('queryForm').addEventListener('submit', function(event) {
     showLoadingOverlay();
 });
+
+window.addEventListener('pageshow', function(event) {
+    if (event.persisted || window.performance && window.performance.navigation.type === 2) {
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        loadingOverlay.style.display = 'none';
+        document.body.classList.remove('loading');
+    }
+});
 </script>
 </body>
 </html>
