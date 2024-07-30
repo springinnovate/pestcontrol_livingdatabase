@@ -26,6 +26,7 @@ STUDY_ID = 'study_id'
 OBSERVATION = 'observation'
 LATITUDE = 'latitude'
 LONGITUDE = 'longitude'
+YEAR = 'year'
 
 REQUIRED_SAMPLE_INPUT_FIELDS = [
     OBSERVATION,

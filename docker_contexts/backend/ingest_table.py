@@ -24,6 +24,7 @@ from database_model_definitions import STUDY_ID
 from database_model_definitions import OBSERVATION
 from database_model_definitions import LATITUDE
 from database_model_definitions import LONGITUDE
+from database_model_definitions import YEAR
 from sqlalchemy import and_, func
 from sqlalchemy.exc import NoResultFound
 import pandas as pd
@@ -416,6 +417,12 @@ def main():
         args.sample_table_path, low_memory=False, skiprows=skiprows, nrows=nrows)
 
     sample_table_df.rename(columns=sample_base_to_user_fields, inplace=True)
+
+    columns_to_cast =  [LATITUDE, LONGITUDE, OBSERVATION, YEAR]
+    for column in columns_to_cast:
+        sample_table_df[column] = pd.to_numeric(sample_table_df[column], errors='coerce')
+    sample_table_df.dropna(subset=columns_to_cast, inplace=True)
+
     # drop the columns that aren't being used
 
     define_new_covariates(session, args.study_table_path, raw_study_user_fields, CovariateAssociation.STUDY)
@@ -466,7 +473,7 @@ def main():
             session.commit()
             OBJECT_CACHE = {}
             TO_ADD_BUFFER[:] = []
-        if any([numpy.isnan(row[x]) for x in [LATITUDE, LONGITUDE, OBSERVATION]]):
+        if any([isinstance(row[x], str) or numpy.isnan(row[x]) for x in [LATITUDE, LONGITUDE, OBSERVATION]]):
             LOGGER.warning(
                 f'found a row at {index} with no lat/long/or observation value: '
                 f'{[(x, row[x]) for x in [LATITUDE, LONGITUDE, OBSERVATION]]}, skipping')
@@ -477,7 +484,11 @@ def main():
             row[LONGITUDE])
 
         study_id = row[STUDY_ID]
-        study = STUDY_CACHE[study_id]
+        try:
+            study = STUDY_CACHE[study_id]
+        except KeyError:
+            LOGGER.warning(f'error on this row: {index} {row}')
+            continue
 
         sample = Sample(
             point=point,

@@ -226,7 +226,7 @@ def calculate_study_display_order(
     return covariate_display_order, display_table
 
 
-@app.route('/pcld')
+@app.route('/')
 def pcld():
     session = SessionLocal()
 
