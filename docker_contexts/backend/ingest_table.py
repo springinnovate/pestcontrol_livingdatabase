@@ -63,7 +63,7 @@ def read_csv_with_detected_encoding(file_path, **kwargs):
     if not isinstance(file_path, str):
         return read_csv_with_detected_encoding_from_stringio(file_path, **kwargs)
     with open(file_path, 'rb') as f:
-        raw_data = f.read(10000)  # Read the first 10,000 bytes
+        raw_data = f.read(300000)  # Read the first 100,000 bytes
         result = chardet.detect(raw_data)
         encoding = result['encoding']
 
@@ -71,12 +71,17 @@ def read_csv_with_detected_encoding(file_path, **kwargs):
         raise ValueError("Failed to detect encoding")
 
     # Read the CSV file with the detected encoding
-    try:
-        df = pd.read_csv(file_path, encoding=encoding, **kwargs)
-        print(f"Successfully read the file with detected encoding: {encoding}")
-        return df
-    except UnicodeDecodeError as e:
-        raise ValueError(f"Failed to read the file with detected encoding: {encoding}") from e
+    encodings_to_try = ['utf-8']
+    while True:
+        try:
+            LOGGER.info(f'attempting to read with encoding {file_path} {encoding}')
+            df = pd.read_csv(file_path, encoding=encoding, encoding_errors='replace', **kwargs)
+            LOGGER.info(f"Successfully read {file_path} with detected encoding: {encoding}")
+            return df
+        except UnicodeDecodeError as e:
+            if encodings_to_try:
+                encoding = encodings_to_try.pop()
+            raise ValueError(f"Failed to read the file with detected encoding: {encoding}") from e
 
 
 def read_csv_with_detected_encoding_from_stringio(stringio_obj, nrows=None):
