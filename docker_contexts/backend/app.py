@@ -43,6 +43,8 @@ app.config['SECRET_KEY'] = 'your_secret_key'
 
 UNIQUE_COVARIATE_VALUES_PKL = 'unique_COVARIATE_values.pkl'
 
+PCKL_DIR = './instance'
+
 
 class group_concat_distinct(GenericFunction):
     type = String()
@@ -226,10 +228,19 @@ def calculate_study_display_order(
     return covariate_display_order, display_table
 
 
-@app.route('/')
-def pcld():
-    session = SessionLocal()
+def initalize_serachable_covariates():
+    global COVARIATE_STATE
+    os.makedirs(PCKL_DIR, exist_ok=True)
+    pkcl_filepath = os.path.join(PCKL_DIR, 'initalize_serachable_covariates.pkl')
+    if os.path.exists(pkcl_filepath):
+        with open(pkcl_filepath, 'rb') as file:
+            COVARIATE_STATE = pickle.load(file)
+        LOGGER.info(f'loaded covariate state from {pkcl_filepath}')
+        return
 
+    session = SessionLocal()
+    COVARIATE_STATE = {}
+    LOGGER.debug('starting serach for unique values')
     searchable_unique_covariates = (
         session.query(
             CovariateDefn.name,
@@ -241,10 +252,11 @@ def pcld():
         .join(CovariateValue, CovariateDefn.id_key == CovariateValue.covariate_defn_id)
         .group_by(CovariateDefn.name)
     ).all()
-    searchable_covariates = {
+    COVARIATE_STATE['searchable_covariates'] = {
         row.name: row.unique_values.split(',')
         for row in searchable_unique_covariates if row.unique_values}
 
+    LOGGER.debug('starting serach for continuous covariatesunique values')
     searchable_continuous_covariates = (
         session.query(
             CovariateDefn.name, CovariateDefn.covariate_type
@@ -254,28 +266,35 @@ def pcld():
         )
     ).all()
 
-    searchable_covariates.update({
+    COVARIATE_STATE['searchable_covariates'].update({
         row.name: str(row.covariate_type)
         for row in searchable_continuous_covariates})
 
-    n_samples = session.query(Sample).count()
+    COVARIATE_STATE['n_samples'] = session.query(Sample).count()
 
-    country_set = [
+    COVARIATE_STATE['country_set'] = [
         x[0] for x in session.query(
             distinct(Geolocation.geolocation_name)).filter(
             Geolocation.geolocation_type == 'COUNTRY').all()]
-    continent_set = [
+    COVARIATE_STATE['continent_set'] = [
         x[0] for x in session.query(
             distinct(Geolocation.geolocation_name)).filter(
             Geolocation.geolocation_type == 'CONTINENT').all()]
 
+    with open(pkcl_filepath, 'wb') as file:
+        pickle.dump(COVARIATE_STATE, file)
+        print("Data saved to pickle file.")
+
+@app.route('/')
+def pcld():
+    global COVARIATE_STATE
     return render_template(
         'query_builder.html',
         status_message=f'Number of samples in db: {n_samples}',
         possible_operations=list(OPERATION_MAP),
-        country_set=country_set,
-        continent_set=continent_set,
-        unique_covariate_values=searchable_covariates,
+        country_set=COVARIATE_STATE['country_set'],
+        continent_set=COVARIATE_STATE['continent_set'],
+        unique_covariate_values=COVARIATE_STATE['searchable_covariates'],
         )
 
 
@@ -495,6 +514,17 @@ def process_query():
             .limit(max_sample_size)
         )
 
+        total_samples_query = (
+            session.query(Sample, Study)
+            .join(Sample.study)
+            .join(Sample.point)
+            .filter(
+                *filters
+            ).count()
+        )
+
+        return {'total samples': total_samples_query}
+
         LOGGER.info('calculate covariate display order for sample')
         sample_covariate_display_order, sample_table = calculate_sample_display_table(
             session, sample_query)
@@ -592,6 +622,8 @@ def update_covariate():
 
     return get_covariates()
 
+
+initalize_serachable_covariates()
 
 if __name__ == '__main__':
     app.run(debug=True)
