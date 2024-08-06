@@ -255,8 +255,14 @@ function addRow() {
 }
 
 function removeRow(button) {
-    const row = button.closest('.queryRow');
-    row.remove();
+    const queryRowsContainer = document.getElementById('queryRows');
+    const queryRows = queryRowsContainer.querySelectorAll('.queryRow');
+
+    // Check if there is more than one queryRow
+    if (queryRows.length > 1) {
+        const row = button.closest('.queryRow');
+        row.remove();
+    }
 }
 
 function toggleVisibility(id) {
@@ -316,7 +322,27 @@ function resetSpaceInputs() {
     document.getElementById('continentSelect').value = '';
 }
 
-//hello
+function fetchSampleCounts() {
+    var form = document.getElementById('queryForm');
+    var formData = new FormData(form);
+    document.getElementById('sampleCount').textContent = 'Loading...';
+    document.getElementById('studyCount').textContent = 'Loading...';
+    fetch('/api/n_samples', {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        // Update the sample count display with the new data
+        document.getElementById('sampleCount').textContent = data.sample_count;
+        document.getElementById('studyCount').textContent = data.study_count;
+    })
+    .catch(error => {
+        document.getElementById('sampleCount').textContent = 'error fetching counts...';
+        document.getElementById('studyCount').textContent = 'error fetching counts...';
+    });
+}
+
 const fieldValues = {
     {% for field, values in unique_covariate_values.items() %}
         "{{ field }}":
@@ -377,6 +403,9 @@ function updateValueOptions(fieldSelect) {
             valueInput.value = 'enter a value';
             valueSelectContainer.appendChild(valueInput);
         }
+        valueSelectContainer.addEventListener('change', function() {
+            fetchSampleCounts();
+        });
     }
 }
 
@@ -413,32 +442,20 @@ document.addEventListener('DOMContentLoaded', function() {
     var form = document.getElementById('queryForm');
     var inputs = form.querySelectorAll('input, select');
 
-    // Attach event listeners to all form inputs
     inputs.forEach(function(input) {
         input.addEventListener('change', function() {
             fetchSampleCounts();
         });
     });
 
-    function fetchSampleCounts() {
-        var formData = new FormData(form);
-        document.getElementById('sampleCount').textContent = 'Loading...';
-        document.getElementById('studyCount').textContent = 'Loading...';
-        fetch('/api/n_samples', {
-            method: 'POST',
-            body: formData
-        })
-        .then(response => response.json())
-        .then(data => {
-            // Update the sample count display with the new data
-            document.getElementById('sampleCount').textContent = data.sample_count;
-            document.getElementById('studyCount').textContent = data.study_count;
-        })
-        .catch(error => {
-            document.getElementById('sampleCount').textContent = 'error fetching counts...';
-            document.getElementById('studyCount').textContent = 'error fetching counts...';
-        });
-    }
+    document.getElementById('queryRows').addEventListener('click', function(event) {
+        if (event.target && event.target.matches('button.btn-secondary')) {
+            // When the Remove button is clicked, fetch the updated sample counts
+            fetchSampleCounts();
+        }
+    });
+
+
     fetchSampleCounts();
 });
 

@@ -104,7 +104,7 @@ def calculate_sample_display_table(session, query_to_filter):
             CovariateDefn.hidden,
             CovariateDefn.condition)
         .filter(
-            or_(CovariateDefn.covariate_association == CovariateAssociation.SAMPLE,
+            or_(CovariateDefn.covariate_association == CovariateAssociation.SAMPLE.value,
                 CovariateDefn.show_in_point_table == 1))
         .order_by(
             CovariateDefn.display_order,
@@ -176,7 +176,7 @@ def calculate_study_display_order(
             CovariateDefn.hidden,
             CovariateDefn.condition)
         .filter(
-            or_(CovariateDefn.covariate_association == CovariateAssociation.STUDY,
+            or_(CovariateDefn.covariate_association == CovariateAssociation.STUDY.value,
                 CovariateDefn.show_in_point_table == 1))
         .order_by(
             CovariateDefn.display_order,
@@ -236,12 +236,11 @@ def initalize_searchable_covariates():
         with open(pkcl_filepath, 'rb') as file:
             COVARIATE_STATE = pickle.load(file)
         LOGGER.info(f'loaded covariate state from {pkcl_filepath}')
-        LOGGER.debug(COVARIATE_STATE['searchable_covariates']['Citations'])
         return
 
     session = SessionLocal()
     COVARIATE_STATE = {}
-    LOGGER.debug('starting serach for unique values')
+    LOGGER.debug('starting search for unique values')
     searchable_unique_covariates = (
         session.query(
             CovariateDefn.name,
@@ -253,7 +252,6 @@ def initalize_searchable_covariates():
         .join(CovariateValue, CovariateDefn.id_key == CovariateValue.covariate_defn_id)
         .group_by(CovariateDefn.name, CovariateValue.value)
         ).all()
-    LOGGER.debug(searchable_unique_covariates)
     COVARIATE_STATE['searchable_covariates'] = collections.defaultdict(list)
     for row in searchable_unique_covariates:
         COVARIATE_STATE['searchable_covariates'][row.name].append(row.value)
@@ -284,7 +282,7 @@ def initalize_searchable_covariates():
 
     with open(pkcl_filepath, 'wb') as file:
         pickle.dump(COVARIATE_STATE, file)
-        print("Data saved to pickle file.")
+    LOGGER.info('all done with unique values')
 
 @app.route('/')
 def pcld():
@@ -301,9 +299,9 @@ def pcld():
 
 @app.route('/api/n_samples', methods=['POST'])
 def n_samples():
-    filters = build_filter(request.form)
-
     session = SessionLocal()
+    filters = build_filter(session, request.form)
+
     sample_query = (
         session.query(Sample.id_key, Study.id_key)
         .join(Sample.study)
@@ -337,8 +335,7 @@ def n_samples():
         })
 
 
-def build_filter(form):
-    session = SessionLocal()
+def build_filter(session, form):
     fields = form.getlist('covariate')
     operations = form.getlist('operation')
     values = form.getlist('value')
@@ -346,14 +343,14 @@ def build_filter(form):
     filters = []
     filter_text = ''
     for field, operation, value in zip(fields, operations, values):
-        if not field:
+        if not field or not value:
             continue
         covariate_type = session.query(
             CovariateDefn.covariate_association).filter(
             CovariateDefn.name == field).first()[0]
         filter_text += f'{field}({covariate_type}) {operation} {value}\n'
 
-        if covariate_type == CovariateAssociation.STUDY:
+        if covariate_type == CovariateAssociation.STUDY.value:
             covariate_subquery = (
                 session.query(CovariateValue.study_id)
                 .join(CovariateValue.covariate_defn)
@@ -364,7 +361,7 @@ def build_filter(form):
             filters.append(
                 Study.id_key.in_(session.query(covariate_subquery.c.study_id)))
 
-        elif covariate_type == CovariateAssociation.SAMPLE:
+        elif covariate_type == CovariateAssociation.SAMPLE.value:
             covariate_subquery = (
                 session.query(CovariateValue.sample_id)
                 .join(CovariateValue.covariate_defn)
@@ -523,7 +520,6 @@ def build_filter(form):
             ).subquery())
         filters.append(
             Sample.id_key.in_(session.query(year_subquery.c.sample_id)))
-    session.close()
     return filters
 
 
@@ -531,7 +527,7 @@ def build_filter(form):
 def process_query():
     try:
         session = SessionLocal()
-        filters = build_filter(request.form)
+        filters = build_filter(session, request.form)
 
         sample_query = (
             session.query(Sample, Study)
