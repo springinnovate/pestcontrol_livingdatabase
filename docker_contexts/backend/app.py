@@ -332,7 +332,8 @@ def pcld():
 @app.route('/api/n_samples', methods=['POST'])
 def n_samples():
     session = SessionLocal()
-    filters, filter_text = build_filter(session, request.form)
+    form_as_dict = form_to_dict(request.form)
+    filters, filter_text = build_filter(session, form_as_dict)
 
     sample_query = (
         session.query(Sample.id_key, Study.id_key)
@@ -382,6 +383,7 @@ def form_to_dict(form):
 
 def build_filter(session, form):
     fields = form['covariate']
+    LOGGER.debug(fields)
     operations = form['operation']
     values = form['value']
     filters = []
