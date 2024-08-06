@@ -1,4 +1,6 @@
+import hashlib
 import configparser
+import shutil
 import collections
 import json
 import logging
@@ -71,6 +73,8 @@ redis_client = redis.Redis(host='redis', port=6379, db=0)
 
 INSTANCE_DIR = './instance'
 QUERY_RESULTS_DIR = os.path.join(INSTANCE_DIR, 'results_to_download')
+if os.path.exists(QUERY_RESULTS_DIR):
+    shutil.rmtree(QUERY_RESULTS_DIR)
 os.makedirs(QUERY_RESULTS_DIR, exist_ok=True)
 MAX_SAMPLE_DISPLAY_SIZE = 100
 
@@ -95,6 +99,13 @@ OPERATION_MAP = {
     '<': lambda field, value: field < value,
     '>': lambda field, value: field > value
 }
+
+
+def generate_hash_key(data_dict):
+    json_data = json.dumps(data_dict, sort_keys=True)
+    hash_object = hashlib.sha256(json_data.encode())
+    hash_key = hash_object.hexdigest()
+    return hash_key
 
 
 def nl2br(value):
@@ -638,7 +649,7 @@ def process_query():
             for p in unique_points]
 
         session.close()
-        query_id = str(uuid4())
+        query_id = generate_hash_key(form_as_dict)
         redis_client.set(query_id, json.dumps(form_as_dict))
 
         LOGGER.info(f'all done, sending to results view... did this key: "{query_id}"')

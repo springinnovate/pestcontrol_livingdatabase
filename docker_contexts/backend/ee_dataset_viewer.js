@@ -1,0 +1,122 @@
+DATASETS = [
+    {
+        'dataset_id': 'ECMWF/ERA5/MONTHLY',
+        'band_id':'dewpoint_2m_temperature',
+        'spatiotemporal_transform': 'years_mean(-2, 0; julian_max(1, 365))',
+        'name': 'dewpoint annual maximum',
+    },
+    {
+        'dataset_id': 'ECMWF/ERA5/MONTHLY',
+        'band_id':'maximum_2m_air_temperature',
+        'spatiotemporal_transform': 'years_mean(-2, 0; julian_max(1, 365))',
+        'name': 'max temp annual maximum',
+    },
+    {
+        'dataset_id': 'ECMWF/ERA5/MONTHLY',
+        'band_id':'mean_2m_air_temperature',
+        'spatiotemporal_transform': 'years_mean(-2, 0; julian_max(1, 365))',
+        'name': 'mean temp annual maximum',
+    },
+    {
+        'dataset_id': 'ECMWF/ERA5/MONTHLY',
+        'band_id':'minimum_2m_air_temperature',
+        'spatiotemporal_transform': 'years_mean(-2, 0; julian_max(1, 365))',
+        'name': 'min temp annual maximum',
+    },
+    {
+        'dataset_id': 'ECMWF/ERA5/MONTHLY',
+        'band_id':'total_precipitation',
+        'spatiotemporal_transform': 'years_mean(-2, 0; julian_max(1, 365))',
+        'name': 'precip annual maximum',
+    },
+    {
+        'dataset_id': 'ECMWF/ERA5/MONTHLY',
+        'band_id':'dewpoint_2m_temperature',
+        'spatiotemporal_transform': 'years_mean(-2, 0; julian_mean(1, 365))',
+        'name': 'dewpoint annual mean',
+    },
+    {
+        'dataset_id': 'ECMWF/ERA5/MONTHLY',
+        'band_id':'maximum_2m_air_temperature',
+        'spatiotemporal_transform': 'years_mean(-2, 0; julian_mean(1, 365))',
+        'name': 'max temp annual mean',
+    },
+    {
+        'dataset_id': 'ECMWF/ERA5/MONTHLY',
+        'band_id':'mean_2m_air_temperature',
+        'spatiotemporal_transform': 'years_mean(-2, 0; julian_mean(1, 365))',
+        'name': 'mean temp annual mean',
+    },
+    {
+        'dataset_id': 'ECMWF/ERA5/MONTHLY',
+        'band_id':'minimum_2m_air_temperature',
+        'spatiotemporal_transform': 'years_mean(-2, 0; julian_mean(1, 365))',
+        'name': 'min temp annual mean',
+    },
+    {
+        'dataset_id': 'ECMWF/ERA5/MONTHLY',
+        'band_id':'total_precipitation',
+        'spatiotemporal_transform': 'years_mean(-2, 0; julian_mean(1, 365))',
+        'name': 'precip annual mean',
+    },
+    {
+        'dataset_id': 'ECMWF/ERA5/MONTHLY',
+        'band_id':'dewpoint_2m_temperature',
+        'spatiotemporal_transform': 'years_mean(-2, 0; julian_min(1, 365))',
+        'name': 'dewpoint annual minimum',
+    },
+    {
+        'dataset_id': 'ECMWF/ERA5/MONTHLY',
+        'band_id':'maximum_2m_air_temperature',
+        'spatiotemporal_transform': 'years_mean(-2, 0; julian_min(1, 365))',
+        'name': 'max temp annual minimum',
+    },
+    {
+        'dataset_id': 'ECMWF/ERA5/MONTHLY',
+        'band_id':'mean_2m_air_temperature',
+        'spatiotemporal_transform': 'years_mean(-2, 0; julian_min(1, 365))',
+        'name': 'mean temp annual minimum',
+    },
+    {
+        'dataset_id': 'ECMWF/ERA5/MONTHLY',
+        'band_id':'minimum_2m_air_temperature',
+        'spatiotemporal_transform': 'years_mean(-2, 0; julian_min(1, 365))',
+        'name': 'min temp annual minimum',
+    },
+    {
+        'dataset_id': 'ECMWF/ERA5/MONTHLY',
+        'band_id':'total_precipitation',
+        'spatiotemporal_transform': 'years_mean(-2, 0; julian_min(1, 365))',
+        'name': 'precip annual minimum',
+    }
+    {
+        'dataset_id': 'MODIS/061/MCD12Q2',
+        'band_id':'EVI_Amplitude_1',
+        'spatiotemporal_transform': 'spatial_mean(1000)',
+        'name': 'EVI Amplitude (Max greenness)',
+    },
+    {
+        'dataset_id': 'MODIS/061/MCD12Q2',
+        'band_id':'EVI_Area_1',
+        'spatiotemporal_transform': 'spatial_mean(1000)',
+        'name': 'EVI Area (Total productivity)',
+    },
+    {
+        'dataset_id': 'MODIS/061/MCD12Q2',
+        'band_id':'Greenup_1',
+        'spatiotemporal_transform': ' spatial_mean(1000)',
+        'name': 'Greenup Day of Year',
+    },
+    {
+        'dataset_id': 'MODIS/061/MCD12Q2',
+        'band_id':'Peak_1',
+        'spatiotemporal_transform': 'spatial_mean(1000)',
+        'name': 'Peak Day of Year',
+    },
+    {
+        'dataset_id': 'MODIS/061/MCD12Q2',
+        'band_id':'Dormancy_1',
+        'spatiotemporal_transform': 'spatial_mean(1000)',
+        'name': 'Dormancy Day of Year',
+    },
+]
