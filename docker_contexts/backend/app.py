@@ -1,10 +1,12 @@
 import configparser
 import collections
+import json
 import logging
 import os
 import pickle
 import re
 import sys
+from uuid import uuid4
 
 import numpy
 from database import SessionLocal
@@ -15,6 +17,8 @@ from flask import Flask
 from flask import render_template
 from flask import request
 from flask import jsonify
+from flask import url_for
+from flask import send_file
 from sqlalchemy import select, text
 from sqlalchemy import distinct, func
 from sqlalchemy.engine import Row
@@ -26,6 +30,9 @@ from sqlalchemy.orm import subqueryload
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.orm import joinedload, contains_eager, selectinload
 from celery_config import make_celery
+from celery import current_task
+from celery.signals import after_setup_logger
+import redis
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -41,16 +48,30 @@ config = configparser.ConfigParser()
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your_secret_key'
 app.config.update(
-    CELERY_BROKER_URL='redis://localhost:6379/0',
-    CELERY_RESULT_BACKEND='redis://localhost:6379/0'
+    broker_url='redis://redis:6379/0',
+    result_backend='redis://redis:6379/0'
 )
-celery = make_celery(app)
 
+celery = make_celery(app)
+@after_setup_logger.connect
+def setup_loggers(logger, *args, **kwargs):
+    import logging
+    from logging.config import dictConfig
+    dictConfig(app.config['LOGGING'])  # Assuming you have a LOGGING config dict in Flask config
+
+celery.conf.update(
+    worker_hijack_root_logger=False,
+    worker_log_color=False,
+    task_track_started=True,
+)
+redis_client = redis.Redis(host='redis', port=6379, db=0)
 
 
 INSTANCE_DIR = './instance'
 QUERY_RESULTS_DIR = os.path.join(INSTANCE_DIR, 'results_to_download')
+os.makedirs(QUERY_RESULTS_DIR, exist_ok=True)
 MAX_SAMPLE_DISPLAY_SIZE = 100
+
 
 class group_concat_distinct(GenericFunction):
     type = String()
@@ -296,6 +317,7 @@ def initalize_searchable_covariates():
         pickle.dump(COVARIATE_STATE, file)
     LOGGER.info('all done with unique values')
 
+
 @app.route('/')
 def pcld():
     global COVARIATE_STATE
@@ -341,10 +363,29 @@ def n_samples():
         })
 
 
+def form_to_dict(form):
+    return {
+        'covariate': form.getlist('covariate'),
+        'operation': form.getlist('operation'),
+        'value': form.getlist('value'),
+        'centerPoint': form.get('centerPoint'),
+        'centerPointBuffer': float(form.get('centerPointBuffer').strip())/2,
+        'upperLeft': form.get('upperLeft'),
+        'lowerRight': form.get('lowerRight'),
+        'countrySelect': form.get('countrySelect'),
+        'continentSelect': form.get('continentSelect'),
+        'minSiteYears': int(form.get('minSiteYears')),
+        'minSitesPerStudy': int(form.get('minSitesPerStudy')),
+        'sampleSizeMinYears': int(form.get('sampleSizeMinYears')),
+        'sampleSizeMinObservationsPerYear': int(form.get('sampleSizeMinObservationsPerYear')),
+        'yearRange': form.get('yearRange'),
+    }
+
+
 def build_filter(session, form):
-    fields = form.getlist('covariate')
-    operations = form.getlist('operation')
-    values = form.getlist('value')
+    fields = form['covariate']
+    operations = form['operation']
+    values = form['value']
     filters = []
     filter_text = ''
     for field, operation, value in zip(fields, operations, values):
@@ -378,7 +419,7 @@ def build_filter(session, form):
                 Sample.id_key.in_(session.query(covariate_subquery.c.sample_id)))
 
     ul_lat = None
-    center_point = form.get('centerPoint')
+    center_point = form['centerPoint']
     if center_point is not None:
         center_point = center_point.strip()
         if center_point != '':
@@ -386,7 +427,7 @@ def build_filter(session, form):
             LOGGER.debug(f'MATCH {m}')
             lat, lng = [float(v) for v in m.group(1, 2)]
             center_point_buffer = float(
-                form.get('centerPointBuffer').strip())/2
+                form['centerPointBuffer'].strip())/2
             ul_lat = lat+center_point_buffer/2
             lr_lat = lat-center_point_buffer/2
             ul_lng = lng+center_point_buffer/2
@@ -394,10 +435,10 @@ def build_filter(session, form):
 
             filter_text += f'center point at ({lat},{lng}) + +/-{center_point_buffer}\n'
 
-    upper_left_point = form.get('upperLeft')
+    upper_left_point = form['upperLeft']
     if upper_left_point is not None:
-        upper_left_point = form.get('upperLeft').strip()
-        lower_right_point = form.get('lowerRight').strip()
+        upper_left_point = form['upperLeft'].strip()
+        lower_right_point = form['lowerRight'].strip()
 
         if upper_left_point != '':
             m = re.match(r"[(]?([^, ]+)[, ]*([^, )]+)[\)]?", upper_left_point)
@@ -407,7 +448,7 @@ def build_filter(session, form):
 
             filter_text += f'bounding box ({ul_lat},{ul_lng}) ({lr_lat},{lr_lng})\n'
 
-    country_select = form.get('countrySelect')
+    country_select = form['countrySelect']
     if country_select:
         geolocation_subquery = (
             session.query(Point.id_key)
@@ -417,7 +458,7 @@ def build_filter(session, form):
         filters.append(Point.id_key.in_(select(geolocation_subquery)))
         filter_text += f'country is {country_select}\n'
 
-    continent_select = form.get('continentSelect')
+    continent_select = form['continentSelect']
     if continent_select:
         geolocation_subquery = (
             session.query(Point.id_key)
@@ -434,7 +475,7 @@ def build_filter(session, form):
             Point.longitude <= ul_lng,
             Point.longitude >= lr_lng))
 
-    min_site_years = int(form.get('minSiteYears'))
+    min_site_years = int(form['minSiteYears'])
     if min_site_years > 0:
         filter_text += f'min site years={min_site_years}\n'
         unique_years_count_query = (
@@ -456,7 +497,7 @@ def build_filter(session, form):
         filters.append(
             tuple_(Sample.study_id, Sample.point_id).in_(valid_sites))
 
-    min_sites_per_study = int(form.get('minSitesPerStudy'))
+    min_sites_per_study = int(form['minSitesPerStudy'])
     if min_sites_per_study:
         min_sites_per_study = int(min_sites_per_study)
         filter_text += f'min sites per study {min_sites_per_study}\n'
@@ -473,7 +514,7 @@ def build_filter(session, form):
         filters.append(
             Study.id_key == min_sites_per_study_subquery.c.id_key)
 
-    sample_size_min_years = int(form.get('sampleSizeMinYears'))
+    sample_size_min_years = int(form['sampleSizeMinYears'])
     if sample_size_min_years > 0:
         filter_text += f'min sample size min years {sample_size_min_years}\n'
         unique_years_count_query = (
@@ -489,7 +530,7 @@ def build_filter(session, form):
             if row[1] >= sample_size_min_years]
         filters.append(Sample.study_id.in_(valid_study_ids))
 
-    min_observations_per_year = int(form.get('sampleSizeMinObservationsPerYear'))
+    min_observations_per_year = int(form['sampleSizeMinObservationsPerYear'])
     if min_observations_per_year > 0:
         filter_text += f'min observations per year {min_observations_per_year}\n'
         query = (
@@ -513,7 +554,7 @@ def build_filter(session, form):
             if samples_per_year >= int(min_observations_per_year)]
         filters.append(Sample.study_id.in_(valid_study_ids))
 
-    year_range = form.get('yearRange')
+    year_range = form['yearRange']
     if year_range:
         filter_text += 'years in {' + year_range + '}\n'
         year_set = extract_years(year_range)
@@ -541,7 +582,9 @@ def explain_query(session, query):
 def process_query():
     try:
         session = SessionLocal()
-        filters, filter_text = build_filter(session, request.form)
+        form_as_dict = form_to_dict(request.form)
+        LOGGER.debug(form_as_dict)
+        filters, filter_text = build_filter(session, form_as_dict)
         LOGGER.debug(f'this is the filter text: {filter_text}\n\n{filters}')
         sample_query = (
             session.query(Sample, Study)
@@ -593,7 +636,10 @@ def process_query():
             for p in unique_points]
 
         session.close()
-        LOGGER.info('all done, sending to results view...')
+        query_id = str(uuid4())
+        redis_client.set(query_id, json.dumps(form_as_dict))
+
+        LOGGER.info(f'all done, sending to results view... did this key: "{query_id}"')
         return render_template(
             'results_view.html',
             study_headers=study_covariate_display_order,
@@ -603,7 +649,8 @@ def process_query():
             points=points,
             compiled_query=f'<pre>Filter as text: {filter_text}</pre>',
             max_samples=MAX_SAMPLE_DISPLAY_SIZE,
-            expected_samples=sample_query.count()
+            expected_samples=sample_query.count(),
+            query_id=query_id,
             )
     except Exception as e:
         LOGGER.exception(f'error with {e}')
@@ -666,14 +713,19 @@ def update_covariate():
     return get_covariates()
 
 
-@app.route('/start_task')
-def start_task():
-    task = long_running_task.delay()
+@app.route('/prep_download')
+def prep_download():
+    query_id = request.args.get('query_id', default=None, type=str)
+    LOGGER.debug(f'prepare download for {query_id}')
+    task = _prep_download.delay(query_id)
+    LOGGER.debug(f'the task id is {task.id}')
     return jsonify({'task_id': task.id}), 202
+
 
 @app.route('/check_task/<task_id>')
 def check_task(task_id):
-    task = long_running_task.AsyncResult(task_id)
+    task = _prep_download.AsyncResult(task_id)
+    LOGGER.debug(f'status for {task_id} is {task.state}')
     if task.state == 'PENDING':
         return jsonify({'status': 'Task is pending'}), 202
     elif task.state == 'FAILURE':
@@ -684,16 +736,49 @@ def check_task(task_id):
 @app.route('/download_file/<task_id>')
 def download_file(task_id):
     # Implement logic to send the file to the client
-    file_path = f"/path/to/result/files/{task_id}.txt"
+    file_path = os.path.join(QUERY_RESULTS_DIR, f'{task_id}.txt')
     return send_file(file_path, as_attachment=True)
 
 @celery.task
-def long_running_task():
-    # Your long-running task logic here
-    # Save the output to a file with the task_id as part of the filename
-    pass
+def _prep_download(query_id):
+    try:
+        LOGGER.debug(f'starting prep download with this query id: {query_id}')
+        query_form_json = redis_client.get(query_id)
+        if query_form_json:
+            query_form = json.loads(query_form_json)
+        LOGGER.debug(f'preping download fo the query form {query_form}')
+        session = SessionLocal()
+        filters, filter_text = build_filter(session, query_form)
 
+        sample_query = (
+            session.query(Sample.id_key, Study.id_key)
+            .join(Sample.study)
+            .join(Sample.point)
+            .filter(
+                *filters
+            )
+        )
+        sample_count = sample_query.count()
+        study_query = (
+            session.query(Study.id_key)
+            .join(Sample.study)
+            .join(Sample.point)
+            .filter(
+                *filters
+            ).distinct()
+        )
+        study_count = study_query.count()
 
+        task_id = current_task.request.id
+        file_name = os.path.join(QUERY_RESULTS_DIR, f"{task_id}.txt")
+        with open(file_name, 'w') as file:
+            # Example logic: Write something to the file
+            file.write(f'{study_count}, {sample_count}')
+        return f"File {file_name} has been created."
+    except:
+        LOGGER.exception('error on _prep_download')
+    finally:
+        session.close()
 
 initalize_searchable_covariates()
 
