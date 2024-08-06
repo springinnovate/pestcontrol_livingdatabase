@@ -52,11 +52,13 @@
 <body>
     {% if study_table|length > 0 %}
     <h1 class="mt-5">Results showing only the first {{ max_samples }}  of {{ expected_samples }} samples</h1>
+    <button class="btn btn-primary mb-3" id="taskButton">Download full set</button>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+
     <div class="container mt-5">
         <h2>Sample Locations</h2>
         <div id="map"></div>
     </div>
-
     <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', (event) => {
@@ -232,6 +234,102 @@
             downloadLink.click();
             document.body.removeChild(downloadLink);
         }
+
+        $(document).ready(function() {
+            var taskId = null;
+            var checkInterval = null;
+
+            $('#taskButton').click(function() {
+                if ($(this).text() === 'Start Task') {
+                    // Start the task
+                    $(this).text('Waiting...');
+                    $.ajax({
+                        url: '/start_task',
+                        type: 'GET',
+                        success: function(data) {
+                            taskId = data.task_id;
+                            checkInterval = setInterval(checkTaskStatus, 2000); // Check every 2 seconds
+                        },
+                        error: function() {
+                            alert('Failed to start task');
+                        }
+                    });
+                } else if ($(this).text() === 'Download File') {
+                    window.location.href = `/download_file/${taskId}`;
+                }
+            });
+
+            function checkTaskStatus() {
+                $.ajax({
+                    url: `/check_task/${taskId}`,
+                    type: 'GET',
+                    success: function(data) {
+                        if (data.status === 'Task completed') {
+                            $('#taskButton').text('Download File');
+                            clearInterval(checkInterval);
+                        } else if (data.status === 'Task is pending') {
+                            // Optionally handle updates in UI for pending state
+                        } else if (data.status === 'Task failed') {
+                            alert('Task failed');
+                            $('#taskButton').text('Start Task');
+                            clearInterval(checkInterval);
+                        }
+                    },
+                    error: function() {
+                        alert('Error checking task status');
+                        clearInterval(checkInterval);
+                    }
+                });
+            }
+        });
+
+        $(document).ready(function() {
+            var taskId = null;
+            var checkInterval = null;
+
+            $('#taskButton').click(function() {
+                if ($(this).text() === 'Download full set') {
+                    // Start the task
+                    $(this).text('Waiting...');
+                    $.ajax({
+                        url: '/start_task',
+                        type: 'GET',
+                        success: function(data) {
+                            taskId = data.task_id;
+                            checkInterval = setInterval(checkTaskStatus, 2000); // Check every 2 seconds
+                        },
+                        error: function() {
+                            alert('Failed to start task');
+                        }
+                    });
+                } else if ($(this).text() === 'Download File') {
+                    window.location.href = `/download_file/${taskId}`;
+                }
+            });
+
+            function checkTaskStatus() {
+                $.ajax({
+                    url: `/check_task/${taskId}`,
+                    type: 'GET',
+                    success: function(data) {
+                        if (data.status === 'Task completed') {
+                            $('#taskButton').text('Download File');
+                            clearInterval(checkInterval);
+                        } else if (data.status === 'Task is pending') {
+                            // Optionally handle updates in UI for pending state
+                        } else if (data.status === 'Task failed') {
+                            alert('Task failed');
+                            $('#taskButton').text('Start Task');
+                            clearInterval(checkInterval);
+                        }
+                    },
+                    error: function() {
+                        alert('Error checking task status');
+                        clearInterval(checkInterval);
+                    }
+                });
+            }
+        });
     </script>
 </body>
 </html>

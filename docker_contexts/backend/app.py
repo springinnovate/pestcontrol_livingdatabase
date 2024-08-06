@@ -25,6 +25,7 @@ from sqlalchemy.types import String
 from sqlalchemy.orm import subqueryload
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.orm import joinedload, contains_eager, selectinload
+from celery_config import make_celery
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -39,6 +40,12 @@ config = configparser.ConfigParser()
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your_secret_key'
+app.config.update(
+    CELERY_BROKER_URL='redis://localhost:6379/0',
+    CELERY_RESULT_BACKEND='redis://localhost:6379/0'
+)
+celery = make_celery(app)
+
 
 
 INSTANCE_DIR = './instance'
@@ -657,6 +664,35 @@ def update_covariate():
     session.commit()
 
     return get_covariates()
+
+
+@app.route('/start_task')
+def start_task():
+    task = long_running_task.delay()
+    return jsonify({'task_id': task.id}), 202
+
+@app.route('/check_task/<task_id>')
+def check_task(task_id):
+    task = long_running_task.AsyncResult(task_id)
+    if task.state == 'PENDING':
+        return jsonify({'status': 'Task is pending'}), 202
+    elif task.state == 'FAILURE':
+        return jsonify({'status': 'Task failed', 'error': str(task.info)}), 500
+    elif task.state == 'SUCCESS':
+        return jsonify({'status': 'Task completed', 'result_url': url_for('download_file', task_id=task_id)}), 200
+
+@app.route('/download_file/<task_id>')
+def download_file(task_id):
+    # Implement logic to send the file to the client
+    file_path = f"/path/to/result/files/{task_id}.txt"
+    return send_file(file_path, as_attachment=True)
+
+@celery.task
+def long_running_task():
+    # Your long-running task logic here
+    # Save the output to a file with the task_id as part of the filename
+    pass
+
 
 
 initalize_searchable_covariates()

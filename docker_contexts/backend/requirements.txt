@@ -12,3 +12,5 @@ sqlalchemy==2.0.20
 psycopg2-binary
 chardet
 parsimonious
+celery
+redis
