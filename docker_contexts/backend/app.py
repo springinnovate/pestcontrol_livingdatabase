@@ -228,14 +228,15 @@ def calculate_study_display_order(
     return covariate_display_order, display_table
 
 
-def initalize_serachable_covariates():
+def initalize_searchable_covariates():
     global COVARIATE_STATE
     os.makedirs(PCKL_DIR, exist_ok=True)
-    pkcl_filepath = os.path.join(PCKL_DIR, 'initalize_serachable_covariates.pkl')
+    pkcl_filepath = os.path.join(PCKL_DIR, 'initalize_searchable_covariates.pkl')
     if os.path.exists(pkcl_filepath):
         with open(pkcl_filepath, 'rb') as file:
             COVARIATE_STATE = pickle.load(file)
         LOGGER.info(f'loaded covariate state from {pkcl_filepath}')
+        LOGGER.debug(COVARIATE_STATE['searchable_covariates']['Citations'])
         return
 
     session = SessionLocal()
@@ -244,31 +245,31 @@ def initalize_serachable_covariates():
     searchable_unique_covariates = (
         session.query(
             CovariateDefn.name,
-            group_concat_distinct(CovariateValue.value).label('unique_values')
+            CovariateValue.value
         ).filter(
             CovariateDefn.queryable,
-            CovariateDefn.covariate_type == CovariateType.STRING
+            CovariateDefn.search_by_unique == True
             )
         .join(CovariateValue, CovariateDefn.id_key == CovariateValue.covariate_defn_id)
-        .group_by(CovariateDefn.name)
-    ).all()
-    COVARIATE_STATE['searchable_covariates'] = {
-        row.name: row.unique_values.split(',')
-        for row in searchable_unique_covariates if row.unique_values}
+        .group_by(CovariateDefn.name, CovariateValue.value)
+        ).all()
+    LOGGER.debug(searchable_unique_covariates)
+    COVARIATE_STATE['searchable_covariates'] = collections.defaultdict(list)
+    for row in searchable_unique_covariates:
+        COVARIATE_STATE['searchable_covariates'][row.name].append(row.value)
 
-    LOGGER.debug('starting serach for continuous covariatesunique values')
     searchable_continuous_covariates = (
         session.query(
-            CovariateDefn.name, CovariateDefn.covariate_type
+            CovariateDefn.name,
+            CovariateDefn.covariate_type
         ).filter(
             CovariateDefn.queryable,
-            CovariateDefn.covariate_type != CovariateType.STRING
-        )
-    ).all()
+            CovariateDefn.search_by_unique == False,
+            )
+        ).all()
 
-    COVARIATE_STATE['searchable_covariates'].update({
-        row.name: str(row.covariate_type)
-        for row in searchable_continuous_covariates})
+    for row in searchable_continuous_covariates:
+        COVARIATE_STATE['searchable_covariates'][row.name] = CovariateType(row.covariate_type).name
 
     COVARIATE_STATE['n_samples'] = session.query(Sample).count()
 
@@ -623,7 +624,7 @@ def update_covariate():
     return get_covariates()
 
 
-initalize_serachable_covariates()
+initalize_searchable_covariates()
 
 if __name__ == '__main__':
     app.run(debug=True)

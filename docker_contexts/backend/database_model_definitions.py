@@ -41,14 +41,14 @@ REQUIRED_STUDY_FIELDS = [
 
 
 class CovariateType(enum.Enum):
-    STRING = "string"
-    FLOAT = "float"
-    INTEGER = "integer"
+    STRING = 0
+    FLOAT = 1
+    INTEGER = 2
 
 
 class CovariateAssociation(enum.Enum):
-    STUDY = "STUDY"
-    SAMPLE = "SAMPLE"
+    STUDY = 0
+    SAMPLE = 1
 
 
 class Base(DeclarativeBase):
@@ -122,11 +122,14 @@ class CovariateDefn(Base):
         Boolean, nullable=False, index=True)
     show_in_point_table: Mapped[bool] = mapped_column(
         Boolean, nullable=False, index=True)
+    search_by_unique: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, index=True)
     condition: Mapped[dict] = mapped_column(JSON, default=None)
-    covariate_type: Mapped[CovariateType] = mapped_column(
-        Enum(CovariateType), nullable=False, index=True)
-    covariate_association: Mapped[CovariateAssociation] = mapped_column(
-        Enum(CovariateAssociation), nullable=False, index=True)
+    covariate_type: Mapped[int] = mapped_column(
+        Integer, nullable=False, index=True)
+    covariate_association: Mapped[int] = mapped_column(
+        Integer, nullable=False, index=True)
+
 
     covariate_values: Mapped[List["CovariateValue"]] = relationship(
         "CovariateValue", back_populates="covariate_defn")
@@ -142,7 +145,7 @@ class CovariateValue(Base):
 
     covariate_defn_id: Mapped[int] = mapped_column(
         ForeignKey('covariate_defn.id_key'))
-    covariate_defn: Mapped[CovariateDefn] = relationship(
+    covariate_defn: Mapped[int] = relationship(
         "CovariateDefn", back_populates="covariate_values")
 
     study_id: Mapped[Optional[int]] = mapped_column(ForeignKey('study.id_key'))

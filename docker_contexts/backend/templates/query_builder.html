@@ -307,10 +307,12 @@ function resetSpaceInputs() {
     document.getElementById('continentSelect').value = '';
 }
 
+//hello
 const fieldValues = {
     {% for field, values in unique_covariate_values.items() %}
-        "{{ field }}": {% if values is iterable and not values is string %}[{% for value in values %}"{{ value.replace('\n', '\\n') }}"{% if not loop.last %}, {% endif %}{% endfor %}] {% else %}"{{ values.replace('\n', '\\n') }}" {% endif %},
-    {% endfor %}
+        "{{ field }}":
+            {% if values is iterable and not values is string %}[{% for value in values %}"{{ value.replace('\n', '\\n').replace('\r', '\\r') }}"{% if not loop.last %}, {% endif %}{% endfor %}]{% else %}"{{ values }}"{% endif %},{% endfor %}
+
 };
 
 function updateValueOptions(fieldSelect) {
@@ -338,16 +340,32 @@ function updateValueOptions(fieldSelect) {
                 option.text = value;
                 valueSelect.appendChild(option);
             });
-
             valueSelectContainer.appendChild(valueSelect);
-        } else {
-            // Create a numerical input box
+        } else if (values == 'INTEGER') {
+            // Create an integer input box
             const valueInput = document.createElement('input');
             valueInput.type = 'number';
             valueInput.name = 'value';
             valueInput.classList.add('valueInput');
-            valueInput.value = values; // Set the default value if needed
-
+            valueInput.step = '1';
+            valueInput.value = 0;
+            valueSelectContainer.appendChild(valueInput);
+        } else if (values == 'FLOAT') {
+            // Create a float input box with any step size
+            const valueInput = document.createElement('input');
+            valueInput.type = 'number';
+            valueInput.name = 'value';
+            valueInput.classList.add('valueInput');
+            valueInput.step = 'any';
+            valueInput.value = 0.0;
+            valueSelectContainer.appendChild(valueInput);
+        } else if (values == 'STRING') {
+            // Create a text input box for string values
+            const valueInput = document.createElement('input');
+            valueInput.type = 'text';
+            valueInput.name = 'value';
+            valueInput.classList.add('valueInput');
+            valueInput.value = 'enter a value';
             valueSelectContainer.appendChild(valueInput);
         }
     }

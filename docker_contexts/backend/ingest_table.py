@@ -166,14 +166,15 @@ def define_new_covariates(session, table_source_path, covariate_names, covariate
             display_order=999,
             name=name,
             editable_name=True,
-            covariate_type=CovariateType.STRING,
+            covariate_type=CovariateType.STRING.value,
             covariate_association=covariate_association,
             description=f'uncorrelated with existing covariates during ingestion. found in {table_source_path}',
-            queryable=False,
+            queryable=True,
             always_display=False,
             condition=None,
-            hidden=True,
+            hidden=False,
             show_in_point_table=False,
+            search_by_unique=False,
         )
         session.add(hidden_covariate)
     session.commit()
@@ -322,9 +323,12 @@ def extract_column_matching(matching_df, column_matching_path):
 #@profile
 def create_matching_table(session, args, column_matching_path):
     study_covariate_list = session.query(CovariateDefn).filter(
-        CovariateDefn.covariate_association == CovariateAssociation.STUDY).order_by(
+        CovariateDefn.covariate_association == CovariateAssociation.STUDY.value).order_by(
         CovariateDefn.display_order,
         func.lower(CovariateDefn.name)).all()
+    study_covariate_list = [item for item in study_covariate_list if item.name not in REQUIRED_STUDY_FIELDS]
+    LOGGER.debug(study_covariate_list)
+    LOGGER.debug(REQUIRED_STUDY_FIELDS)
 
     study_columns = load_column_names(args.study_table_path)
     matches = match_strings(
@@ -335,10 +339,11 @@ def create_matching_table(session, args, column_matching_path):
         matches, columns=['EXPECTED (do not change), "*" means required', 'USER INPUT (match with EXPECTED)'])
 
     sample_covariate_list = session.query(CovariateDefn).filter(
-        CovariateDefn.covariate_association == CovariateAssociation.SAMPLE).order_by(
+        CovariateDefn.covariate_association == CovariateAssociation.SAMPLE.value).order_by(
         CovariateDefn.display_order,
         func.lower(CovariateDefn.name)).all()
-
+    sample_covariate_list = [item for item in sample_covariate_list if item.name not in REQUIRED_SAMPLE_INPUT_FIELDS]
+    LOGGER.debug(sample_covariate_list)
     sample_columns = load_column_names(args.sample_table_path)
     matches = match_strings(
         sample_columns,
@@ -425,8 +430,8 @@ def main():
 
     # drop the columns that aren't being used
 
-    define_new_covariates(session, args.study_table_path, raw_study_user_fields, CovariateAssociation.STUDY)
-    define_new_covariates(session, args.sample_table_path, raw_sample_user_fields, CovariateAssociation.SAMPLE)
+    define_new_covariates(session, args.study_table_path, raw_study_user_fields, CovariateAssociation.STUDY.value)
+    define_new_covariates(session, args.sample_table_path, raw_sample_user_fields, CovariateAssociation.SAMPLE.value)
     validate_tables(study_table_df, sample_table_df)
 
     country_vector = geopandas.read_file(
@@ -443,7 +448,7 @@ def main():
 
     session.commit()
     study_covariate_defn_list = session.query(CovariateDefn).filter(
-        CovariateDefn.covariate_association == CovariateAssociation.STUDY).order_by(
+        CovariateDefn.covariate_association == CovariateAssociation.STUDY.value).order_by(
         CovariateDefn.display_order,
         func.lower(CovariateDefn.name)).all()
 
@@ -456,7 +461,7 @@ def main():
             session, study_covariate_defn_list, row)
 
     sample_covariate_defn_list = session.query(CovariateDefn).filter(
-        CovariateDefn.covariate_association == CovariateAssociation.SAMPLE).order_by(
+        CovariateDefn.covariate_association == CovariateAssociation.SAMPLE.value).order_by(
         CovariateDefn.display_order,
         func.lower(CovariateDefn.name)).all()
     start_time = time.time()
