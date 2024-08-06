@@ -363,12 +363,14 @@ def n_samples():
 
 
 def form_to_dict(form):
+    centerPointBuffer=form.get('centerPointBuffer')
+
     return {
         'covariate': form.getlist('covariate'),
         'operation': form.getlist('operation'),
         'value': form.getlist('value'),
         'centerPoint': form.get('centerPoint'),
-        'centerPointBuffer': float(form.get('centerPointBuffer').strip())/2,
+        'centerPointBuffer': None if not centerPointBuffer else centerPointBuffer,
         'upperLeft': form.get('upperLeft'),
         'lowerRight': form.get('lowerRight'),
         'countrySelect': form.get('countrySelect'),
