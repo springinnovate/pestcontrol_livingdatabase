@@ -6,6 +6,8 @@ import os
 import pickle
 import re
 import sys
+import zipfile
+from io import StringIO
 from uuid import uuid4
 
 import numpy
@@ -135,18 +137,14 @@ def calculate_sample_display_table(session, query_to_filter):
                 CovariateDefn.show_in_point_table == 1))
         .order_by(
             CovariateDefn.display_order,
-            func.lower(CovariateDefn.name))
-        .limit(MAX_SAMPLE_DISPLAY_SIZE))
+            func.lower(CovariateDefn.name)))
     explain_query(session, pre_covariate_display_query)
 
     # now filter the covariates by what is actually defined
 
     unique_values_per_covariate = collections.defaultdict(set)
     sample_covariate_list = []
-    for index, (sample, study) in enumerate(query_to_filter.limit(MAX_SAMPLE_DISPLAY_SIZE)):
-        if index == MAX_SAMPLE_DISPLAY_SIZE:
-            break
-        LOGGER.debug(f'{index} for {sample.id_key}')
+    for index, (sample, study) in enumerate(query_to_filter):
         sample_covariates = sample.covariates
         study_covariates = [
             cov for cov in study.covariates
@@ -213,7 +211,7 @@ def calculate_study_display_order(
         .order_by(
             CovariateDefn.display_order,
             func.lower(CovariateDefn.name))
-        .limit(MAX_SAMPLE_DISPLAY_SIZE))
+        )
 
     unique_values_per_covariate = collections.defaultdict(set)
     for index, study in enumerate(query_to_filter):
@@ -600,7 +598,7 @@ def process_query():
 
         LOGGER.info('calculate covariate display order for sample')
         sample_covariate_display_order, sample_table = calculate_sample_display_table(
-            session, sample_query)
+            session, sample_query.limit(MAX_SAMPLE_DISPLAY_SIZE))
 
         study_query = (
             session.query(Study)
@@ -645,7 +643,7 @@ def process_query():
             study_headers=study_covariate_display_order,
             study_table=study_table,
             sample_headers=sample_covariate_display_order,
-            sample_table=sample_table[:MAX_SAMPLE_DISPLAY_SIZE],
+            sample_table=sample_table,
             points=points,
             compiled_query=f'<pre>Filter as text: {filter_text}</pre>',
             max_samples=MAX_SAMPLE_DISPLAY_SIZE,
@@ -732,18 +730,20 @@ def check_task(task_id):
         return jsonify({'status': 'Task failed', 'error': str(task.info)}), 500
     elif task.state == 'SUCCESS':
         return jsonify({'status': 'Task completed', 'result_url': url_for('download_file', task_id=task_id)}), 200
+    elif task.state == 'STARTED':
+        return jsonify({'status': 'Task is started'}), 202
 
 @app.route('/download_file/<task_id>')
 def download_file(task_id):
     # Implement logic to send the file to the client
-    file_path = os.path.join(QUERY_RESULTS_DIR, f'{task_id}.txt')
+    file_path = os.path.join(QUERY_RESULTS_DIR, f'{task_id}.zip')
     return send_file(file_path, as_attachment=True)
 
 @celery.task
-def _prep_download(query_id):
+def _prep_download(task_id):
     try:
-        LOGGER.debug(f'starting prep download with this query id: {query_id}')
-        query_form_json = redis_client.get(query_id)
+        LOGGER.debug(f'starting prep download with this query id: {task_id}')
+        query_form_json = redis_client.get(task_id)
         if query_form_json:
             query_form = json.loads(query_form_json)
         LOGGER.debug(f'preping download fo the query form {query_form}')
@@ -751,30 +751,67 @@ def _prep_download(query_id):
         filters, filter_text = build_filter(session, query_form)
 
         sample_query = (
-            session.query(Sample.id_key, Study.id_key)
+            session.query(Sample, Study)
             .join(Sample.study)
             .join(Sample.point)
             .filter(
                 *filters
             )
+            .options(selectinload(Sample.covariates))
         )
-        sample_count = sample_query.count()
+
+        explain_query(session, sample_query)
+
         study_query = (
-            session.query(Study.id_key)
+            session.query(Study)
             .join(Sample.study)
             .join(Sample.point)
             .filter(
                 *filters
-            ).distinct()
+            )
+            .options(selectinload(Study.covariates))
         )
-        study_count = study_query.count()
+
+        unique_studies = {study for study in study_query}
+        # determine what covariate ids are in this query
+        LOGGER.info('calculate covariate display order for study')
+        study_covariate_display_order, study_table = calculate_study_display_order(
+            session, unique_studies)
+        sample_covariate_display_order, sample_table = calculate_sample_display_table(
+            session, sample_query)
+        sample_covariate_display_order = [
+            OBSERVATION, LATITUDE, LONGITUDE] + sample_covariate_display_order
 
         task_id = current_task.request.id
-        file_name = os.path.join(QUERY_RESULTS_DIR, f"{task_id}.txt")
-        with open(file_name, 'w') as file:
-            # Example logic: Write something to the file
-            file.write(f'{study_count}, {sample_count}')
-        return f"File {file_name} has been created."
+        zipfile_path = os.path.join(QUERY_RESULTS_DIR, f'{task_id}.zip')
+        with zipfile.ZipFile(zipfile_path, mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
+            sample_table_io = StringIO()
+            sample_table_io.write(','.join(sample_covariate_display_order))
+            sample_table_io.write('\n')
+            for row in sample_table:
+                clean_row = [x if x is not None else 'None' for x in row]
+                sample_table_io.write(','.join(clean_row))
+                sample_table_io.write('\n')
+
+            sample_table_io.seek(0)  # Move to the start of the StringIO object
+            # Add the CSV content to the ZIP file
+            zf.writestr(f'site_data_{task_id}.csv', sample_table_io.getvalue())
+
+
+            study_table_io = StringIO()
+            study_table_io.write(','.join(study_covariate_display_order))
+            study_table_io.write('\n')
+            for row in study_table:
+                clean_row = [x if x is not None else 'None' for x in row]
+                study_table_io.write(','.join(clean_row))
+                study_table_io.write('\n')
+
+            study_table_io.seek(0)  # Move to the start of the StringIO object
+            # Add the CSV content to the ZIP file
+            zf.writestr(f'study_data_{task_id}.csv', study_table_io.getvalue())
+
+        LOGGER.debug(f'{zipfile_path} is created')
+        return f"File {zipfile_path} has been created."
     except:
         LOGGER.exception('error on _prep_download')
     finally:

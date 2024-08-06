@@ -99,8 +99,7 @@
         });
     </script>
     <div class="container mt-5">
-        <h2>Relevant Studies ({{ study_table | length }})</h2>
-        <button class="download-btn btn btn-primary mb-3" data-filename="studies.csv">Download as CSV</button>
+        <h2>Relevant studies ({{ study_table | length }})</h2>
         <table class="table table-bordered">
             <thead>
                 <tr>
@@ -121,8 +120,7 @@
         </table>
     </div>
     <div class="container mt-5">
-        <h2>Samples displaying only the first {{ max_samples }}</h2>
-        <button class="download-btn btn btn-primary mb-3" data-filename="samples.csv">Download as CSV</button>
+        <h2>Samples subset</h2>
         <table class="table table-bordered">
             <thead>
                 <tr>
@@ -203,38 +201,6 @@
             });
         });
 
-        document.querySelectorAll('.download-btn').forEach(button => {
-            button.addEventListener('click', function () {
-                const tableContainer = this.closest('.container');
-                const table = tableContainer.querySelector('table');
-                const filename = this.getAttribute('data-filename');
-                let csv = [];
-                const rows = table.querySelectorAll('tr');
-
-                for (let i = 0; i < rows.length; i++) {
-                    const row = [], cols = rows[i].querySelectorAll('td, th');
-
-                    for (let j = 0; j < cols.length; j++) {
-                        row.push(cols[j].innerText);
-                    }
-
-                    csv.push(row.join(','));
-                }
-                downloadCSV(csv.join('\n'), 'table.csv');
-            });
-        });
-
-        function downloadCSV(csv, filename) {
-            const csvFile = new Blob([csv], { type: 'text/csv' });
-            const downloadLink = document.createElement('a');
-            downloadLink.download = filename;
-            downloadLink.href = window.URL.createObjectURL(csvFile);
-            downloadLink.style.display = 'none';
-            document.body.appendChild(downloadLink);
-            downloadLink.click();
-            document.body.removeChild(downloadLink);
-        }
-
         $(document).ready(function() {
             var taskId = null;
             var checkInterval = null;
@@ -242,7 +208,7 @@
             $('#fullSetDownload').click(function() {
                 if ($(this).text() === 'Download full set') {
                     // Start the task
-                    $(this).text('Waiting...');
+                    $(this).text('Processing, this can take a few minutes for very large queries...');
                     $.ajax({
                         url: '/prep_download',
                         type: 'GET',
