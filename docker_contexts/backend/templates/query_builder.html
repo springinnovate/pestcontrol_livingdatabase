@@ -105,9 +105,10 @@
 <body>
 <div class="container mt-5">
     <div id="validSampleCount" class="info-box alert alert-info" role="alert">
-        <span class="section-title">Current sample and study count for selected filters</span>
+        <span class="section-title">Current sample and study count for selected filters</span><br/>
         Number of Samples: <span id="sampleCount">Loading...</span><br/>
         Number of Studies: <span id="studyCount">Loading...</span><br/>
+        <pre id="filterText"></pre>
     </div>
     <form id="queryForm" action="/api/process_query" method="post">
         <div id="queryBuilder">
@@ -215,16 +216,6 @@
                         <div class="query-input-group">
                             <label for="sampleSizeMinObservationsPerYear">Minimum number of observations per years of a study:</label>
                             <input type="number" id="sampleSizeMinObservationsPerYear" name="sampleSizeMinObservationsPerYear" value="0" min="0">
-                        </div>
-                    </div>
-            </div>
-            <div class="querySection">
-                <div class="section-title" onclick="toggleVisibility('maxSample')">Maximum Query Size</div>
-                    <div class="collapsible-content" id="maxSample">
-                        <p>This is a prototype, Rich didn't optimize REALLY big queries yet, so if you make this number too big it will really hurt the server and you'll be confused because you won't get a result.</p>
-                        <div class="query-input-group">
-                            <label for="maxSampleSize">Maximum number of samples to fetch:</label>
-                            <input type="number" id="maxSampleSize" name="maxSampleSize" value="10" min="1">
                         </div>
                     </div>
             </div>
@@ -336,10 +327,12 @@ function fetchSampleCounts() {
         // Update the sample count display with the new data
         document.getElementById('sampleCount').textContent = data.sample_count;
         document.getElementById('studyCount').textContent = data.study_count;
+        document.getElementById('filterText').textContent = data.filter_text;
     })
     .catch(error => {
         document.getElementById('sampleCount').textContent = 'error fetching counts...';
         document.getElementById('studyCount').textContent = 'error fetching counts...';
+        document.getElementById('filterText').textContent = 'error fetching counts...';
     });
 }
 

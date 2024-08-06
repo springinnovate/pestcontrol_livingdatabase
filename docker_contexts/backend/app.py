@@ -15,7 +15,7 @@ from flask import Flask
 from flask import render_template
 from flask import request
 from flask import jsonify
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy import distinct, func
 from sqlalchemy.engine import Row
 from sqlalchemy.sql import and_, or_, tuple_
@@ -24,7 +24,7 @@ from sqlalchemy.sql.functions import GenericFunction
 from sqlalchemy.types import String
 from sqlalchemy.orm import subqueryload
 from sqlalchemy.dialects import postgresql, sqlite
-from sqlalchemy.orm import joinedload, contains_eager
+from sqlalchemy.orm import joinedload, contains_eager, selectinload
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -41,10 +41,9 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your_secret_key'
 
 
-UNIQUE_COVARIATE_VALUES_PKL = 'unique_COVARIATE_values.pkl'
-
-PCKL_DIR = './instance'
-
+INSTANCE_DIR = './instance'
+QUERY_RESULTS_DIR = os.path.join(INSTANCE_DIR, 'results_to_download')
+MAX_SAMPLE_DISPLAY_SIZE = 100
 
 class group_concat_distinct(GenericFunction):
     type = String()
@@ -97,7 +96,7 @@ def extract_years(year_string):
 
 
 def calculate_sample_display_table(session, query_to_filter):
-    pre_covariate_display_order = [x for x in (
+    pre_covariate_display_query = (
         session.query(
             CovariateDefn.name,
             CovariateDefn.always_display,
@@ -108,13 +107,18 @@ def calculate_sample_display_table(session, query_to_filter):
                 CovariateDefn.show_in_point_table == 1))
         .order_by(
             CovariateDefn.display_order,
-            func.lower(CovariateDefn.name))).all()]
+            func.lower(CovariateDefn.name))
+        .limit(MAX_SAMPLE_DISPLAY_SIZE))
+    explain_query(session, pre_covariate_display_query)
 
     # now filter the covariates by what is actually defined
 
     unique_values_per_covariate = collections.defaultdict(set)
     sample_covariate_list = []
-    for index, (sample, study) in enumerate(query_to_filter):
+    for index, (sample, study) in enumerate(query_to_filter.limit(MAX_SAMPLE_DISPLAY_SIZE)):
+        if index == MAX_SAMPLE_DISPLAY_SIZE:
+            break
+        LOGGER.debug(f'{index} for {sample.id_key}')
         sample_covariates = sample.covariates
         study_covariates = [
             cov for cov in study.covariates
@@ -147,7 +151,7 @@ def calculate_sample_display_table(session, query_to_filter):
     # get all possible conditions
     covariate_display_order = []
 
-    for name, always_display, hidden, condition in pre_covariate_display_order:
+    for name, always_display, hidden, condition in pre_covariate_display_query:
         if hidden:
             continue
         if condition is None or condition == 'null':
@@ -169,7 +173,7 @@ def calculate_sample_display_table(session, query_to_filter):
 
 def calculate_study_display_order(
         session, query_to_filter):
-    pre_covariate_display_order = [x for x in (
+    pre_covariate_display_order = (
         session.query(
             CovariateDefn.name,
             CovariateDefn.always_display,
@@ -180,7 +184,8 @@ def calculate_study_display_order(
                 CovariateDefn.show_in_point_table == 1))
         .order_by(
             CovariateDefn.display_order,
-            func.lower(CovariateDefn.name))).all()]
+            func.lower(CovariateDefn.name))
+        .limit(MAX_SAMPLE_DISPLAY_SIZE))
 
     unique_values_per_covariate = collections.defaultdict(set)
     for index, study in enumerate(query_to_filter):
@@ -230,8 +235,8 @@ def calculate_study_display_order(
 
 def initalize_searchable_covariates():
     global COVARIATE_STATE
-    os.makedirs(PCKL_DIR, exist_ok=True)
-    pkcl_filepath = os.path.join(PCKL_DIR, 'initalize_searchable_covariates.pkl')
+    os.makedirs(INSTANCE_DIR, exist_ok=True)
+    pkcl_filepath = os.path.join(INSTANCE_DIR, 'initalize_searchable_covariates.pkl')
     if os.path.exists(pkcl_filepath):
         with open(pkcl_filepath, 'rb') as file:
             COVARIATE_STATE = pickle.load(file)
@@ -300,7 +305,7 @@ def pcld():
 @app.route('/api/n_samples', methods=['POST'])
 def n_samples():
     session = SessionLocal()
-    filters = build_filter(session, request.form)
+    filters, filter_text = build_filter(session, request.form)
 
     sample_query = (
         session.query(Sample.id_key, Study.id_key)
@@ -324,14 +329,8 @@ def n_samples():
 
     return jsonify({
         'sample_count': sample_count,
-        'study_count': study_count
-    })
-
-    sample_count = session.query(func.count(Sample.id_key)).scalar()
-    study_count = session.query(func.count(Study.id_key)).scalar()
-    return jsonify({
-        'sample_count': sample_count,
-        'study_count': study_count
+        'study_count': study_count,
+        'filter_text': filter_text
         })
 
 
@@ -339,7 +338,6 @@ def build_filter(session, form):
     fields = form.getlist('covariate')
     operations = form.getlist('operation')
     values = form.getlist('value')
-    max_sample_size = form.get('maxSampleSize')
     filters = []
     filter_text = ''
     for field, operation, value in zip(fields, operations, values):
@@ -510,6 +508,7 @@ def build_filter(session, form):
 
     year_range = form.get('yearRange')
     if year_range:
+        filter_text += 'years in {' + year_range + '}\n'
         year_set = extract_years(year_range)
         year_subquery = (
             session.query(CovariateValue.sample_id)
@@ -520,15 +519,23 @@ def build_filter(session, form):
             ).subquery())
         filters.append(
             Sample.id_key.in_(session.query(year_subquery.c.sample_id)))
-    return filters
+    return filters, filter_text
+
+
+def explain_query(session, query):
+    compiled_query = query.statement.compile(session.bind, compile_kwargs={"literal_binds": True})
+    explain_query = f"EXPLAIN QUERY PLAN {compiled_query}"
+    result = session.execute(text(explain_query)).fetchall()
+    for row in result:
+        print(row)
 
 
 @app.route('/api/process_query', methods=['POST'])
 def process_query():
     try:
         session = SessionLocal()
-        filters = build_filter(session, request.form)
-
+        filters, filter_text = build_filter(session, request.form)
+        LOGGER.debug(f'this is the filter text: {filter_text}\n\n{filters}')
         sample_query = (
             session.query(Sample, Study)
             .join(Sample.study)
@@ -536,14 +543,26 @@ def process_query():
             .filter(
                 *filters
             )
-            .limit(max_sample_size)
+            .options(selectinload(Sample.covariates))
         )
+
+        explain_query(session, sample_query)
 
         LOGGER.info('calculate covariate display order for sample')
         sample_covariate_display_order, sample_table = calculate_sample_display_table(
             session, sample_query)
 
-        unique_studies = {sample[1] for sample in sample_query}
+        study_query = (
+            session.query(Study)
+            .join(Sample.study)
+            .join(Sample.point)
+            .filter(
+                *filters
+            )
+            .options(selectinload(Study.covariates))
+        )
+        LOGGER.debug(f'calculating unique studies')
+        unique_studies = {study for study in study_query}
 
         # determine what covariate ids are in this query
         LOGGER.info('calculate covariate display order for study')
@@ -551,16 +570,17 @@ def process_query():
             session, unique_studies)
 
         # add the lat/lng points and observation to the sample
+        LOGGER.debug(f'calculating the display row order')
         sample_covariate_display_order = [
             OBSERVATION, LATITUDE, LONGITUDE] + sample_covariate_display_order
-        for (sample_row, _), display_row in zip(sample_query, sample_table):
+        for (sample_row, _), display_row in zip(sample_query.limit(MAX_SAMPLE_DISPLAY_SIZE), sample_table):
             display_row[:] = [
                 sample_row.observation,
                 sample_row.point.latitude,
                 sample_row.point.longitude] + display_row
 
         LOGGER.info('about to query on points')
-        unique_points = {sample[0].point for sample in sample_query}
+        unique_points = {sample[0].point for sample in sample_query.limit(MAX_SAMPLE_DISPLAY_SIZE)}
         points = [
             {"lat": p.latitude, "lng": p.longitude}
             for p in unique_points]
@@ -572,9 +592,11 @@ def process_query():
             study_headers=study_covariate_display_order,
             study_table=study_table,
             sample_headers=sample_covariate_display_order,
-            sample_table=sample_table,
+            sample_table=sample_table[:MAX_SAMPLE_DISPLAY_SIZE],
             points=points,
-            compiled_query=f'<pre>Filter as text: {filter_text}</pre>'
+            compiled_query=f'<pre>Filter as text: {filter_text}</pre>',
+            max_samples=MAX_SAMPLE_DISPLAY_SIZE,
+            expected_samples=sample_query.count()
             )
     except Exception as e:
         LOGGER.exception(f'error with {e}')

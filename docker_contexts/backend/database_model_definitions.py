@@ -151,7 +151,7 @@ class CovariateValue(Base):
     study_id: Mapped[Optional[int]] = mapped_column(ForeignKey('study.id_key'))
     study: Mapped[Optional['Study']] = relationship("Study", back_populates="covariates")
 
-    sample_id: Mapped[Optional[int]] = mapped_column(ForeignKey('sample.id_key'))
+    sample_id: Mapped[Optional[int]] = mapped_column(ForeignKey('sample.id_key'), index=True)
     sample: Mapped[Optional['Sample']] = relationship("Sample", back_populates="covariates")
 
     def __repr__(self):
