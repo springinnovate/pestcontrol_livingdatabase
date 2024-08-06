@@ -105,9 +105,9 @@
 <body>
 <div class="container mt-5">
     <div id="validSampleCount" class="info-box alert alert-info" role="alert">
+        <span class="section-title">Current sample and study count for selected filters</span>
         Number of Samples: <span id="sampleCount">Loading...</span><br/>
         Number of Studies: <span id="studyCount">Loading...</span><br/>
-        Number of Covariates: <span id="covariateCount">Loading...</span>
     </div>
     <form id="queryForm" action="/api/process_query" method="post">
         <div id="queryBuilder">
@@ -387,28 +387,6 @@ window.addEventListener("pageshow", function() {
         updateValueOptions(selectElement);
     }
 });
-fetch('/api/n_samples', {
-    method: 'POST'
-})
-.then(response => response.json())
-.then(data => {
-    document.getElementById('sampleCount').innerText = data.sample_count;
-    document.getElementById('studyCount').innerText = data.study_count;
-    document.getElementById('covariateCount').innerText = data.covariate_count;
-})
-.catch(error => console.error('Error fetching sample count:', error));
-document.getElementById('queryForm').addEventListener('submit', function(event) {
-    showLoadingOverlay();
-});
-
-window.addEventListener('pageshow', function(event) {
-    if (event.persisted || window.performance && window.performance.navigation.type === 2) {
-        const loadingOverlay = document.getElementById('loadingOverlay');
-        loadingOverlay.style.display = 'none';
-        document.body.classList.remove('loading');
-    }
-});
-
 
 window.addEventListener('load', function() {
     adjustSampleCountPosition();
@@ -429,6 +407,42 @@ function adjustSampleCountPosition() {
     validSampleCount.style.top = '20px'; // Keep it fixed at the top of the viewport
     validSampleCount.style.position = 'fixed';
 }
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Get the form and all its input elements
+    var form = document.getElementById('queryForm');
+    var inputs = form.querySelectorAll('input, select');
+
+    // Attach event listeners to all form inputs
+    inputs.forEach(function(input) {
+        input.addEventListener('change', function() {
+            fetchSampleCounts();
+        });
+    });
+
+    function fetchSampleCounts() {
+        var formData = new FormData(form);
+        document.getElementById('sampleCount').textContent = 'Loading...';
+        document.getElementById('studyCount').textContent = 'Loading...';
+        fetch('/api/n_samples', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            // Update the sample count display with the new data
+            document.getElementById('sampleCount').textContent = data.sample_count;
+            document.getElementById('studyCount').textContent = data.study_count;
+        })
+        .catch(error => {
+            document.getElementById('sampleCount').textContent = 'error fetching counts...';
+            document.getElementById('studyCount').textContent = 'error fetching counts...';
+        });
+    }
+    fetchSampleCounts();
+});
+
+
 </script>
 </body>
 </html>

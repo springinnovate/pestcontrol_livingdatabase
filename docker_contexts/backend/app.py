@@ -301,209 +301,237 @@ def pcld():
 
 @app.route('/api/n_samples', methods=['POST'])
 def n_samples():
+    filters = build_filter(request.form)
+
     session = SessionLocal()
-    sample_count = session.query(func.count(Sample.id_key)).scalar()
-    study_count = session.query(func.count(Study.id_key)).scalar()
-    covariate_count = session.query(func.count(CovariateDefn.id_key)).scalar()
+    sample_query = (
+        session.query(Sample.id_key, Study.id_key)
+        .join(Sample.study)
+        .join(Sample.point)
+        .filter(
+            *filters
+        )
+    )
+    sample_count = sample_query.count()
+    study_query = (
+        session.query(Study.id_key)
+        .join(Sample.study)
+        .join(Sample.point)
+        .filter(
+            *filters
+        ).distinct()
+    )
+    study_count = study_query.count()
     session.close()
+
     return jsonify({
         'sample_count': sample_count,
-        'study_count': study_count,
-        'covariate_count': covariate_count,
+        'study_count': study_count
+    })
+
+    sample_count = session.query(func.count(Sample.id_key)).scalar()
+    study_count = session.query(func.count(Study.id_key)).scalar()
+    return jsonify({
+        'sample_count': sample_count,
+        'study_count': study_count
         })
+
+
+def build_filter(form):
+    session = SessionLocal()
+    fields = form.getlist('covariate')
+    operations = form.getlist('operation')
+    values = form.getlist('value')
+    max_sample_size = form.get('maxSampleSize')
+    filters = []
+    filter_text = ''
+    for field, operation, value in zip(fields, operations, values):
+        if not field:
+            continue
+        covariate_type = session.query(
+            CovariateDefn.covariate_association).filter(
+            CovariateDefn.name == field).first()[0]
+        filter_text += f'{field}({covariate_type}) {operation} {value}\n'
+
+        if covariate_type == CovariateAssociation.STUDY:
+            covariate_subquery = (
+                session.query(CovariateValue.study_id)
+                .join(CovariateValue.covariate_defn)
+                .filter(
+                    and_(CovariateDefn.name == field,
+                         OPERATION_MAP[operation](CovariateValue.value, value))
+                ).subquery())
+            filters.append(
+                Study.id_key.in_(session.query(covariate_subquery.c.study_id)))
+
+        elif covariate_type == CovariateAssociation.SAMPLE:
+            covariate_subquery = (
+                session.query(CovariateValue.sample_id)
+                .join(CovariateValue.covariate_defn)
+                .filter(
+                    and_(CovariateDefn.name == field,
+                         OPERATION_MAP[operation](CovariateValue.value, value))
+                ).subquery())
+            filters.append(
+                Sample.id_key.in_(session.query(covariate_subquery.c.sample_id)))
+
+    ul_lat = None
+    center_point = form.get('centerPoint')
+    if center_point is not None:
+        center_point = center_point.strip()
+        if center_point != '':
+            m = re.match(r"[(]?([^, \t]+)[, \t]+([^, )]+)[\)]?", center_point)
+            LOGGER.debug(f'MATCH {m}')
+            lat, lng = [float(v) for v in m.group(1, 2)]
+            center_point_buffer = float(
+                form.get('centerPointBuffer').strip())/2
+            ul_lat = lat+center_point_buffer/2
+            lr_lat = lat-center_point_buffer/2
+            ul_lng = lng+center_point_buffer/2
+            lr_lng = lng-center_point_buffer/2
+
+            filter_text += f'center point at ({lat},{lng}) + +/-{center_point_buffer}\n'
+
+    upper_left_point = form.get('upperLeft')
+    if upper_left_point is not None:
+        upper_left_point = form.get('upperLeft').strip()
+        lower_right_point = form.get('lowerRight').strip()
+
+        if upper_left_point != '':
+            m = re.match(r"[(]?([^, ]+)[, ]*([^, )]+)[\)]?", upper_left_point)
+            ul_lat, ul_lng = [float(v) for v in m.group(1, 2)]
+            m = re.match(r"[(]?([^, ]+)[, ]*([^, )]+)[\)]?", lower_right_point)
+            lr_lat, lr_lng = [float(v) for v in m.group(1, 2)]
+
+            filter_text += f'bounding box ({ul_lat},{ul_lng}) ({lr_lat},{lr_lng})\n'
+
+    country_select = form.get('countrySelect')
+    if country_select:
+        geolocation_subquery = (
+            session.query(Point.id_key)
+            .join(Point.geolocations)
+            .filter(Geolocation.geolocation_name == country_select)
+        ).subquery()
+        filters.append(Point.id_key.in_(select(geolocation_subquery)))
+        filter_text += f'country is {country_select}\n'
+
+    continent_select = form.get('continentSelect')
+    if continent_select:
+        geolocation_subquery = (
+            session.query(Point.id_key)
+            .join(Point.geolocations)
+            .filter(Geolocation.geolocation_name == continent_select)
+        ).subquery()
+        filters.append(Point.id_key.in_(geolocation_subquery))
+        filter_text += f'continent is {continent_select}\n'
+
+    if ul_lat is not None:
+        filters.append(and_(
+            Point.latitude <= ul_lat,
+            Point.latitude >= lr_lat,
+            Point.longitude <= ul_lng,
+            Point.longitude >= lr_lng))
+
+    min_site_years = int(form.get('minSiteYears'))
+    if min_site_years > 0:
+        filter_text += f'min site years={min_site_years}\n'
+        unique_years_count_query = (
+            session.query(
+                Sample.study_id,
+                Sample.point_id,
+                func.count(func.distinct(CovariateValue.value)).label(
+                    'unique_years')
+            )
+            .join(Sample.covariates)
+            .join(CovariateValue.covariate_defn)
+            .filter(CovariateDefn.name == 'year')
+            .group_by(Sample.study_id, Sample.point_id)
+        )
+
+        valid_sites = [
+            (row.study_id, row.point_id) for row in unique_years_count_query
+            if row.unique_years >= min_site_years]
+        filters.append(
+            tuple_(Sample.study_id, Sample.point_id).in_(valid_sites))
+
+    min_sites_per_study = int(form.get('minSitesPerStudy'))
+    if min_sites_per_study:
+        min_sites_per_study = int(min_sites_per_study)
+        filter_text += f'min sites per study {min_sites_per_study}\n'
+        min_sites_per_study_subquery = (
+            session.query(
+                Study.id_key,
+                func.count(func.distinct(Sample.point_id))
+            )
+            .join(Study.samples)
+            .group_by(Study.id_key)
+            .having(func.count(func.distinct(Sample.point_id)) >= min_sites_per_study)
+            .subquery()
+        )
+        filters.append(
+            Study.id_key == min_sites_per_study_subquery.c.id_key)
+
+    sample_size_min_years = int(form.get('sampleSizeMinYears'))
+    if sample_size_min_years > 0:
+        filter_text += f'min sample size min years {sample_size_min_years}\n'
+        unique_years_count_query = (
+            session.query(
+                Sample.study_id,
+                func.count(func.distinct(CovariateValue.value)).label('unique_years')
+            ).join(Sample.covariates)
+             .join(CovariateValue.covariate_defn)
+             .filter(CovariateDefn.name == 'year')
+             .group_by(Sample.study_id))
+        valid_study_ids = [
+            row[0] for row in unique_years_count_query.all()
+            if row[1] >= sample_size_min_years]
+        filters.append(Sample.study_id.in_(valid_study_ids))
+
+    min_observations_per_year = int(form.get('sampleSizeMinObservationsPerYear'))
+    if min_observations_per_year > 0:
+        filter_text += f'min observations per year {min_observations_per_year}\n'
+        query = (
+            session.query(
+                Sample.study_id,
+                CovariateValue.value,
+                func.count(Sample.study_id).label('count_per_year')
+            )
+            .join(Sample.covariates)
+            .join(CovariateValue.covariate_defn)
+            .filter(CovariateDefn.name == 'year')
+            .group_by(Sample.study_id, CovariateValue.value)
+        )
+        study_obs_per_year = {}
+        for study_id, year, samples_per_year in query:
+            if study_id not in study_obs_per_year or samples_per_year < study_obs_per_year[study_id][1]:
+                study_obs_per_year[study_id] = (year, samples_per_year)
+        valid_study_ids = [
+            study_id for study_id, (year, samples_per_year)
+            in study_obs_per_year.items()
+            if samples_per_year >= int(min_observations_per_year)]
+        filters.append(Sample.study_id.in_(valid_study_ids))
+
+    year_range = form.get('yearRange')
+    if year_range:
+        year_set = extract_years(year_range)
+        year_subquery = (
+            session.query(CovariateValue.sample_id)
+            .join(CovariateValue.covariate_defn)
+            .filter(
+                and_(CovariateDefn.name == 'year',
+                     CovariateValue.value.in_(year_set))
+            ).subquery())
+        filters.append(
+            Sample.id_key.in_(session.query(year_subquery.c.sample_id)))
+    session.close()
+    return filters
 
 
 @app.route('/api/process_query', methods=['POST'])
 def process_query():
     try:
-        fields = request.form.getlist('covariate')
-        operations = request.form.getlist('operation')
-        values = request.form.getlist('value')
-        max_sample_size = request.form.get('maxSampleSize')
-
         session = SessionLocal()
-        filters = []
-
-        filter_text = ''
-        for field, operation, value in zip(fields, operations, values):
-            if not field:
-                continue
-            covariate_type = session.query(
-                CovariateDefn.covariate_association).filter(
-                CovariateDefn.name == field).first()[0]
-            filter_text += f'{field}({covariate_type}) {operation} {value}\n'
-
-            if covariate_type == CovariateAssociation.STUDY:
-                covariate_subquery = (
-                    session.query(CovariateValue.study_id)
-                    .join(CovariateValue.covariate_defn)
-                    .filter(
-                        and_(CovariateDefn.name == field,
-                             OPERATION_MAP[operation](CovariateValue.value, value))
-                    ).subquery())
-                filters.append(
-                    Study.id_key.in_(session.query(covariate_subquery.c.study_id)))
-
-            elif covariate_type == CovariateAssociation.SAMPLE:
-                covariate_subquery = (
-                    session.query(CovariateValue.sample_id)
-                    .join(CovariateValue.covariate_defn)
-                    .filter(
-                        and_(CovariateDefn.name == field,
-                             OPERATION_MAP[operation](CovariateValue.value, value))
-                    ).subquery())
-                filters.append(
-                    Sample.id_key.in_(session.query(covariate_subquery.c.sample_id)))
-
-        ul_lat = None
-        center_point = request.form.get('centerPoint')
-        if center_point is not None:
-            center_point = center_point.strip()
-            if center_point != '':
-                m = re.match(r"[(]?([^, \t]+)[, \t]+([^, )]+)[\)]?", center_point)
-                LOGGER.debug(f'MATCH {m}')
-                lat, lng = [float(v) for v in m.group(1, 2)]
-                center_point_buffer = float(
-                    request.form.get('centerPointBuffer').strip())/2
-                ul_lat = lat+center_point_buffer/2
-                lr_lat = lat-center_point_buffer/2
-                ul_lng = lng+center_point_buffer/2
-                lr_lng = lng-center_point_buffer/2
-
-                filter_text += f'center point at ({lat},{lng}) + +/-{center_point_buffer}\n'
-
-        upper_left_point = request.form.get('upperLeft')
-        if upper_left_point is not None:
-            upper_left_point = request.form.get('upperLeft').strip()
-            lower_right_point = request.form.get('lowerRight').strip()
-
-            if upper_left_point != '':
-                m = re.match(r"[(]?([^, ]+)[, ]*([^, )]+)[\)]?", upper_left_point)
-                ul_lat, ul_lng = [float(v) for v in m.group(1, 2)]
-                m = re.match(r"[(]?([^, ]+)[, ]*([^, )]+)[\)]?", lower_right_point)
-                lr_lat, lr_lng = [float(v) for v in m.group(1, 2)]
-
-                filter_text += f'bounding box ({ul_lat},{ul_lng}) ({lr_lat},{lr_lng})\n'
-
-        country_select = request.form.get('countrySelect')
-        if country_select:
-            geolocation_subquery = (
-                session.query(Point.id_key)
-                .join(Point.geolocations)
-                .filter(Geolocation.geolocation_name == country_select)
-            ).subquery()
-            filters.append(Point.id_key.in_(select(geolocation_subquery)))
-            filter_text += f'country is {country_select}\n'
-
-        continent_select = request.form.get('continentSelect')
-        if continent_select:
-            geolocation_subquery = (
-                session.query(Point.id_key)
-                .join(Point.geolocations)
-                .filter(Geolocation.geolocation_name == continent_select)
-            ).subquery()
-            filters.append(Point.id_key.in_(geolocation_subquery))
-            filter_text += f'continent is {continent_select}\n'
-
-        if ul_lat is not None:
-            filters.append(and_(
-                Point.latitude <= ul_lat,
-                Point.latitude >= lr_lat,
-                Point.longitude <= ul_lng,
-                Point.longitude >= lr_lng))
-
-        LOGGER.debug(request.form)
-        min_site_years = int(request.form.get('minSiteYears'))
-        if min_site_years > 0:
-            filter_text += f'min site years={min_site_years}\n'
-            unique_years_count_query = (
-                session.query(
-                    Sample.study_id,
-                    Sample.point_id,
-                    func.count(func.distinct(CovariateValue.value)).label(
-                        'unique_years')
-                )
-                .join(Sample.covariates)
-                .join(CovariateValue.covariate_defn)
-                .filter(CovariateDefn.name == 'year')
-                .group_by(Sample.study_id, Sample.point_id)
-            )
-
-            valid_sites = [
-                (row.study_id, row.point_id) for row in unique_years_count_query
-                if row.unique_years >= min_site_years]
-            filters.append(
-                tuple_(Sample.study_id, Sample.point_id).in_(valid_sites))
-
-        min_sites_per_study = int(request.form.get('minSitesPerStudy'))
-        if min_sites_per_study:
-            min_sites_per_study = int(min_sites_per_study)
-            filter_text += f'min sites per study {min_sites_per_study}\n'
-            min_sites_per_study_subquery = (
-                session.query(
-                    Study.id_key,
-                    func.count(func.distinct(Sample.point_id))
-                )
-                .join(Study.samples)
-                .group_by(Study.id_key)
-                .having(func.count(func.distinct(Sample.point_id)) >= min_sites_per_study)
-                .subquery()
-            )
-            filters.append(
-                Study.id_key == min_sites_per_study_subquery.c.id_key)
-
-        sample_size_min_years = int(request.form.get('sampleSizeMinYears'))
-        if sample_size_min_years > 0:
-            filter_text += f'min sample size min years {sample_size_min_years}\n'
-            unique_years_count_query = (
-                session.query(
-                    Sample.study_id,
-                    func.count(func.distinct(CovariateValue.value)).label('unique_years')
-                ).join(Sample.covariates)
-                 .join(CovariateValue.covariate_defn)
-                 .filter(CovariateDefn.name == 'year')
-                 .group_by(Sample.study_id))
-            valid_study_ids = [
-                row[0] for row in unique_years_count_query.all()
-                if row[1] >= sample_size_min_years]
-            filters.append(Sample.study_id.in_(valid_study_ids))
-
-        min_observations_per_year = int(request.form.get('sampleSizeMinObservationsPerYear'))
-        if min_observations_per_year > 0:
-            filter_text += f'min observations per year {min_observations_per_year}\n'
-            query = (
-                session.query(
-                    Sample.study_id,
-                    CovariateValue.value,
-                    func.count(Sample.study_id).label('count_per_year')
-                )
-                .join(Sample.covariates)
-                .join(CovariateValue.covariate_defn)
-                .filter(CovariateDefn.name == 'year')
-                .group_by(Sample.study_id, CovariateValue.value)
-            )
-            study_obs_per_year = {}
-            for study_id, year, samples_per_year in query:
-                if study_id not in study_obs_per_year or samples_per_year < study_obs_per_year[study_id][1]:
-                    study_obs_per_year[study_id] = (year, samples_per_year)
-            valid_study_ids = [
-                study_id for study_id, (year, samples_per_year)
-                in study_obs_per_year.items()
-                if samples_per_year >= int(min_observations_per_year)]
-            filters.append(Sample.study_id.in_(valid_study_ids))
-
-        year_range = request.form.get('yearRange')
-        if year_range:
-            year_set = extract_years(year_range)
-            year_subquery = (
-                session.query(CovariateValue.sample_id)
-                .join(CovariateValue.covariate_defn)
-                .filter(
-                    and_(CovariateDefn.name == 'year',
-                         CovariateValue.value.in_(year_set))
-                ).subquery())
-            filters.append(
-                Sample.id_key.in_(session.query(year_subquery.c.sample_id)))
+        filters = build_filter(request.form)
 
         sample_query = (
             session.query(Sample, Study)
@@ -514,17 +542,6 @@ def process_query():
             )
             .limit(max_sample_size)
         )
-
-        total_samples_query = (
-            session.query(Sample, Study)
-            .join(Sample.study)
-            .join(Sample.point)
-            .filter(
-                *filters
-            ).count()
-        )
-
-        return {'total samples': total_samples_query}
 
         LOGGER.info('calculate covariate display order for sample')
         sample_covariate_display_order, sample_table = calculate_sample_display_table(
