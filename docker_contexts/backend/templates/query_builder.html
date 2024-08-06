@@ -90,12 +90,21 @@
     padding-top: 20%;
     font-size: 24px;
 }
+
+#validSampleCount {
+    z-index: 1000; /* Ensure it's above other elements */
+    background-color: white;
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+}
+
 </style>
 <title>Dynamic Query Builder</title>
 </head>
 <body>
 <div class="container mt-5">
-    <div class="info-box alert alert-info" role="alert">
+    <div id="validSampleCount" class="info-box alert alert-info" role="alert">
         Number of Samples: <span id="sampleCount">Loading...</span><br/>
         Number of Studies: <span id="studyCount">Loading...</span><br/>
         Number of Covariates: <span id="covariateCount">Loading...</span>
@@ -399,6 +408,27 @@ window.addEventListener('pageshow', function(event) {
         document.body.classList.remove('loading');
     }
 });
+
+
+window.addEventListener('load', function() {
+    adjustSampleCountPosition();
+});
+
+window.addEventListener('resize', function() {
+    adjustSampleCountPosition();
+});
+function adjustSampleCountPosition() {
+    var queryBuilder = document.getElementById('queryBuilder');
+    var validSampleCount = document.getElementById('validSampleCount');
+
+    // Get the position and width of the queryBuilder
+    var queryBuilderRect = queryBuilder.getBoundingClientRect();
+
+    // Set the position of validSampleCount
+    validSampleCount.style.left = (queryBuilderRect.right + 20) + 'px';
+    validSampleCount.style.top = '20px'; // Keep it fixed at the top of the viewport
+    validSampleCount.style.position = 'fixed';
+}
 </script>
 </body>
 </html>
