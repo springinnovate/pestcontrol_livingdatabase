@@ -695,7 +695,7 @@ def get_covariates():
         'description': c.description,
         'always_display': c.always_display,
         'queryable': c.queryable,
-        'covariate_association': c.covariate_association.value,
+        'covariate_association': CovariateAssociation(c.covariate_association).value,
         'condition': c.condition,
         'hidden': c.hidden,
         'editable_name': c.editable_name,
