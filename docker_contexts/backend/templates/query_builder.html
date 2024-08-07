@@ -318,6 +318,7 @@ function fetchSampleCounts() {
     var formData = new FormData(form);
     document.getElementById('sampleCount').textContent = 'Loading...';
     document.getElementById('studyCount').textContent = 'Loading...';
+    document.getElementById('filterText').textContent = 'Processing filter';
     fetch('/api/n_samples', {
         method: 'POST',
         body: formData
