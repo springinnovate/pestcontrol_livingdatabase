@@ -62,13 +62,11 @@ services:
   nginx:
     image: nginx:latest
     volumes:
-      - ./docker_contexts/nginx/nginx.conf:/etc/nginx/nginx.conf
-      - ./docker_contexts/nginx/ssl:/etc/nginx/ssl
+      - ./docker_contexts/nginx/ssl/fullchain.pem:/etc/nginx/ssl/cert.crt
+      - ./docker_contexts/nginx/ssl/privkey.pem:/etc/nginx/ssl/cert.key
     ports:
       - "80:80"
       - "443:443"
     depends_on:
       - backend
 
-volumes:
-  pgdata:
