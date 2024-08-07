@@ -45,11 +45,12 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - INIT_COVARIATES=False
-    resources:
+    deploy:
+      resources:
         limits:
-          memory: 2G
+          memory: 4G
         reservations:
-          memory: 2G
+          memory: 1G
     command: celery -A app.celery worker --loglevel=info
     depends_on:
       - backend
