@@ -62,8 +62,8 @@ redis_client = redis.Redis(host='redis', port=6379, db=0)
 
 INSTANCE_DIR = './instance'
 QUERY_RESULTS_DIR = os.path.join(INSTANCE_DIR, 'results_to_download')
-if os.path.exists(QUERY_RESULTS_DIR):
-    shutil.rmtree(QUERY_RESULTS_DIR)
+# if os.path.exists(QUERY_RESULTS_DIR):
+#     shutil.rmtree(QUERY_RESULTS_DIR)
 os.makedirs(QUERY_RESULTS_DIR, exist_ok=True)
 MAX_SAMPLE_DISPLAY_SIZE = 100
 
@@ -755,6 +755,9 @@ def download_file(task_id):
 def _prep_download(task_id):
     try:
         LOGGER.debug(f'starting prep download with this query id: {task_id}')
+        zipfile_path = os.path.join(QUERY_RESULTS_DIR, f'{task_id}.zip')
+        if os.path.exists(zipfile_path):
+            return f"File {zipfile_path} already existed."
         query_form_json = redis_client.get(task_id)
         if query_form_json:
             query_form = json.loads(query_form_json)
@@ -795,7 +798,6 @@ def _prep_download(task_id):
             OBSERVATION, LATITUDE, LONGITUDE] + sample_covariate_display_order
 
         task_id = current_task.request.id
-        zipfile_path = os.path.join(QUERY_RESULTS_DIR, f'{task_id}.zip')
         with zipfile.ZipFile(zipfile_path, mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
             sample_table_io = StringIO()
             sample_table_io.write(','.join(sample_covariate_display_order))
