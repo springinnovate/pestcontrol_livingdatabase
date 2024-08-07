@@ -773,7 +773,7 @@ def _prep_download(task_id):
                 *filters
             )
             .options(selectinload(Sample.covariates))
-        ).yield_per(1000)
+        ).yield_per(1000).limit(50000)
 
         explain_query(session, sample_query)
 
