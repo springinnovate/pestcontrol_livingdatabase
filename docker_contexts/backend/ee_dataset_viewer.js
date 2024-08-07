@@ -54,7 +54,7 @@ for (var i=0; i<band_names.length; i++) {
         year,
         ee.ImageCollection('ECMWF/ERA5/MONTHLY').filter(ee.Filter.calendarRange(endYear-2, endYear, 'year')),
         band_names[i]);
-    })).mean();
+    })).mean().rename('B0');
     DATASETS[image_names[i]] = image;
 }
 
@@ -81,7 +81,7 @@ for (i=0; i<band_names.length; i++) {
         radius: 1000,
         units: 'meters'
       }).set('system:time_start', image.get('system:time_start'));
-    }).mean();
+    }).mean().rename('B0');
     DATASETS[image_names[i]] = image;
 }
 
