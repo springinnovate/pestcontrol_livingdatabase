@@ -62,6 +62,7 @@ services:
   nginx:
     image: nginx:latest
     volumes:
+      - ./docker_contexts/nginx/nginx.conf:/etc/nginx/nginx.conf
       - /etc/letsencrypt/live/pcld.ecoshard.org/fullchain.pem:/etc/nginx/ssl/cert.crt
       - /etc/letsencrypt/live/pcld.ecoshard.org/privkey.pem:/etc/nginx/ssl/cert.key
     ports:
@@ -69,4 +70,3 @@ services:
       - "443:443"
     depends_on:
       - backend
-
