@@ -121,7 +121,7 @@ ui.root.widgets().reset([splitPanel]);
 var panel_list = [];
 [[Map, 'left'], [linkedMap, 'right']].forEach(function(mapside, index) {
     var active_context = {
-      'datasets': {}
+      'datasets': {},
       'last_layer': null,
       'raster': null,
       'point_val': null,
