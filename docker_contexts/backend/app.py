@@ -383,7 +383,6 @@ def form_to_dict(form):
         'lowerRight': form.get('lowerRight'),
         'countrySelect': form.get('countrySelect'),
         'continentSelect': form.get('continentSelect'),
-        'minSiteYears': int(form.get('minSiteYears')),
         'minSitesPerStudy': int(form.get('minSitesPerStudy')),
         'sampleSizeMinYears': int(form.get('sampleSizeMinYears')),
         'sampleSizeMinObservationsPerYear': int(form.get('sampleSizeMinObservationsPerYear')),
