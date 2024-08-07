@@ -1,18 +1,17 @@
-var yearlyMax = function(year, collection, bandName) {
-  var startDate = ee.Date.fromYMD(year, 1, 1);
-  var endDate = startDate.advance(1, 'year');
-  var yearCollection = collection.filterDate(startDate, endDate);
-  return yearCollection.max().select(bandName).set('year', year);
-};
+var DEFAULTYEAR = '2005';
+function generateDatasets(endYear) {
+  var yearlyMax = function(year, collection, bandName) {
+    var startDate = ee.Date.fromYMD(year, 1, 1);
+    var endDate = startDate.advance(1, 'year');
+    var yearCollection = collection.filterDate(startDate, endDate);
+    return yearCollection.max().select(bandName).set('year', year);
+  };
 
-
-var DATASETS = {
+  var local_datasets = {
     '(*clear*)': '',
-};
+  };
 
-var endYear = 2005;
-
-var band_names = [
+  var band_names = [
     'dewpoint_2m_temperature',
     'maximum_2m_air_temperature',
     'mean_2m_air_temperature',
@@ -28,9 +27,9 @@ var band_names = [
     'mean_2m_air_temperature',
     'minimum_2m_air_temperature',
     'total_precipitation',
-];
+  ];
 
-var image_names = [
+  var image_names = [
     'dewpoint annual maximum',
     'max temp annual maximum',
     'mean temp annual maximum',
@@ -46,44 +45,49 @@ var image_names = [
     'mean temp annual minimum',
     'min temp annual minimum',
     'precip annual minimum',
-];
+  ];
 
-for (var i=0; i<band_names.length; i++) {
-    var image = ee.ImageCollection.fromImages(ee.List.sequence(endYear-2, endYear).map(function(year) {
+  for (var i = 0; i < band_names.length; i++) {
+    var image = ee.ImageCollection.fromImages(ee.List.sequence(endYear - 2, endYear).map(function(year) {
       return yearlyMax(
         year,
-        ee.ImageCollection('ECMWF/ERA5/MONTHLY').filter(ee.Filter.calendarRange(endYear-2, endYear, 'year')),
+        ee.ImageCollection('ECMWF/ERA5/MONTHLY').filter(ee.Filter.calendarRange(endYear - 2, endYear, 'year')),
         band_names[i]);
     })).mean().rename('B0');
-    DATASETS[image_names[i]] = image;
-}
+    local_datasets[image_names[i]] = image;
+  }
 
-
-var band_names = [
+  var band_names_modis = [
     'EVI_Amplitude_1',
     'EVI_Area_1',
     'Greenup_1',
     'Peak_1',
     'Dormancy_1',
-];
+  ];
 
-var image_names = [
+  var image_names_modis = [
     'EVI Amplitude (Max greenness)',
     'EVI Area (Total productivity)',
     'Greenup Day of Year',
     'Peak Day of Year',
     'Dormancy Day of Year',
-];
+  ];
 
-for (i=0; i<band_names.length; i++) {
-    var image = ee.ImageCollection('MODIS/061/MCD12Q2').select(band_names[i]).filter(ee.Filter.calendarRange(endYear, endYear, 'year')).map(function(image) {
-      return image.focal_mean({
-        radius: 1000,
-        units: 'meters'
-      }).set('system:time_start', image.get('system:time_start'));
-    }).mean().rename('B0');
-    DATASETS[image_names[i]] = image;
+  for (var j = 0; j < band_names_modis.length; j++) {
+    var image_modis = ee.ImageCollection('MODIS/061/MCD12Q2').select(band_names_modis[j])
+      .filter(ee.Filter.calendarRange(endYear, endYear, 'year'))
+      .map(function(image) {
+        return image.focal_mean({
+          radius: 1000,
+          units: 'meters'
+        }).set('system:time_start', image.get('system:time_start'));
+      }).mean().rename('B0');
+    local_datasets[image_names_modis[j]] = image_modis;
+  }
+
+  return local_datasets;
 }
+
 
 var legend_styles = {
   'black_to_red': ['000000', '005aff', '43c8c8', 'fff700', 'ff0000'],
@@ -117,6 +121,7 @@ ui.root.widgets().reset([splitPanel]);
 var panel_list = [];
 [[Map, 'left'], [linkedMap, 'right']].forEach(function(mapside, index) {
     var active_context = {
+      'datasets': {}
       'last_layer': null,
       'raster': null,
       'point_val': null,
@@ -149,7 +154,7 @@ var panel_list = [];
       }
     });
     var select = ui.Select({
-      items: Object.keys(DATASETS),
+      items: Object.keys(active_context.datasets),
       onChange: function(key, self) {
           self.setDisabled(true);
           var original_value = self.getValue();
@@ -160,13 +165,13 @@ var panel_list = [];
             min_val.setDisabled(true);
             max_val.setDisabled(true);
           }
-          if (DATASETS[key] == '') {
+          if (active_context.datasets[key] == '') {
             self.setValue(original_value, false);
             self.setDisabled(false);
             return
           }
 
-          active_context.raster = DATASETS[key];
+          active_context.raster = active_context.datasets[key];
 
           var mean_reducer = ee.Reducer.percentile([10, 90], ['p10', 'p90']);
           var meanDictionary = active_context.raster.reduceRegion({
@@ -201,6 +206,26 @@ var panel_list = [];
       }
     });
 
+
+    var onChangeFunction = function(value) {
+      var endYear = parseInt(value, 10);
+      active_context.datasets = generateDatasets(endYear);
+      var currentKey = select.getValue();
+      select.items().reset(Object.keys(active_context.datasets));
+      if (currentKey) {
+        select.setValue(currentKey, true);
+      }
+    };
+
+    // Create the ui.Textbox element
+    var active_year = ui.Textbox({
+      value: DEFAULTYEAR.toString(),
+      style: {width: '200px'},
+      onChange: onChangeFunction
+    });
+
+    // Manually trigger the onChange event with the default value
+    onChangeFunction(DEFAULTYEAR.toString());
 
     var min_val = ui.Textbox(
       0, 0, function (value) {
@@ -243,6 +268,11 @@ var panel_list = [];
         });
       });
 
+    panel.add(ui.Label({
+        value: 'Current Year',
+        style:{'backgroundColor': 'rgba(0, 0, 0, 0)'}
+      }));
+    panel.add(active_year);
     panel.add(controls_label);
     panel.add(select);
     panel.add(ui.Label({
