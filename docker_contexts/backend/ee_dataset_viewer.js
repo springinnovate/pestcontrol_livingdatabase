@@ -30,21 +30,21 @@ function generateDatasets(endYear) {
   ];
 
   var image_names = [
-    'dewpoint annual maximum',
-    'max temp annual maximum',
-    'mean temp annual maximum',
-    'min temp annual maximum',
-    'precip annual maximum',
-    'dewpoint annual mean',
-    'max temp annual mean',
-    'mean temp annual mean',
-    'min temp annual mean',
-    'precip annual mean',
-    'dewpoint annual minimum',
-    'max temp annual minimum',
-    'mean temp annual minimum',
-    'min temp annual minimum',
-    'precip annual minimum',
+    ' dewpoint annual maximum (ERA5/MONTHLY)',
+    'max temp annual maximum (ERA5/MONTHLY)',
+    'mean temp annual maximum (ERA5/MONTHLY)',
+    'min temp annual maximum (ERA5/MONTHLY)',
+    'precip annual maximum (ERA5/MONTHLY)',
+    'dewpoint annual mean (ERA5/MONTHLY)',
+    'max temp annual mean (ERA5/MONTHLY)',
+    'mean temp annual mean (ERA5/MONTHLY)',
+    'min temp annual mean (ERA5/MONTHLY)',
+    'precip annual mean (ERA5/MONTHLY)',
+    'dewpoint annual minimum (ERA5/MONTHLY)',
+    'max temp annual minimum (ERA5/MONTHLY)',
+    'mean temp annual minimum (ERA5/MONTHLY)',
+    'min temp annual minimum (ERA5/MONTHLY)',
+    'precip annual minimum (ERA5/MONTHLY)',
   ];
 
   for (var i = 0; i < band_names.length; i++) {
@@ -66,11 +66,11 @@ function generateDatasets(endYear) {
   ];
 
   var image_names_modis = [
-    'EVI Amplitude (Max greenness)',
-    'EVI Area (Total productivity)',
-    'Greenup Day of Year',
-    'Peak Day of Year',
-    'Dormancy Day of Year',
+    'EVI Amplitude (Max greenness) (MODIS/MCD12Q2)',
+    'EVI Area (Total productivity) (MODIS/MCD12Q2)',
+    'Greenup Day of Year (MODIS/MCD12Q2)',
+    'Peak Day of Year (MODIS/MCD12Q2)',
+    'Dormancy Day of Year (MODIS/MCD12Q2)',
   ];
 
   for (var j = 0; j < band_names_modis.length; j++) {
@@ -206,14 +206,19 @@ var panel_list = [];
       }
     });
 
-
-    var onChangeFunction = function(value) {
+    var selectSet = false;
+    var yearChangeFunc = function(value) {
       var endYear = parseInt(value, 10);
       active_context.datasets = generateDatasets(endYear);
       var currentKey = select.getValue();
-      select.items().reset(Object.keys(active_context.datasets));
-      if (currentKey) {
-        select.setValue(currentKey, true);
+      if (!selectSet) {
+        select.items().reset(Object.keys(active_context.datasets));
+        selectSet = true;
+      }
+      var previousValue = select.getValue();
+      if (previousValue) {
+        select.setValue('(*clear*)');
+        select.setValue(previousValue);
       }
     };
 
@@ -221,11 +226,11 @@ var panel_list = [];
     var active_year = ui.Textbox({
       value: DEFAULTYEAR.toString(),
       style: {width: '200px'},
-      onChange: onChangeFunction
+      onChange: yearChangeFunc
     });
 
     // Manually trigger the onChange event with the default value
-    onChangeFunction(DEFAULTYEAR.toString());
+    yearChangeFunc(DEFAULTYEAR.toString());
 
     var min_val = ui.Textbox(
       0, 0, function (value) {
@@ -371,7 +376,6 @@ var clone_to_left = ui.Button(
       panel_list[0][2].setValue(panel_list[1][2].getValue(), true)
 });
 
-//panel_list.push([panel, min_val, max_val, map, active_context]);
 panel_list.forEach(function (panel_array) {
   var map = panel_array[3].map;
   map.onClick(function (obj) {
@@ -381,8 +385,6 @@ panel_list.forEach(function (panel_array) {
         active_context.point_val.setValue('sampling...')
         var point_sample = active_context.raster.sampleRegions({
           collection: point,
-          //scale: 10,
-          //geometries: true
         });
         ee.data.computeValue(point_sample, function (val) {
           if (val.features.length > 0) {
