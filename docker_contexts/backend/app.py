@@ -840,7 +840,8 @@ def _prep_download(task_id):
     finally:
         session.close()
 
-initalize_searchable_covariates()
+if os.getenv('INIT_COVARIATES') == 'True':
+    initialize_searchable_covariates()
 
 if __name__ == '__main__':
     app.run(debug=True)
