@@ -291,12 +291,17 @@ def initalize_searchable_covariates():
             CovariateDefn.queryable,
             CovariateDefn.search_by_unique == True
             )
-        .join(CovariateValue, CovariateDefn.id_key == CovariateValue.covariate_defn_id)
-        .group_by(CovariateDefn.name, CovariateValue.value)
-        ).all()
-    COVARIATE_STATE['searchable_covariates'] = collections.defaultdict(list)
-    for row in searchable_unique_covariates:
-        COVARIATE_STATE['searchable_covariates'][row.name].append(row.value)
+        .join(CovariateValue)
+        ).yield_per(1000)
+    explain_query(session, searchable_unique_covariates)
+    COVARIATE_STATE['searchable_covariates'] = collections.defaultdict(set)
+    for index, row in enumerate(searchable_unique_covariates):
+        if index % 100000 == 0:
+            LOGGER.info(f'on searchable descrete covariates index {index}')
+        COVARIATE_STATE['searchable_covariates'][row.name].add(row.value)
+
+    for key, value in COVARIATE_STATE['searchable_covariates'].items():
+        COVARIATE_STATE['searchable_covariates'][key] = sorted(value)
 
     searchable_continuous_covariates = (
         session.query(
@@ -306,9 +311,12 @@ def initalize_searchable_covariates():
             CovariateDefn.queryable,
             CovariateDefn.search_by_unique == False,
             )
-        ).all()
-
-    for row in searchable_continuous_covariates:
+        )
+    LOGGER.debug('starting search for continuous covarates')
+    explain_query(session, searchable_continuous_covariates)
+    for index, row in enumerate(searchable_continuous_covariates):
+        if index % 100000 == 0:
+            LOGGER.info(f'on searchable continuous covariates index {index}')
         COVARIATE_STATE['searchable_covariates'][row.name] = CovariateType(row.covariate_type).name
 
     COVARIATE_STATE['n_samples'] = session.query(Sample).count()
