@@ -65,7 +65,7 @@ QUERY_RESULTS_DIR = os.path.join(INSTANCE_DIR, 'results_to_download')
 # if os.path.exists(QUERY_RESULTS_DIR):
 #     shutil.rmtree(QUERY_RESULTS_DIR)
 os.makedirs(QUERY_RESULTS_DIR, exist_ok=True)
-MAX_SAMPLE_DISPLAY_SIZE = 100
+MAX_SAMPLE_DISPLAY_SIZE = 1000
 
 
 class group_concat_distinct(GenericFunction):
