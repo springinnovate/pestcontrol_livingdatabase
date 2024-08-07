@@ -754,15 +754,14 @@ def download_file(task_id):
 @celery.task
 def _prep_download(task_id):
     try:
-        LOGGER.debug(f'starting prep download with this query id: {task_id}')
+        session = SessionLocal()
+        LOGGER.info(f'starting prep download with this query id: {task_id}')
         zipfile_path = os.path.join(QUERY_RESULTS_DIR, f'{task_id}.zip')
         if os.path.exists(zipfile_path):
             return f"File {zipfile_path} already existed."
         query_form_json = redis_client.get(task_id)
         if query_form_json:
             query_form = json.loads(query_form_json)
-        LOGGER.debug(f'preping download fo the query form {query_form}')
-        session = SessionLocal()
         filters, filter_text = build_filter(session, query_form)
 
         sample_query = (
@@ -773,7 +772,7 @@ def _prep_download(task_id):
                 *filters
             )
             .options(selectinload(Sample.covariates))
-        ).yield_per(1000).limit(50000)
+        ).yield_per(1000).limit(100000)
 
         explain_query(session, sample_query)
 
@@ -797,7 +796,6 @@ def _prep_download(task_id):
         sample_covariate_display_order = [
             OBSERVATION, LATITUDE, LONGITUDE] + sample_covariate_display_order
 
-        task_id = current_task.request.id
         with zipfile.ZipFile(zipfile_path, mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
             sample_table_io = StringIO()
             sample_table_io.write(','.join(sample_covariate_display_order))
