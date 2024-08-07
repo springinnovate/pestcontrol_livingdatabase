@@ -51,7 +51,7 @@ services:
           memory: 2G
         reservations:
           memory: 1G
-    command: celery -A app.celery worker --loglevel=info
+    command: celery -A app.celery worker --loglevel=info --concurrency=4 --max-tasks-per-child=10
     depends_on:
       - backend
       - redis
