@@ -158,7 +158,7 @@ var panel_list = [];
       onChange: function(key, self) {
           self.setDisabled(true);
           var original_value = self.getValue();
-          self.setPlaceholder('loading ...');
+          self.setPlaceholder('loading (this may mean the app is crashed, reload the page if you think so)...');
           self.setValue(null, false);
           if (active_context.last_layer !== null) {
             active_context.map.remove(active_context.last_layer);

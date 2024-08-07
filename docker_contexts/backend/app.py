@@ -485,28 +485,6 @@ def build_filter(session, form):
             Point.longitude <= ul_lng,
             Point.longitude >= lr_lng))
 
-    min_site_years = int(form['minSiteYears'])
-    if min_site_years > 0:
-        filter_text += f'min site years={min_site_years}\n'
-        unique_years_count_query = (
-            session.query(
-                Sample.study_id,
-                Sample.point_id,
-                func.count(func.distinct(CovariateValue.value)).label(
-                    'unique_years')
-            )
-            .join(Sample.covariates)
-            .join(CovariateValue.covariate_defn)
-            .filter(CovariateDefn.name == 'year')
-            .group_by(Sample.study_id, Sample.point_id)
-        )
-
-        valid_sites = [
-            (row.study_id, row.point_id) for row in unique_years_count_query
-            if row.unique_years >= min_site_years]
-        filters.append(
-            tuple_(Sample.study_id, Sample.point_id).in_(valid_sites))
-
     min_sites_per_study = int(form['minSitesPerStudy'])
     if min_sites_per_study:
         min_sites_per_study = int(min_sites_per_study)
