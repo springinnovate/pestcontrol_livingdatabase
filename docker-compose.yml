@@ -26,13 +26,12 @@ services:
     ]
     ports:
       - 80:5000
-    environment:
-      - INIT_COVARIATES=True
     # environment:
     #   - DATABASE_URL=postgresql://postgres:password@db:5432/mydatabase
     depends_on:
       - redis
     environment:
+      - INIT_COVARIATES=True
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
 

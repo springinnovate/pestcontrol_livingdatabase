@@ -57,17 +57,6 @@ app.config.update(
 )
 
 celery = make_celery(app)
-@after_setup_logger.connect
-def setup_loggers(logger, *args, **kwargs):
-    import logging
-    from logging.config import dictConfig
-    dictConfig(app.config['LOGGING'])  # Assuming you have a LOGGING config dict in Flask config
-
-celery.conf.update(
-    worker_hijack_root_logger=False,
-    worker_log_color=False,
-    task_track_started=True,
-)
 redis_client = redis.Redis(host='redis', port=6379, db=0)
 
 
@@ -270,10 +259,10 @@ def calculate_study_display_order(
     return covariate_display_order, display_table
 
 
-def initalize_searchable_covariates():
+def initialize_searchable_covariates():
     global COVARIATE_STATE
     os.makedirs(INSTANCE_DIR, exist_ok=True)
-    pkcl_filepath = os.path.join(INSTANCE_DIR, 'initalize_searchable_covariates.pkl')
+    pkcl_filepath = os.path.join(INSTANCE_DIR, 'initialize_searchable_covariates.pkl')
     if os.path.exists(pkcl_filepath):
         with open(pkcl_filepath, 'rb') as file:
             COVARIATE_STATE = pickle.load(file)
@@ -840,6 +829,7 @@ def _prep_download(task_id):
     finally:
         session.close()
 
+LOGGER.debug(os.getenv('INIT_COVARIATES'))
 if os.getenv('INIT_COVARIATES') == 'True':
     initialize_searchable_covariates()
 
