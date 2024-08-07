@@ -62,8 +62,8 @@ services:
   nginx:
     image: nginx:latest
     volumes:
-      - ./docker_contexts/nginx/ssl/fullchain.pem:/etc/nginx/ssl/cert.crt
-      - ./docker_contexts/nginx/ssl/privkey.pem:/etc/nginx/ssl/cert.key
+      - /etc/letsencrypt/live/pcld.ecoshard.org/fullchain.pem:/etc/nginx/ssl/cert.crt
+      - /etc/letsencrypt/live/pcld.ecoshard.org/privkey.pem:/etc/nginx/ssl/cert.key
     ports:
       - "80:80"
       - "443:443"
