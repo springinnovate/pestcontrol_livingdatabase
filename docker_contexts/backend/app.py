@@ -778,6 +778,7 @@ def _prep_download(task_id):
             sample_table_io.write(','.join(sample_covariate_display_order))
             sample_table_io.write('\n')
             for sample_row, row in zip(sample_query, sample_table):
+                LOGGER.debug(sample_row)
                 row = [
                     sample_row.observation,
                     sample_row.point.latitude,
