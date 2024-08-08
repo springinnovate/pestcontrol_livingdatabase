@@ -777,7 +777,11 @@ def _prep_download(task_id):
             sample_table_io = StringIO()
             sample_table_io.write(','.join(sample_covariate_display_order))
             sample_table_io.write('\n')
-            for row in sample_table:
+            for sample_row, row in zip(sample_query, sample_table):
+                row = [
+                    sample_row.observation,
+                    sample_row.point.latitude,
+                    sample_row.point.longitude] + row
                 clean_row = [x if x is not None else 'None' for x in row]
                 sample_table_io.write(','.join(clean_row))
                 sample_table_io.write('\n')
