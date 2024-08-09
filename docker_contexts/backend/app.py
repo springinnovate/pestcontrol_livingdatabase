@@ -779,7 +779,7 @@ def _prep_download(task_id):
                     str(sample_row[0].point.latitude),
                     str(sample_row[0].point.longitude),] + row
                 clean_row = [x if x is not None else 'None' for x in row]
-                writer.writerow(','.join(clean_row))
+                writer.writerow(clean_row)
 
             sample_table_io.seek(0)
             zf.writestr(f'site_data_{task_id}.csv', sample_table_io.getvalue())
