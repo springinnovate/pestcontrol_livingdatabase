@@ -775,9 +775,9 @@ def _prep_download(task_id):
                 LOGGER.info(f'this is the sampel_row so far: {sample_row}')
                 LOGGER.info(f'this is the row so far: {row}')
                 row = [
-                    sample_row[0].observation,
-                    sample_row[0].point.latitude,
-                    sample_row[0].point.longitude] + row
+                    str(sample_row[0].observation),
+                    str(sample_row[0].point.latitude),
+                    str(sample_row[0].point.longitude),] + row
                 clean_row = [x if x is not None else 'None' for x in row]
                 writer.writerow(','.join(clean_row))
 
