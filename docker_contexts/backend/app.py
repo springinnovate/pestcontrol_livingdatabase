@@ -388,7 +388,6 @@ def form_to_dict(form):
 
 def build_filter(session, form):
     fields = form['covariate']
-    LOGGER.debug(fields)
     operations = form['operation']
     values = form['value']
     filters = []
@@ -429,7 +428,6 @@ def build_filter(session, form):
         center_point = center_point.strip()
         if center_point != '':
             m = re.match(r"[(]?([^, \t]+)[, \t]+([^, )]+)[\)]?", center_point)
-            LOGGER.debug(f'MATCH {m}')
             lat, lng = [float(v) for v in m.group(1, 2)]
             center_point_buffer = float(
                 form['centerPointBuffer'].strip())/2
@@ -566,9 +564,7 @@ def process_query():
     try:
         session = SessionLocal()
         form_as_dict = form_to_dict(request.form)
-        LOGGER.debug(form_as_dict)
         filters, filter_text = build_filter(session, form_as_dict)
-        LOGGER.debug(f'this is the filter text: {filter_text}\n\n{filters}')
         sample_query = (
             session.query(Sample, Study)
             .join(Sample.study)
@@ -579,7 +575,6 @@ def process_query():
             .options(selectinload(Sample.covariates))
         )
 
-        LOGGER.info('calculate covariate display order for sample')
         sample_covariate_display_order, sample_table = calculate_sample_display_table(
             session, sample_query.limit(MAX_SAMPLE_DISPLAY_SIZE))
 
@@ -592,16 +587,13 @@ def process_query():
             )
             .options(selectinload(Study.covariates))
         )
-        LOGGER.debug(f'calculating unique studies')
         unique_studies = {study for study in study_query}
 
         # determine what covariate ids are in this query
-        LOGGER.info('calculate covariate display order for study')
         study_covariate_display_order, study_table = calculate_study_display_order(
             session, unique_studies)
 
         # add the lat/lng points and observation to the sample
-        LOGGER.debug(f'calculating the display row order')
         sample_covariate_display_order = [
             OBSERVATION, LATITUDE, LONGITUDE] + sample_covariate_display_order
         for (sample_row, _), display_row in zip(sample_query.limit(MAX_SAMPLE_DISPLAY_SIZE), sample_table):
@@ -610,7 +602,6 @@ def process_query():
                 sample_row.point.latitude,
                 sample_row.point.longitude] + display_row
 
-        LOGGER.info('about to query on points')
         unique_points = {sample[0].point for sample in sample_query.limit(MAX_SAMPLE_DISPLAY_SIZE)}
         points = [
             {"lat": p.latitude, "lng": p.longitude}
@@ -620,7 +611,6 @@ def process_query():
         query_id = generate_hash_key(form_as_dict)
         redis_client.set(query_id, json.dumps(form_as_dict))
 
-        LOGGER.info(f'all done, sending to results view... did this key: "{query_id}"')
         return render_template(
             'results_view.html',
             study_headers=study_covariate_display_order,
@@ -697,9 +687,7 @@ def update_covariate():
 @app.route('/prep_download')
 def prep_download():
     query_id = request.args.get('query_id', default=None, type=str)
-    LOGGER.debug(f'prepare download for {query_id}')
     task = _prep_download.delay(query_id)
-    LOGGER.debug(f'the task id is {task.id}')
     return jsonify({'task_id': task.id}), 202
 
 
@@ -772,8 +760,6 @@ def _prep_download(task_id):
             writer.writerow(','.join(sample_covariate_display_order))
 
             for sample_row, row in zip(sample_query, sample_table):
-                LOGGER.info(f'this is the sampel_row so far: {sample_row}')
-                LOGGER.info(f'this is the row so far: {row}')
                 row = [
                     str(sample_row[0].observation),
                     str(sample_row[0].point.latitude),
