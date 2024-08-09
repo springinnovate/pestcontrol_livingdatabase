@@ -1,7 +1,8 @@
-import hashlib
-import configparser
-import shutil
+from io import StringIO
 import collections
+import configparser
+import csv
+import hashlib
 import json
 import logging
 import os
@@ -9,8 +10,6 @@ import pickle
 import re
 import sys
 import zipfile
-from io import StringIO
-from uuid import uuid4
 
 import numpy
 from database import SessionLocal
@@ -775,8 +774,10 @@ def _prep_download(task_id):
 
         with zipfile.ZipFile(zipfile_path, mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
             sample_table_io = StringIO()
-            sample_table_io.write(','.join(sample_covariate_display_order))
-            sample_table_io.write('\n')
+
+            writer = csv.writer(sample_table_io)
+            writer.writerow(','.join(sample_covariate_display_order))
+
             for sample_row, row in zip(sample_query, sample_table):
                 LOGGER.debug(sample_row)
                 row = [
@@ -784,13 +785,10 @@ def _prep_download(task_id):
                     sample_row.point.latitude,
                     sample_row.point.longitude] + row
                 clean_row = [x if x is not None else 'None' for x in row]
-                sample_table_io.write(','.join(clean_row))
-                sample_table_io.write('\n')
+                writer.writerow(','.join(clean_row))
 
-            sample_table_io.seek(0)  # Move to the start of the StringIO object
-            # Add the CSV content to the ZIP file
+            sample_table_io.seek(0)
             zf.writestr(f'site_data_{task_id}.csv', sample_table_io.getvalue())
-
 
             study_table_io = StringIO()
             study_table_io.write(','.join(study_covariate_display_order))
