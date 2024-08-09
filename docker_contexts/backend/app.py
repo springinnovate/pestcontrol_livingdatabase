@@ -137,9 +137,6 @@ def calculate_sample_display_table(session, query_to_filter):
         .order_by(
             CovariateDefn.display_order,
             func.lower(CovariateDefn.name)))
-    explain_query(session, pre_covariate_display_query)
-
-    # now filter the covariates by what is actually defined
 
     unique_values_per_covariate = collections.defaultdict(set)
     sample_covariate_list = []
@@ -281,7 +278,7 @@ def initialize_searchable_covariates():
             )
         .join(CovariateValue)
         ).yield_per(1000)
-    explain_query(session, searchable_unique_covariates)
+
     COVARIATE_STATE['searchable_covariates'] = collections.defaultdict(set)
     for index, row in enumerate(searchable_unique_covariates):
         if index % 100000 == 0:
@@ -301,7 +298,7 @@ def initialize_searchable_covariates():
             )
         )
     LOGGER.debug('starting search for continuous covarates')
-    explain_query(session, searchable_continuous_covariates)
+
     for index, row in enumerate(searchable_continuous_covariates):
         if index % 100000 == 0:
             LOGGER.info(f'on searchable continuous covariates index {index}')
@@ -582,8 +579,6 @@ def process_query():
             .options(selectinload(Sample.covariates))
         )
 
-        explain_query(session, sample_query)
-
         LOGGER.info('calculate covariate display order for sample')
         sample_covariate_display_order, sample_table = calculate_sample_display_table(
             session, sample_query.limit(MAX_SAMPLE_DISPLAY_SIZE))
@@ -750,8 +745,6 @@ def _prep_download(task_id):
             .options(selectinload(Sample.covariates))
         ).yield_per(1000).limit(50000)
 
-        explain_query(session, sample_query)
-
         study_query = (
             session.query(Study)
             .join(Sample.study)
@@ -779,7 +772,8 @@ def _prep_download(task_id):
             writer.writerow(','.join(sample_covariate_display_order))
 
             for sample_row, row in zip(sample_query, sample_table):
-                LOGGER.debug(sample_row)
+                LOGGER.info(f'this is the sampel_row so far: {sample_row}')
+                LOGGER.info(f'this is the row so far: {row}')
                 row = [
                     sample_row.observation,
                     sample_row.point.latitude,
