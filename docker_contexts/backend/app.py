@@ -757,7 +757,7 @@ def _prep_download(task_id):
             sample_table_io = StringIO()
 
             writer = csv.writer(sample_table_io)
-            writer.writerow(','.join(sample_covariate_display_order))
+            writer.writerow(sample_covariate_display_order)
 
             for sample_row, row in zip(sample_query, sample_table):
                 row = [
