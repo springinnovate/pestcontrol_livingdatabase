@@ -139,7 +139,7 @@ def main():
         writer.writerow(clean_row)
 
     sample_table_io.seek(0)
-    with open('all_data.csv', 'w', newline='') as file:
+    with open('all_data.csv', 'w', encoding='utf-8', errors='replace', newline='') as file:
         file.write(sample_table_io.getvalue())
 
 
