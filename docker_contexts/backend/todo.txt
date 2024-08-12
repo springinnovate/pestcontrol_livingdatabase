@@ -5,3 +5,4 @@ todo for pest control:
         * integrate with viewer (hi Becky!)
     * for the future
         * someone might send more points along
+    * install framework on lilling machine
