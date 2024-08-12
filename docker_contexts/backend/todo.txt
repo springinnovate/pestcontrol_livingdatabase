@@ -6,3 +6,11 @@ todo for pest control:
     * for the future
         * someone might send more points along
     * install framework on lilling machine
+
+
+useful python commands:
+python ingest_table.py base_data\filled_template_metadata_RAIF.csv base_data\RAIF_dataset_072924_1808.csv
+python ingest_table.py .\base_data\BioControlDatabaseMetadata.csv .\base_data\SESYNC_Abundance_072924_1654.csv
+
+docker-compose run -p 80:5000 --entrypoint /bin/bash backend
+waitress-serve --host=0.0.0.0 --port=5000 app:app
