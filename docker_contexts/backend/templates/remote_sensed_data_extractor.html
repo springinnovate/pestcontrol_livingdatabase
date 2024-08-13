@@ -24,22 +24,24 @@
 
         <!-- Form -->
         <form method="POST" enctype="multipart/form-data">
-            <div class="mb-3">
+            <!-- <div class="mb-3">
                 <label for="dropdown1" class="form-label">Select an Option</label>
                 <select class="form-select" id="dropdown1" name="dropdown1" required>
                     <option selected disabled value="">Choose...</option>
                     <option value="option1">Option 1</option>
                     <option value="option2">Option 2</option>
-                    <!-- Add more options as needed -->
                 </select>
             </div>
 
             <div class="mb-3">
                 <label for="textbox1" class="form-label">Enter Text</label>
                 <input type="text" class="form-control" id="textbox1" name="textbox1" required>
-            </div>
+            </div> -->
 
             <div class="mb-3">
+                <p class="card-text mb-auto">
+                    CSV format should have 3 headers <pre>{{ year_id }},{{ latitude_id }},{{ longitude_id}}
+                </p>
                 <label for="csv_file" class="form-label">Upload CSV</label>
                 <input class="form-control" type="file" id="csv_file" name="csv_file" accept=".csv" required>
             </div>

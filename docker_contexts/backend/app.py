@@ -15,7 +15,7 @@ import zipfile
 import numpy
 from database import SessionLocal
 from database_model_definitions import REQUIRED_STUDY_FIELDS, REQUIRED_SAMPLE_INPUT_FIELDS
-from database_model_definitions import OBSERVATION, LATITUDE, LONGITUDE
+from database_model_definitions import OBSERVATION, LATITUDE, LONGITUDE, YEAR
 from database_model_definitions import Study, Sample, Point, CovariateDefn, CovariateValue, CovariateType, CovariateAssociation, Geolocation
 from flask import Flask
 from flask import render_template
@@ -813,7 +813,11 @@ def data_extractor():
             flash('The file is not a valid CSV!' + str(e), 'danger')
 
         return redirect(url_for('data_extractor'))
-    return render_template('remote_sensed_data_extractor.html')
+    return render_template(
+        latitude_id=LATITUDE,
+        longitude_id=LONGITUDE,
+        year_id=YEAR,
+        'remote_sensed_data_extractor.html')
 
 
 LOGGER.debug(os.getenv('INIT_COVARIATES'))
