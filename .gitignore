@@ -4,5 +4,4 @@ secrets/*
 *.lock
 docker_contexts/backend/instance
 docker_contexts/backend/base_data
-todo.txt
 *.pkl
