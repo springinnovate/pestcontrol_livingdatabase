@@ -6,6 +6,8 @@ todo for pest control:
     * for the future
         * someone might send more points along
     * install framework on lilling machine
+    * check periodically to clean out the results dir
+
 
 
 useful python commands:
