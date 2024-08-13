@@ -1,4 +1,5 @@
 from io import StringIO
+from io import TextIOWrapper
 import collections
 import configparser
 import csv
@@ -22,6 +23,8 @@ from flask import request
 from flask import jsonify
 from flask import url_for
 from flask import send_file
+from flask import flash
+from flask import redirect
 from sqlalchemy import select, text
 from sqlalchemy import distinct, func
 from sqlalchemy.engine import Row
@@ -786,6 +789,32 @@ def _prep_download(task_id):
         LOGGER.exception('error on _prep_download')
     finally:
         session.close()
+
+
+@app.route('/data_extractor', methods=['GET', 'POST'])
+def data_extractor():
+    if request.method == 'POST':
+        # Handle form data
+        dropdown1 = request.form.get('dropdown1')
+        textbox1 = request.form.get('textbox1')
+        csv_file = request.files.get('csv_file')
+
+        # Perform validation and processing
+        try:
+            # Attempt to read the CSV file
+            csv_content = csv_file.read().decode('utf-8')
+            csv_file_stream = StringIO(csv_content)
+            # Attempt to read the CSV file
+            csv_reader = csv.reader(csv_file_stream)
+            header = next(csv_reader)  # Try to read the header
+            # If the header reads successfully, you can continue processing
+            flash('File uploaded and validated successfully!', 'success')
+        except csv.Error as e:
+            flash('The file is not a valid CSV!' + str(e), 'danger')
+
+        return redirect(url_for('data_extractor'))
+    return render_template('remote_sensed_data_extractor.html')
+
 
 LOGGER.debug(os.getenv('INIT_COVARIATES'))
 if os.getenv('INIT_COVARIATES') == 'True':
