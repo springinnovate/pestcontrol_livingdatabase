@@ -1,3 +1,10 @@
+todo for EO data:
+    * template/validate csv based off of global JINJA values that are set in the app
+    * boxes for defining datasets and pixel transforms
+    * GEE backend processsing
+    * uploading results back to user in a webpage / download as CSV?
+
+
 todo for pest control:
     * column documentation for user facing stuff
     * becky will send a new set of orders of columns
