@@ -1,8 +1,10 @@
 todo for EO data:
     * template/validate csv based off of global JINJA values that are set in the app
-    * boxes for defining datasets and pixel transforms
-    * GEE backend processsing
-    * uploading results back to user in a webpage / download as CSV?
+    * this gets enabled if the CSV is valid:
+        * boxes for defining datasets and pixel transforms
+    * subtmit does:
+        * GEE backend processsing
+        * uploading results back to user in a webpage / download as CSV?
 
 
 todo for pest control:
