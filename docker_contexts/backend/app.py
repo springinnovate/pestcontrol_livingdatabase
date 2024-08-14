@@ -25,6 +25,7 @@ from flask import url_for
 from flask import send_file
 from flask import flash
 from flask import redirect
+from flask import make_response
 from sqlalchemy import select, text
 from sqlalchemy import distinct, func
 from sqlalchemy.engine import Row
@@ -790,6 +791,7 @@ def _prep_download(task_id):
     finally:
         session.close()
 
+MAX_EO_POINT_SAMPLES = 100
 
 @app.route('/data_extractor', methods=['GET', 'POST'])
 def data_extractor():
@@ -799,26 +801,62 @@ def data_extractor():
         textbox1 = request.form.get('textbox1')
         csv_file = request.files.get('csv_file')
 
-        # Perform validation and processing
-        try:
-            # Attempt to read the CSV file
-            csv_content = csv_file.read().decode('utf-8')
-            csv_file_stream = StringIO(csv_content)
-            # Attempt to read the CSV file
-            csv_reader = csv.reader(csv_file_stream)
-            header = next(csv_reader)  # Try to read the header
-            # If the header reads successfully, you can continue processing
-            flash('File uploaded and validated successfully!', 'success')
-        except csv.Error as e:
-            flash('The file is not a valid CSV!' + str(e), 'danger')
-
+        flash('File uploaded and validated successfully!', 'success')
         return redirect(url_for('data_extractor'))
     return render_template(
+        'remote_sensed_data_extractor.html',
         latitude_id=LATITUDE,
         longitude_id=LONGITUDE,
         year_id=YEAR,
-        'remote_sensed_data_extractor.html')
+        max_eo_points=MAX_EO_POINT_SAMPLES,
+        )
 
+
+@app.route('/validate_csv', methods=['POST'])
+def validate_csv():
+    csv_data = request.form['csv_data']
+    invalid_message = ''
+    LOGGER.debug(csv_data)
+    try:
+        if not csv_data:
+            invalid_message += 'Data in file!<br/>'
+            flash('Data in file!', 'danger')
+        else:
+            # Read first few bytes to validate headers
+            first_line = next(iter(csv_data.split('\n')))
+            headers = [h.strip() for h in first_line.split(',')]
+            valid_headers = all([
+                expected_header in headers
+                for expected_header in [LATITUDE, LONGITUDE, YEAR]])
+            # Check if the first line matches expected headers
+            if not valid_headers:
+                invalid_message += f'The file does not have the expected headers, got "{headers}"!<br/>'
+            # Perform validation and processing
+            try:
+                csv_file_stream = StringIO(csv_data)
+                csv_reader = csv.reader(csv_file_stream)
+                header = next(csv_reader)  # Try to read the header
+            except csv.Error as e:
+                invalid_message += f'The file is not a valid CSV ({str(e)})!\n'
+        if invalid_message:
+            flash(invalid_message, 'danger')
+        else:
+            flash('valid csv', 'info')
+        return jsonify({
+            'valid': False if invalid_message else True,
+            'message': invalid_message})
+    except Exception as e:
+        flash(str(e), 'danger')
+        return jsonify({'valid': False, 'message': str(e)})
+
+
+@app.route('/download-csv-template')
+def download_csv_template():
+    # Create a response object and set headers
+    response = make_response(','.join([YEAR, LATITUDE, LONGITUDE]))
+    response.headers['Content-Disposition'] = 'attachment; filename=eo_sample_template.csv'
+    response.headers['Content-Type'] = 'text/csv'
+    return response
 
 LOGGER.debug(os.getenv('INIT_COVARIATES'))
 if os.getenv('INIT_COVARIATES') == 'True':
