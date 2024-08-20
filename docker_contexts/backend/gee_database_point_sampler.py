@@ -325,7 +325,7 @@ def create_clean_key(dataset_row):
     return key
 
 
-def process_data_table(dataset_table, data_table_attributes):
+def process_data_table(dataset_table):
     missing_columns = set(
         EXPECTED_DATATABLE_COLUMNS).difference(set(dataset_table.columns))
     if missing_columns:
@@ -811,7 +811,7 @@ def main():
 
     dataset_table[SP_TM_AGG_OP] = None
     dataset_table[PIXEL_FN_OP] = None
-    dataset_table = process_data_table(dataset_table, args)
+    dataset_table = process_data_table(dataset_table)
     LOGGER.info(f'loaded {args.dataset_table_path}')
     LOGGER.info(dataset_table)
 

@@ -12,6 +12,7 @@ import re
 import sys
 import zipfile
 
+import gee_dataset_point_sampler
 import numpy
 from database import SessionLocal
 from database_model_definitions import REQUIRED_STUDY_FIELDS, REQUIRED_SAMPLE_INPUT_FIELDS
@@ -801,7 +802,8 @@ def data_extractor():
         # Handle form data
         # dropdown1 = request.form.get('dropdown1')
         # textbox1 = request.form.get('textbox1')
-        # csv_file = request.files.get('csv_file')
+        csv_file = request.files.get('csv_file')
+        gee_dataset_point_sampler(csv_file)
 
         flash('File uploaded and validated successfully!', 'success')
         return redirect(url_for('data_extractor'))
