@@ -858,7 +858,7 @@ def data_extractor():
             BytesIO(csv_output.getvalue().encode()),
             mimetype='text/csv',
             as_attachment=True,
-            download_name=f'remote_sensed_point_table_{datetime.now().strftime("%Y_%m_%d_%H_%M_%S")}')
+            download_name=f'remote_sensed_point_table_{datetime.now().strftime("%Y_%m_%d_%H_%M_%S")}.csv')
 
     data_sources = [
         'ECMWF/ERA5/MONTHLY:dewpoint_2m_temperature',
