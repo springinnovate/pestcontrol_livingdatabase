@@ -49,6 +49,7 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - INIT_COVARIATES=False
+      - ENV GOOGLE_APPLICATION_CREDENTIALS=/usr/local/pcld_api/secrets/service-account-key.json
     deploy:
       resources:
         limits:
