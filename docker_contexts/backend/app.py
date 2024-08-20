@@ -1,4 +1,5 @@
-from io import StringIO
+from datetime import datetime
+from io import StringIO, BytesIO
 from io import TextIOWrapper
 import collections
 import configparser
@@ -12,8 +13,14 @@ import re
 import sys
 import zipfile
 
+import ee
 import gee_database_point_sampler
+from gee_database_point_sampler import initialize_gee
+from gee_database_point_sampler import UNIQUE_ID
+from gee_database_point_sampler import SPATIOTEMPORAL_FN_GRAMMAR
+from gee_database_point_sampler import SpatioTemporalFunctionProcessor
 import numpy
+import pandas as pd
 from database import SessionLocal
 from database_model_definitions import REQUIRED_STUDY_FIELDS, REQUIRED_SAMPLE_INPUT_FIELDS
 from database_model_definitions import OBSERVATION, LATITUDE, LONGITUDE, YEAR
@@ -69,6 +76,8 @@ QUERY_RESULTS_DIR = os.path.join(INSTANCE_DIR, 'results_to_download')
 os.makedirs(QUERY_RESULTS_DIR, exist_ok=True)
 MAX_SAMPLE_DISPLAY_SIZE = 1000
 
+
+initialize_gee()
 
 class group_concat_distinct(GenericFunction):
     type = String()
@@ -796,6 +805,28 @@ def _prep_download(task_id):
 MAX_EO_POINT_SAMPLES = 100
 
 
+def point_table_to_point_batch(csv_file):
+    point_table = pd.read_csv(csv_file)
+    point_features_by_year = collections.defaultdict(list)
+    point_unique_id_per_year = collections.defaultdict(list)
+    for index, row in point_table.iterrows():
+        year = int(row[YEAR])
+        point_features_by_year[year].append(
+            ee.Feature(ee.Geometry.Point(
+                [row[LONGITUDE], row[LATITUDE]], 'EPSG:4326'),
+            {UNIQUE_ID: index}))
+        point_unique_id_per_year[year].append(index)
+    return point_features_by_year, point_unique_id_per_year, point_table
+
+
+def parse_spatiotemporal_fn(spatiotemporal_fn):
+    spatiotemporal_fn = spatiotemporal_fn.replace(' ', '')
+    grammar_tree = SPATIOTEMPORAL_FN_GRAMMAR.parse(spatiotemporal_fn)
+    lexer = SpatioTemporalFunctionProcessor()
+    output = lexer.visit(grammar_tree)
+    return output
+
+
 @app.route('/data_extractor', methods=['GET', 'POST'])
 def data_extractor():
     if request.method == 'POST':
@@ -803,12 +834,12 @@ def data_extractor():
         # dropdown1 = request.form.get('dropdown1')
         # textbox1 = request.form.get('textbox1')
         csv_file = request.files.get('csv_file')
-        LOGGER.info(csv_file)
+        point_features_by_year, point_unique_id_per_year, point_table = point_table_to_point_batch(csv_file)
 
         dataset_id, band_name = request.form.get('data_source').split(':')
-        sp_tm_agg_op = request.form.get('aggregation_function')
+        sp_tm_agg_op = parse_spatiotemporal_fn(request.form.get('aggregation_function'))
         LOGGER.info(f'{dataset_id} - {band_name} - {sp_tm_agg_op}')
-        gee_database_point_sampler.process_gee_dataset(
+        point_id_value_list = gee_database_point_sampler.process_gee_dataset(
             dataset_id,
             band_name,
             point_features_by_year,
@@ -816,8 +847,18 @@ def data_extractor():
             None,
             sp_tm_agg_op)
 
-        flash('File uploaded and validated successfully!', 'success')
-        return redirect(url_for('data_extractor'))
+        value_dict = dict(point_id_value_list)
+        point_table[f'{dataset_id}:{band_name} -> {sp_tm_agg_op}'] = point_table.index.map(value_dict)
+
+        csv_output = StringIO()
+        point_table.to_csv(csv_output, index=False)
+        csv_output.seek(0)
+
+        return send_file(
+            BytesIO(csv_output.getvalue().encode()),
+            mimetype='text/csv',
+            as_attachment=True,
+            download_name=f'remote_sensed_point_table_{datetime.now().strftime("%Y_%m_%d_%H_%M_%S")}')
 
     data_sources = [
         'ECMWF/ERA5/MONTHLY:dewpoint_2m_temperature',

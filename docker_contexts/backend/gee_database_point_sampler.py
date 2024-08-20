@@ -301,10 +301,12 @@ def chunk_points(point_list, chunk_size):
         yield point_list[i:i + chunk_size]
 
 
-def initalize_gee(authenicate_flag):
-    if authenicate_flag:
-        ee.Authenticate()
-    ee.Initialize(opt_url='https://earthengine-highvolume.googleapis.com')
+def initialize_gee():
+    credentials_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
+    credentials = None
+    if credentials_path:
+        credentials = ee.ServiceAccountCredentials(None, credentials_path)
+    ee.Initialize(credentials, opt_url='https://earthengine-highvolume.googleapis.com')
     initalize_global_stat_functions()
 
 
@@ -413,6 +415,7 @@ def infer_temporal_and_spatial_resolution_and_valid_years(collection):
 def get_year_julian_range(current_year, spatiotemporal_commands):
     """Returns offset of year in [min, max+1) range"""
     # Initialize current_year as the first day of this year
+    LOGGER.debug(f'about to process these spatiodemporal commands: {spatiotemporal_commands}')
     year_range = (current_year, current_year+1)
     julian_range = (1, 365)
     for spatiotemp_flag, op_type, args in spatiotemporal_commands:
@@ -732,7 +735,6 @@ def process_gee_dataset(
             raise
 
     collection_per_year_info = collection_per_year.getInfo()
-    # Convert the dictionary to your desired format
     result_list = []
     for year, data in collection_per_year_info.items():
         try:
@@ -778,9 +780,6 @@ def main():
             'Generate template tables and then quit no matter what '
             'other arguments are passed.'))
     parser.add_argument(
-        '--authenticate', action='store_true',
-        help='Pass this flag if you need to reauthenticate with GEE')
-    parser.add_argument(
         '--dataset_table_path', required=True, help='path to data table')
     parser.add_argument(
         '--n_dataset_rows', nargs='+', type=int, help='limit csv read to this many rows')
@@ -795,7 +794,7 @@ def main():
     if args.generate_templates:
         generate_templates()
         return
-    initalize_gee(args.authenticate)
+    initialize_gee()
 
     dataset_table = pandas.read_csv(
         args.dataset_table_path,

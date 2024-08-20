@@ -30,4 +30,6 @@ WORKDIR /usr/local/pcld_api_config
 COPY requirements.txt /usr/local/pcld_api_config/
 RUN pip3 install -r requirements.txt
 
+ENV GOOGLE_APPLICATION_CREDENTIALS="/usr/local/pcld_api/secrets/service-account-key.json"
+
 WORKDIR /usr/local/pcld_api
