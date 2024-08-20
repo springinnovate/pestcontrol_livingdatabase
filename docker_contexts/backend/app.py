@@ -12,7 +12,7 @@ import re
 import sys
 import zipfile
 
-import gee_dataset_point_sampler
+import gee_database_point_sampler
 import numpy
 from database import SessionLocal
 from database_model_definitions import REQUIRED_STUDY_FIELDS, REQUIRED_SAMPLE_INPUT_FIELDS
@@ -803,7 +803,18 @@ def data_extractor():
         # dropdown1 = request.form.get('dropdown1')
         # textbox1 = request.form.get('textbox1')
         csv_file = request.files.get('csv_file')
-        gee_dataset_point_sampler(csv_file)
+        LOGGER.info(csv_file)
+
+        dataset_id, band_name = request.form.get('data_source').split(':')
+        sp_tm_agg_op = request.form.get('aggregation_function')
+        LOGGER.info(f'{dataset_id} - {band_name} - {sp_tm_agg_op}')
+        gee_database_point_sampler.process_gee_dataset(
+            dataset_id,
+            band_name,
+            point_features_by_year,
+            point_unique_id_per_year,
+            None,
+            sp_tm_agg_op)
 
         flash('File uploaded and validated successfully!', 'success')
         return redirect(url_for('data_extractor'))
