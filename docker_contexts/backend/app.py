@@ -786,29 +786,56 @@ def _prep_download(task_id):
 
         LOGGER.debug(f'{zipfile_path} is created')
         return f"File {zipfile_path} has been created."
-    except:
+    except Exception:
         LOGGER.exception('error on _prep_download')
     finally:
         session.close()
 
+
 MAX_EO_POINT_SAMPLES = 100
+
 
 @app.route('/data_extractor', methods=['GET', 'POST'])
 def data_extractor():
     if request.method == 'POST':
         # Handle form data
-        dropdown1 = request.form.get('dropdown1')
-        textbox1 = request.form.get('textbox1')
-        csv_file = request.files.get('csv_file')
+        # dropdown1 = request.form.get('dropdown1')
+        # textbox1 = request.form.get('textbox1')
+        # csv_file = request.files.get('csv_file')
 
         flash('File uploaded and validated successfully!', 'success')
         return redirect(url_for('data_extractor'))
+
+    data_sources = [
+        'ECMWF/ERA5/MONTHLY:dewpoint_2m_temperature',
+        'ECMWF/ERA5/MONTHLY:maximum_2m_air_temperature',
+        'ECMWF/ERA5/MONTHLY:mean_2m_air_temperature',
+        'ECMWF/ERA5/MONTHLY:minimum_2m_air_temperature',
+        'ECMWF/ERA5/MONTHLY:total_precipitation',
+    ]
+    aggregation_functions = [
+        'years_mean(-2, 0; julian_max(1, 365))',
+        'years_mean(-2, 0; julian_max(121, 273))',
+        'years_mean(-2, 0; julian_mean(1, 365))',
+        'years_mean(-2, 0; julian_mean(121, 273))',
+        'years_mean(-2, 0; julian_min(1, 365))',
+        'years_mean(-2, 0; julian_min(121, 273))',
+        'years_mean(-5, 0; julian_max(1, 365))',
+        'years_mean(-5, 0; julian_max(121, 273))',
+        'years_mean(-5, 0; julian_mean(1, 365))',
+        'years_mean(-5, 0; julian_mean(121, 273))',
+        'years_mean(-5, 0; julian_min(1, 365))',
+        'years_mean(-5, 0; julian_min(121, 273))',
+    ]
+
     return render_template(
         'remote_sensed_data_extractor.html',
         latitude_id=LATITUDE,
         longitude_id=LONGITUDE,
         year_id=YEAR,
         max_eo_points=MAX_EO_POINT_SAMPLES,
+        data_sources=data_sources,
+        aggregation_functions=aggregation_functions,
         )
 
 

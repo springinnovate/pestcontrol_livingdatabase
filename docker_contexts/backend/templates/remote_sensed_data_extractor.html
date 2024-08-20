@@ -12,6 +12,11 @@
         opacity: 0.65;
         pointer-events: none;
     }
+    select.disabled,
+    select:disabled {
+        opacity: 0.65;
+        pointer-events: none;
+    }
     </style>
 </head>
 <body>
@@ -43,6 +48,25 @@
                 <a href="{{ url_for('download_csv_template') }}" class="btn btn-link">Download CSV Template</a>
                 <input class="form-control" type="file" id="csv_file" name="csv_file" accept=".csv" required>
             </div>
+
+             <div class="mb-3">
+                <label for="data_source" class="form-label">Data Source</label>
+                <select class="form-select disabled" id="data_source" name="data_source" disabled>
+                    {% for source in data_sources %}
+                        <option value="{{ source }}">{{ source }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="mb-3">
+                <label for="aggregation_function" class="form-label">Spatiotemporal Aggregation Function</label>
+                <select class="form-select disabled" id="aggregation_function" name="aggregation_function" disabled>
+                    {% for function in aggregation_functions %}
+                        <option value="{{ function }}">{{ function }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
             <button id="submitBtn" type="submit" class="btn btn-primary disabled" disabled>Submit</button>
         </form>
     </div>
@@ -61,13 +85,22 @@
                             data: { csv_data: data },
                             success: function(response) {
                                 if (response.valid) {
-                                    $('#submitBtn').prop('disabled', false).removeClass('disabled'); // Enable button
+                                    $('#submitBtn').prop('disabled', false).removeClass('disabled');
+                                    $('#data_source').prop('disabled', false).removeClass('disabled');
+                                    $('#aggregation_function').prop('disabled', false).removeClass('disabled');
+                                    $('#value_transform').prop('disabled', false).removeClass('disabled');
                                 } else {
-                                    $('#submitBtn').prop('disabled', true).addClass('disabled'); // Disable button
+                                    $('#submitBtn').prop('disabled', true).addClass('disabled');
+                                    $('#data_source').prop('disabled', true).addClass('disabled');
+                                    $('#aggregation_function').prop('disabled', true).addClass('disabled');
+                                    $('#value_transform').prop('disabled', true).addClass('disabled');
                                 }
                             },
                             error: function() {
-                                $('#submitBtn').prop('disabled', true).addClass('disabled'); // Disable button on error
+                                $('#submitBtn').prop('disabled', true).addClass('disabled');
+                                $('#data_source').prop('disabled', true).addClass('disabled');
+                                $('#aggregation_function').prop('disabled', true).addClass('disabled');
+                                $('#value_transform').prop('disabled', true).addClass('disabled');
                             }
                         });
                     };

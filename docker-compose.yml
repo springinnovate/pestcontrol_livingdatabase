@@ -31,6 +31,14 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
 
+  backend_dev:
+    extends:
+      service: backend
+    ports:
+      - "5000:5000"
+    profiles:
+      - development
+
   celery_worker:
     container_name: celery_worker
     hostname: celery_worker
