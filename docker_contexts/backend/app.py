@@ -924,9 +924,9 @@ def validate_csv():
             header = next(csv_reader)  # Try to read the header
         except csv.Error as e:
             invalid_message += f'The file is not a valid CSV ({str(e)})!\n'
-    return jsonify({
-        'valid': False if invalid_message else True,
-        'message': invalid_message})
+        return jsonify({
+            'valid': False if invalid_message else True,
+            'message': invalid_message})
     except Exception as e:
         return jsonify({'valid': False, 'message': str(e)})
 
