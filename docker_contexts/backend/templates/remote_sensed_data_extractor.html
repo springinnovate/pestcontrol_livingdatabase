@@ -23,19 +23,6 @@
     <div class="container mt-5">
         <h1 class="mb-4">Remote Sensed Data Extractor</h1>
 
-        <!-- Feedback Messages -->
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                <div class="alert alert-dismissible fade show" role="alert">
-                    {% for category, message in messages %}
-                        <div class="alert alert-{{ category }}">{{ message }}</div>
-                    {% endfor %}
-                    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-                </div>
-            {% endif %}
-        {% endwith %}
-
-        <!-- Form -->
         <form method="POST" enctype="multipart/form-data">
             <div class="mb-3">
                 <div>
@@ -51,7 +38,7 @@
 
              <div class="mb-3">
                 <label for="data_source" class="form-label">Data Source</label>
-                <select class="form-select disabled" id="data_source" name="data_source" disabled>
+                <select class="form-select" id="data_source" name="data_source">
                     {% for source in data_sources %}
                         <option value="{{ source }}">{{ source }}</option>
                     {% endfor %}
@@ -59,15 +46,56 @@
             </div>
 
             <div class="mb-3">
-                <label for="aggregation_function" class="form-label">Spatiotemporal Aggregation Function</label>
-                <select class="form-select disabled" id="aggregation_function" name="aggregation_function" disabled>
-                    {% for function in aggregation_functions %}
-                        <option value="{{ function }}">{{ function }}</option>
-                    {% endfor %}
-                </select>
+                <h5>Yearly average</h5>
+                <div class="mb-3">
+                    <label for="num_years_avg" class="form-label">Number of Previous Years to Average Over</label>
+                    <input type="number" class="form-control" id="num_years_avg" name="num_years_avg" value="0" min="0">
+                </div>
             </div>
 
-            <button id="submitBtn" type="submit" class="btn btn-primary disabled" disabled>Submit</button>
+            <div class="mb-3">
+                <h5>Seasonality</h5>
+                <div class="mt-3">
+                    <label for="seasonality_aggregation_fn" class="form-label">Seasonal aggregation function</label>
+                    <select class="form-select" id="seasonality_aggregation_fn" name="seasonality_aggregation_fn" required>
+                        <option value="min">Min</option>
+                        <option value="mean">Mean</option>
+                        <option value="max">Max</option>
+                        <option value="sd">Standard Deviation</option>
+                    </select>
+                </div>
+                <div class="row">
+                    <div class="col">
+                        <label for="julian_start_day" class="form-label">Julian Start Day</label>
+                        <input type="number" class="form-control" id="julian_start_day" name="julian_start_day" min="1" max="365" value="1" required>
+                    </div>
+                    <div class="col">
+                        <label for="julian_end_day" class="form-label">Julian End Day</label>
+                        <input type="number" class="form-control" id="julian_end_day" name="julian_end_day" min="1" max="365" value="365" required>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <h5>Spatial averaging</h5>
+                <div class="row">
+                    <div class="col">
+                        <label for="spatial_aggregation_fn" class="form-label">Spatial aggregation function</label>
+                        <select class="form-select" id="spatial_aggregation_fn" name="spatial_aggregation_fn" required>
+                            <option value="min">Min</option>
+                            <option value="mean">Mean</option>
+                            <option value="max">Max</option>
+                            <option value="sd">Standard Deviation</option>
+                        </select>
+                    </div>
+                    <div class="col">
+                        <label for="spatial_radius" class="form-label">Radius (meters)</label>
+                        <input type="number" class="form-control" id="spatial_radius" name="spatial_radius" min="30" max="10000" value="30" placeholder="Enter radius in meters" required>
+                    </div>
+                </div>
+            </div>
+
+            <button id="submitBtn" type="submit" class="btn btn-primary">Submit</button>
         </form>
     </div>
 
@@ -84,23 +112,8 @@
                             type: 'POST',
                             data: { csv_data: data },
                             success: function(response) {
-                                if (response.valid) {
-                                    $('#submitBtn').prop('disabled', false).removeClass('disabled');
-                                    $('#data_source').prop('disabled', false).removeClass('disabled');
-                                    $('#aggregation_function').prop('disabled', false).removeClass('disabled');
-                                    $('#value_transform').prop('disabled', false).removeClass('disabled');
-                                } else {
-                                    $('#submitBtn').prop('disabled', true).addClass('disabled');
-                                    $('#data_source').prop('disabled', true).addClass('disabled');
-                                    $('#aggregation_function').prop('disabled', true).addClass('disabled');
-                                    $('#value_transform').prop('disabled', true).addClass('disabled');
-                                }
                             },
                             error: function() {
-                                $('#submitBtn').prop('disabled', true).addClass('disabled');
-                                $('#data_source').prop('disabled', true).addClass('disabled');
-                                $('#aggregation_function').prop('disabled', true).addClass('disabled');
-                                $('#value_transform').prop('disabled', true).addClass('disabled');
                             }
                         });
                     };

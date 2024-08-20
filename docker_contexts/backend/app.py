@@ -13,40 +13,39 @@ import re
 import sys
 import zipfile
 
-import ee
-import gee_database_point_sampler
-from gee_database_point_sampler import initialize_gee
-from gee_database_point_sampler import UNIQUE_ID
-from gee_database_point_sampler import SPATIOTEMPORAL_FN_GRAMMAR
-from gee_database_point_sampler import SpatioTemporalFunctionProcessor
-import numpy
-import pandas as pd
-from database import SessionLocal
-from database_model_definitions import REQUIRED_STUDY_FIELDS, REQUIRED_SAMPLE_INPUT_FIELDS
-from database_model_definitions import OBSERVATION, LATITUDE, LONGITUDE, YEAR
-from database_model_definitions import Study, Sample, Point, CovariateDefn, CovariateValue, CovariateType, CovariateAssociation, Geolocation
-from flask import Flask
-from flask import render_template
-from flask import request
-from flask import jsonify
-from flask import url_for
-from flask import send_file
-from flask import flash
-from flask import redirect
-from flask import make_response
-from sqlalchemy import select, text
-from sqlalchemy import distinct, func
-from sqlalchemy.engine import Row
-from sqlalchemy.sql import and_, or_, tuple_
-from sqlalchemy.ext.compiler import compiles
-from sqlalchemy.sql.functions import GenericFunction
-from sqlalchemy.types import String
-from sqlalchemy.orm import subqueryload
-from sqlalchemy.dialects import postgresql, sqlite
-from sqlalchemy.orm import joinedload, contains_eager, selectinload
-from celery_config import make_celery
 from celery import current_task
 from celery.signals import after_setup_logger
+from celery_config import make_celery
+from database import SessionLocal
+from database_model_definitions import OBSERVATION, LATITUDE, LONGITUDE, YEAR
+from database_model_definitions import REQUIRED_STUDY_FIELDS, REQUIRED_SAMPLE_INPUT_FIELDS
+from database_model_definitions import Study, Sample, Point, CovariateDefn, CovariateValue, CovariateType, CovariateAssociation, Geolocation
+from flask import Flask
+from flask import jsonify
+from flask import make_response
+from flask import redirect
+from flask import render_template
+from flask import request
+from flask import send_file
+from flask import url_for
+from gee_database_point_sampler import initialize_gee
+from gee_database_point_sampler import SPATIOTEMPORAL_FN_GRAMMAR
+from gee_database_point_sampler import SpatioTemporalFunctionProcessor
+from gee_database_point_sampler import UNIQUE_ID
+from sqlalchemy import distinct, func
+from sqlalchemy import select, text
+from sqlalchemy.dialects import postgresql, sqlite
+from sqlalchemy.engine import Row
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.orm import joinedload, contains_eager, selectinload
+from sqlalchemy.orm import subqueryload
+from sqlalchemy.sql import and_, or_, tuple_
+from sqlalchemy.sql.functions import GenericFunction
+from sqlalchemy.types import String
+import ee
+import gee_database_point_sampler
+import numpy
+import pandas as pd
 import redis
 
 logging.basicConfig(
@@ -830,14 +829,24 @@ def parse_spatiotemporal_fn(spatiotemporal_fn):
 @app.route('/data_extractor', methods=['GET', 'POST'])
 def data_extractor():
     if request.method == 'POST':
-        # Handle form data
-        # dropdown1 = request.form.get('dropdown1')
-        # textbox1 = request.form.get('textbox1')
         csv_file = request.files.get('csv_file')
         point_features_by_year, point_unique_id_per_year, point_table = point_table_to_point_batch(csv_file)
-
         dataset_id, band_name = request.form.get('data_source').split(':')
-        sp_tm_agg_op = parse_spatiotemporal_fn(request.form.get('aggregation_function'))
+
+
+        num_years_avg = int(request.form.get('num_years_avg'))
+        seasonality_aggregation_fn = request.form.get('seasonality_aggregation_fn')
+        julian_start_day = int(request.form.get('julian_start_day'))
+        julian_end_day = int(request.form.get('julian_end_day'))
+        spatial_aggregation = request.form.get('spatial_aggregation_fn')
+        spatial_radius = int(request.form.get('spatial_radius'))
+
+        sp_tm_agg_op_str = (
+            f'spatial_mean({spatial_radius};'
+            f'years_mean(-{num_years_avg},0;'
+            f'julian_{seasonality_aggregation_fn}({julian_start_day},{julian_end_day})))')
+        LOGGER.debug(f'this is the operation: {sp_tm_agg_op_str}')
+        sp_tm_agg_op = parse_spatiotemporal_fn(sp_tm_agg_op_str)
         LOGGER.info(f'{dataset_id} - {band_name} - {sp_tm_agg_op}')
         point_id_value_list = gee_database_point_sampler.process_gee_dataset(
             dataset_id,
@@ -899,35 +908,26 @@ def validate_csv():
     invalid_message = ''
     LOGGER.debug(csv_data)
     try:
-        if not csv_data:
-            invalid_message += 'Data in file!<br/>'
-            flash('Data in file!', 'danger')
-        else:
-            # Read first few bytes to validate headers
-            first_line = next(iter(csv_data.split('\n')))
-            headers = [h.strip() for h in first_line.split(',')]
-            valid_headers = all([
-                expected_header in headers
-                for expected_header in [LATITUDE, LONGITUDE, YEAR]])
-            # Check if the first line matches expected headers
-            if not valid_headers:
-                invalid_message += f'The file does not have the expected headers, got "{headers}"!<br/>'
-            # Perform validation and processing
-            try:
-                csv_file_stream = StringIO(csv_data)
-                csv_reader = csv.reader(csv_file_stream)
-                header = next(csv_reader)  # Try to read the header
-            except csv.Error as e:
-                invalid_message += f'The file is not a valid CSV ({str(e)})!\n'
-        if invalid_message:
-            flash(invalid_message, 'danger')
-        else:
-            flash('valid csv', 'info')
-        return jsonify({
-            'valid': False if invalid_message else True,
-            'message': invalid_message})
+        # Read first few bytes to validate headers
+        first_line = next(iter(csv_data.split('\n')))
+        headers = [h.strip() for h in first_line.split(',')]
+        valid_headers = all([
+            expected_header in headers
+            for expected_header in [LATITUDE, LONGITUDE, YEAR]])
+        # Check if the first line matches expected headers
+        if not valid_headers:
+            invalid_message += f'The file does not have the expected headers, got "{headers}"!<br/>'
+        # Perform validation and processing
+        try:
+            csv_file_stream = StringIO(csv_data)
+            csv_reader = csv.reader(csv_file_stream)
+            header = next(csv_reader)  # Try to read the header
+        except csv.Error as e:
+            invalid_message += f'The file is not a valid CSV ({str(e)})!\n'
+    return jsonify({
+        'valid': False if invalid_message else True,
+        'message': invalid_message})
     except Exception as e:
-        flash(str(e), 'danger')
         return jsonify({'valid': False, 'message': str(e)})
 
 
