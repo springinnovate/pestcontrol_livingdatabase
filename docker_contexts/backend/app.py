@@ -174,7 +174,7 @@ def calculate_sample_display_table(session, query_to_filter):
                     covariate.covariate_defn.name].add(True)
 
     covariate_display_order = []
-    for name, always_display, hidden, condition in pre_covariate_display_query:
+    for name, always_display, hidden in pre_covariate_display_query:
         if hidden:
             continue
         if always_display or unique_values_per_covariate[name]:
@@ -303,6 +303,9 @@ def initialize_searchable_covariates():
             distinct(Geolocation.geolocation_name)).filter(
             Geolocation.geolocation_type == 'CONTINENT').all()]
 
+    # add the study ids manually
+    COVARIATE_STATE['searchable_covariates']['study_id'] = [x[0] for x in session.query(distinct(Study.name)).all()]
+
     with open(pkcl_filepath, 'wb') as file:
         pickle.dump(COVARIATE_STATE, file)
     LOGGER.info('all done with unique values')
@@ -383,6 +386,12 @@ def build_filter(session, form):
     for field, operation, value in zip(fields, operations, values):
         if not field or not value:
             continue
+
+        # hardcode in the study_id
+        if field == 'study_id':
+            filters.append(Study.name == value)
+            continue
+
         covariate_type = session.query(
             CovariateDefn.covariate_association).filter(
             CovariateDefn.name == field).first()[0]
