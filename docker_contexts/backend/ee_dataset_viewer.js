@@ -30,7 +30,7 @@ function generateDatasets(endYear) {
   ];
 
   var image_names = [
-    ' dewpoint annual maximum (ERA5/MONTHLY)',
+    'dewpoint annual maximum (ERA5/MONTHLY)',
     'max temp annual maximum (ERA5/MONTHLY)',
     'mean temp annual maximum (ERA5/MONTHLY)',
     'min temp annual maximum (ERA5/MONTHLY)',
@@ -84,6 +84,9 @@ function generateDatasets(endYear) {
       }).mean().rename('B0');
     local_datasets[image_names_modis[j]] = image_modis;
   }
+
+  local_datasets['Global SRTM Topographic Diversity'] = (
+    ee.Image('CSP/ERGo/1_0/Global/SRTM_topoDiversity').select('constant').rename('B0'));
 
   return local_datasets;
 }
