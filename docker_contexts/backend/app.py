@@ -1,6 +1,5 @@
 from datetime import datetime
 from io import StringIO, BytesIO
-from io import TextIOWrapper
 import collections
 import configparser
 import csv
@@ -13,8 +12,6 @@ import re
 import sys
 import zipfile
 
-from celery import current_task
-from celery.signals import after_setup_logger
 from celery_config import make_celery
 from database import SessionLocal
 from database_model_definitions import OBSERVATION, LATITUDE, LONGITUDE, YEAR
@@ -23,7 +20,6 @@ from database_model_definitions import Study, Sample, Point, CovariateDefn, Cova
 from flask import Flask
 from flask import jsonify
 from flask import make_response
-from flask import redirect
 from flask import render_template
 from flask import request
 from flask import send_file
@@ -34,12 +30,9 @@ from gee_database_point_sampler import SpatioTemporalFunctionProcessor
 from gee_database_point_sampler import UNIQUE_ID
 from sqlalchemy import distinct, func
 from sqlalchemy import select, text
-from sqlalchemy.dialects import postgresql, sqlite
-from sqlalchemy.engine import Row
 from sqlalchemy.ext.compiler import compiles
-from sqlalchemy.orm import joinedload, contains_eager, selectinload
-from sqlalchemy.orm import subqueryload
-from sqlalchemy.sql import and_, or_, tuple_
+from sqlalchemy.orm import selectinload
+from sqlalchemy.sql import and_, or_
 from sqlalchemy.sql.functions import GenericFunction
 from sqlalchemy.types import String
 import ee
@@ -826,7 +819,7 @@ def parse_spatiotemporal_fn(spatiotemporal_fn):
     return output
 
 
-@app.route('/data_extractor', methods=['GET', 'POST'])
+@app.route('/eo_extractor', methods=['GET', 'POST'])
 def data_extractor():
     if request.method == 'POST':
         csv_file = request.files.get('csv_file')
