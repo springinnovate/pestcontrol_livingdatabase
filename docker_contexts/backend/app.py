@@ -227,7 +227,8 @@ def calculate_study_display_order(
                 unique_values_per_covariate[
                     covariate.covariate_defn.name].add(True)
 
-    covariate_display_order = []
+    # hard-code 'study_id'
+    covariate_display_order = ['study_id']
     for name, always_display, hidden in pre_covariate_display_order:
         if hidden:
             continue
@@ -237,7 +238,8 @@ def calculate_study_display_order(
     display_table = []
     for study in query_to_filter:
         covariate_dict = to_dict(study.covariates)
-        display_table.append([
+        # hard coding 'study_id' which is study.name
+        display_table.append([study.name] + [
             covariate_dict[name]
             for name in covariate_display_order])
     return covariate_display_order, display_table
