@@ -25,8 +25,7 @@ from database_model_definitions import OBSERVATION
 from database_model_definitions import LATITUDE
 from database_model_definitions import LONGITUDE
 from database_model_definitions import YEAR
-from sqlalchemy import and_, func
-from sqlalchemy.exc import NoResultFound
+from sqlalchemy import func
 import pandas as pd
 
 
@@ -44,13 +43,12 @@ logging.basicConfig(
 logging.getLogger('taskgraph').setLevel(logging.INFO)
 LOGGER = logging.getLogger(__name__)
 
-#@profile
 def validate_tables(study_table_df, sample_table_df):
     # all the sample study ids should be in the metadata table
     study_ids_metadata = set(study_table_df['study_id'].unique())
     study_ids_sample = set(sample_table_df['study_id'].unique())
 
-    missing_in_sample = study_ids_sample-study_ids_metadata
+    missing_in_sample = study_ids_sample - study_ids_metadata
     if missing_in_sample:
         LOGGER.warning(
             f'these study ids are in sample but not in metadata: '
@@ -423,7 +421,7 @@ def main():
 
     sample_table_df.rename(columns=sample_base_to_user_fields, inplace=True)
 
-    columns_to_cast =  [LATITUDE, LONGITUDE, OBSERVATION, YEAR]
+    columns_to_cast = [LATITUDE, LONGITUDE, OBSERVATION, YEAR]
     for column in columns_to_cast:
         sample_table_df[column] = pd.to_numeric(sample_table_df[column], errors='coerce')
     sample_table_df.dropna(subset=columns_to_cast, inplace=True)

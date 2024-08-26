@@ -33,7 +33,7 @@ REQUIRED_SAMPLE_INPUT_FIELDS = [
     LATITUDE,
     LONGITUDE,
     STUDY_ID,
-    ]
+]
 
 REQUIRED_STUDY_FIELDS = [
     STUDY_ID,
@@ -124,13 +124,10 @@ class CovariateDefn(Base):
         Boolean, nullable=False, index=True)
     search_by_unique: Mapped[bool] = mapped_column(
         Boolean, nullable=False, index=True)
-    condition: Mapped[dict] = mapped_column(JSON, default=None)
     covariate_type: Mapped[int] = mapped_column(
         Integer, nullable=False, index=True)
     covariate_association: Mapped[int] = mapped_column(
         Integer, nullable=False, index=True)
-
-
     covariate_values: Mapped[List["CovariateValue"]] = relationship(
         "CovariateValue", back_populates="covariate_defn")
 

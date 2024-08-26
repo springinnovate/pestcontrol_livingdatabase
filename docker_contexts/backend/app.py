@@ -70,6 +70,7 @@ MAX_SAMPLE_DISPLAY_SIZE = 1000
 
 initialize_gee()
 
+
 class group_concat_distinct(GenericFunction):
     type = String()
     inherit_cache = True  # Enable caching if the superclass supports it
@@ -132,8 +133,7 @@ def calculate_sample_display_table(session, query_to_filter):
         session.query(
             CovariateDefn.name,
             CovariateDefn.always_display,
-            CovariateDefn.hidden,
-            CovariateDefn.condition)
+            CovariateDefn.hidden)
         .filter(
             or_(CovariateDefn.covariate_association == CovariateAssociation.SAMPLE.value,
                 CovariateDefn.show_in_point_table == 1))
@@ -173,18 +173,11 @@ def calculate_sample_display_table(session, query_to_filter):
                 unique_values_per_covariate[
                     covariate.covariate_defn.name].add(True)
 
-    # get all possible conditions
     covariate_display_order = []
-
     for name, always_display, hidden, condition in pre_covariate_display_query:
         if hidden:
             continue
-        if condition is None or condition == 'null':
-            if always_display or unique_values_per_covariate[name]:
-                covariate_display_order.append(name)
-
-        elif condition['value'].lower() in unique_values_per_covariate[
-                condition['depends_on']]:
+        if always_display or unique_values_per_covariate[name]:
             covariate_display_order.append(name)
 
     display_table = []
@@ -202,15 +195,14 @@ def calculate_study_display_order(
         session.query(
             CovariateDefn.name,
             CovariateDefn.always_display,
-            CovariateDefn.hidden,
-            CovariateDefn.condition)
+            CovariateDefn.hidden)
         .filter(
             or_(CovariateDefn.covariate_association == CovariateAssociation.STUDY.value,
                 CovariateDefn.show_in_point_table == 1))
         .order_by(
             CovariateDefn.display_order,
             func.lower(CovariateDefn.name))
-        )
+    )
 
     unique_values_per_covariate = collections.defaultdict(set)
     for index, study in enumerate(query_to_filter):
@@ -235,18 +227,11 @@ def calculate_study_display_order(
                 unique_values_per_covariate[
                     covariate.covariate_defn.name].add(True)
 
-    # get all possible conditions
     covariate_display_order = []
-
-    for name, always_display, hidden, condition in pre_covariate_display_order:
+    for name, always_display, hidden in pre_covariate_display_order:
         if hidden:
             continue
-        if condition is None or condition == 'null':
-            if always_display or unique_values_per_covariate[name]:
-                covariate_display_order.append(name)
-
-        elif condition['value'].lower() in unique_values_per_covariate[
-                condition['depends_on']]:
+        if always_display or unique_values_per_covariate[name]:
             covariate_display_order.append(name)
 
     display_table = []
@@ -278,9 +263,9 @@ def initialize_searchable_covariates():
         ).filter(
             CovariateDefn.queryable,
             CovariateDefn.search_by_unique == True
-            )
+        )
         .join(CovariateValue)
-        ).yield_per(1000)
+    ).yield_per(1000)
 
     COVARIATE_STATE['searchable_covariates'] = collections.defaultdict(set)
     for index, row in enumerate(searchable_unique_covariates):
@@ -298,8 +283,8 @@ def initialize_searchable_covariates():
         ).filter(
             CovariateDefn.queryable,
             CovariateDefn.search_by_unique == False,
-            )
         )
+    )
     LOGGER.debug('starting search for continuous covarates')
 
     for index, row in enumerate(searchable_continuous_covariates):
@@ -366,11 +351,11 @@ def n_samples():
         'sample_count': sample_count,
         'study_count': study_count,
         'filter_text': filter_text
-        })
+    })
 
 
 def form_to_dict(form):
-    centerPointBuffer=form.get('centerPointBuffer')
+    centerPointBuffer = form.get('centerPointBuffer')
 
     return {
         'covariate': form.getlist('covariate'),
@@ -660,7 +645,6 @@ def get_covariates():
         'always_display': c.always_display,
         'queryable': c.queryable,
         'covariate_association': CovariateAssociation(c.covariate_association).value,
-        'condition': c.condition,
         'hidden': c.hidden,
         'editable_name': c.editable_name,
     } for c in covariate_list]
@@ -679,8 +663,6 @@ def update_covariate():
         local_covariate.description = remote_covariate['description']
         local_covariate.queryable = remote_covariate['queryable']
         local_covariate.always_display = remote_covariate['always_display']
-        if remote_covariate['condition'] != "None":
-            local_covariate.condition = remote_covariate['condition']
         local_covariate.hidden = remote_covariate['hidden']
     session.commit()
 
@@ -707,11 +689,13 @@ def check_task(task_id):
     elif task.state == 'STARTED':
         return jsonify({'status': 'Task is started'}), 202
 
+
 @app.route('/download_file/<task_id>')
 def download_file(task_id):
     # Implement logic to send the file to the client
     file_path = os.path.join(QUERY_RESULTS_DIR, f'{task_id}.zip')
     return send_file(file_path, as_attachment=True)
+
 
 @celery.task
 def _prep_download(task_id):
@@ -766,7 +750,7 @@ def _prep_download(task_id):
                 row = [
                     str(sample_row[0].observation),
                     str(sample_row[0].point.latitude),
-                    str(sample_row[0].point.longitude),] + row
+                    str(sample_row[0].point.longitude)] + row
                 clean_row = [x if x is not None else 'None' for x in row]
                 writer.writerow(clean_row)
 
@@ -833,7 +817,7 @@ def data_extractor():
         spatial_radius = int(request.form.get('spatial_radius'))
 
         sp_tm_agg_op_str = (
-            f'spatial_mean({spatial_radius};'
+            f'spatial_{spatial_aggregation}({spatial_radius};'
             f'years_mean(-{num_years_avg},0;'
             f'julian_{seasonality_aggregation_fn}({julian_start_day},{julian_end_day})))')
         LOGGER.debug(f'this is the operation: {sp_tm_agg_op_str}')
@@ -896,7 +880,7 @@ def data_extractor():
         max_eo_points=MAX_EO_POINT_SAMPLES,
         data_sources=data_sources,
         aggregation_functions=aggregation_functions,
-        )
+    )
 
 
 @app.route('/validate_csv', methods=['POST'])
@@ -918,7 +902,7 @@ def validate_csv():
         try:
             csv_file_stream = StringIO(csv_data)
             csv_reader = csv.reader(csv_file_stream)
-            header = next(csv_reader)  # Try to read the header
+            _ = next(csv_reader)  # Try to read the header
         except csv.Error as e:
             invalid_message += f'The file is not a valid CSV ({str(e)})!\n'
         return jsonify({
@@ -935,6 +919,7 @@ def download_csv_template():
     response.headers['Content-Disposition'] = 'attachment; filename=eo_sample_template.csv'
     response.headers['Content-Type'] = 'text/csv'
     return response
+
 
 LOGGER.debug(os.getenv('INIT_COVARIATES'))
 if os.getenv('INIT_COVARIATES') == 'True':
