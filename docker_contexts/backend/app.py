@@ -107,7 +107,11 @@ def nl2br(value):
 def to_dict(covariate_list):
     covariate_dict = collections.defaultdict(lambda: None)
     for covariate in covariate_list:
-        covariate_dict[covariate.covariate_defn.name] = covariate.value
+        if isinstance(covariate, str):
+            # hard-code study-id
+            covariate_dict['study_id'] = covariate
+        else:
+            covariate_dict[covariate.covariate_defn.name] = covariate.value
     return covariate_dict
 
 
@@ -148,11 +152,15 @@ def calculate_sample_display_table(session, query_to_filter):
         study_covariates = [
             cov for cov in study.covariates
             if cov.covariate_defn.show_in_point_table == 1
-        ]
+        ] + [study.name]
         all_covariates = sample_covariates + study_covariates
         sample_covariate_list.append((sample, all_covariates))
 
         for covariate in all_covariates:
+            if isinstance(covariate, str):
+                # this will be the study_id
+                unique_values_per_covariate['study_id'].add(covariate)
+                continue
             if not isinstance(covariate.value, str) and (
                     covariate.value is None or numpy.isnan(covariate.value)):
                 continue
@@ -173,7 +181,7 @@ def calculate_sample_display_table(session, query_to_filter):
                 unique_values_per_covariate[
                     covariate.covariate_defn.name].add(True)
 
-    covariate_display_order = []
+    covariate_display_order = ['study_id']
     for name, always_display, hidden in pre_covariate_display_query:
         if hidden:
             continue
@@ -239,7 +247,8 @@ def calculate_study_display_order(
     for study in query_to_filter:
         covariate_dict = to_dict(study.covariates)
         # hard coding 'study_id' which is study.name
-        display_table.append([study.name] + [
+        covariate_dict['study_id'] = study.name
+        display_table.append([
             covariate_dict[name]
             for name in covariate_display_order])
     return covariate_display_order, display_table
