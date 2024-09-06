@@ -122,8 +122,6 @@ def main():
     cov_b_defn = session.execute(
         select(CovariateDefn)
         .filter(CovariateDefn.name == args.cov_name_b)).scalar_one_or_none()
-    print(cov_a_defn)
-    print(cov_b_defn)
 
     query = (
         select(cov_a.value, cov_b.value)  # Select cov_a and cov_b values
@@ -140,10 +138,23 @@ def main():
     for col_a, col_b in results:
         unique_covariate_pairs[col_a].append(col_b if col_b is not None else BLANK)
     table_path = f'rename_table_{args.cov_name_a}_xxx_{args.cov_name_b}.csv'
-    with open(table_path, 'w') as table:
-        table.write(f'{args.cov_name_a},{args.cov_name_b}\n')
-        for col_a, col_b_list in sorted(unique_covariate_pairs.items()):
-            table.write(f'{col_a},' + ','.join(col_b_list) + '\n')
+
+    # Prepare the data for DataFrame
+    data = []
+    max_len = 0  # To track the maximum number of elements in col_b_list
+
+    for col_a, col_b_list in sorted(unique_covariate_pairs.items()):
+        max_len = max(max_len, len(col_b_list))  # Find the longest col_b_list
+        data.append([col_a] + col_b_list)
+
+    # Create a list of column names: first two are defined, rest are generic ('col_n')
+    columns = [args.cov_name_a, args.cov_name_b] + [f'col_{i}' for i in range(2, max_len)]
+
+    # Create the DataFrame, filling missing values with NaN where col_b_list is shorter
+    df = pd.DataFrame(data, columns=columns)
+    df.fillna('', inplace=True)
+    df.to_csv(table_path, index=False)
+
     print(f'written to {table_path}')
 if __name__ == '__main__':
     main()
