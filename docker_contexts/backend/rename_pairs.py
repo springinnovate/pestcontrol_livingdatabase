@@ -16,10 +16,12 @@ import sys, os
 import pandas as pd
 from database import SessionLocal, init_db
 from database_model_definitions import Sample, CovariateValue, CovariateDefn
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_, and_
 from sqlalchemy.orm import aliased
 from sqlalchemy import update
+from sqlalchemy.orm import selectinload
 
+BLANK = '*BLANK*'
 
 def update_cov_values(cov_a_name, cov_b_name, covariate_pairs):
     session = SessionLocal()
@@ -41,6 +43,10 @@ def update_cov_values(cov_a_name, cov_b_name, covariate_pairs):
         samples_by_cov_a_value[cov_a_value].append(sample)
 
     for cov_a_value, cov_b_value in covariate_pairs:
+        if not cov_a_value:
+            continue
+        if cov_b_value == BLANK:
+            continue
         print(f'Processing {cov_a_value} -> {cov_b_value}')
 
         # Get all samples for this cov_a_value
@@ -86,14 +92,13 @@ def update_cov_values(cov_a_name, cov_b_name, covariate_pairs):
 
 
 def load_covariate_pairs(table_path):
-    df = pd.read_csv(table_path, usecols=[0, 1], header=None, on_bad_lines='skip')
+    df = pd.read_csv(table_path, usecols=[0, 1], skiprows=1, header=None, on_bad_lines='skip')
     first_two_columns = df.iloc[:, :2].dropna().values.tolist()
     print(first_two_columns)
     return first_two_columns
 
 def main():
     init_db()
-    session = SessionLocal()
     parser = argparse.ArgumentParser(description='covariate pairs')
     parser.add_argument('cov_name_a')
     parser.add_argument('cov_name_b')
@@ -110,28 +115,33 @@ def main():
     cov_a = aliased(CovariateValue)
     cov_b = aliased(CovariateValue)
 
-    subquery = (
-        select(cov_a.sample_id)
-        .join(CovariateDefn, CovariateDefn.id_key == cov_a.covariate_defn_id)
-        .filter(CovariateDefn.name == args.cov_name_a)
-    )
+    session = SessionLocal()
+    cov_a_defn = session.execute(
+        select(CovariateDefn)
+        .filter(CovariateDefn.name == args.cov_name_a)).scalar_one_or_none()
+    cov_b_defn = session.execute(
+        select(CovariateDefn)
+        .filter(CovariateDefn.name == args.cov_name_b)).scalar_one_or_none()
+    print(cov_a_defn)
+    print(cov_b_defn)
 
-    # Main query to get the values for cov_name_a and cov_name_b together
     query = (
-        select(cov_a.value, cov_b.value)
-        .join(CovariateDefn, CovariateDefn.id_key == cov_a.covariate_defn_id)
-        .outerjoin(cov_b, cov_b.sample_id == cov_a.sample_id)  # Left outer join to include cases where cov_b may not exist
-        .filter(CovariateDefn.name == args.cov_name_a)
-        .filter(cov_b.covariate_defn.has(CovariateDefn.name == args.cov_name_b))
-        .filter(cov_a.sample_id.in_(subquery))
+        select(cov_a.value, cov_b.value)  # Select cov_a and cov_b values
+        .join(CovariateDefn, CovariateDefn.id_key == cov_a.covariate_defn_id)  # Join CovariateDefn for cov_a
+        .outerjoin(cov_b, and_(
+            cov_b.sample_id == cov_a.sample_id,
+            cov_b.covariate_defn_id == cov_b_defn.id_key
+        ))
+        .filter(cov_a.covariate_defn_id == cov_a_defn.id_key)  # Ensure cov_a matches the correct definition
     ).distinct()
+    results = session.execute(query)
 
-    results = session.execute(query).all()
     unique_covariate_pairs = collections.defaultdict(list)
-    for col_a, col_b in sorted(results):
-        unique_covariate_pairs[col_a].append(col_b)
-    table_path = 'rename_table.csv'
+    for col_a, col_b in results:
+        unique_covariate_pairs[col_a].append(col_b if col_b is not None else BLANK)
+    table_path = f'rename_table_{args.cov_name_a}_xxx_{args.cov_name_b}.csv'
     with open(table_path, 'w') as table:
+        table.write(f'{args.cov_name_a},{args.cov_name_b}\n')
         for col_a, col_b_list in sorted(unique_covariate_pairs.items()):
             table.write(f'{col_a},' + ','.join(col_b_list) + '\n')
     print(f'written to {table_path}')
