@@ -23,6 +23,7 @@ from sqlalchemy.orm import selectinload
 
 BLANK = '*BLANK*'
 
+
 def update_cov_values(cov_a_name, cov_b_name, covariate_pairs):
     session = SessionLocal()
 
@@ -97,6 +98,7 @@ def load_covariate_pairs(table_path):
     print(first_two_columns)
     return first_two_columns
 
+
 def main():
     init_db()
     parser = argparse.ArgumentParser(description='covariate pairs')
@@ -170,5 +172,7 @@ def main():
     df.to_csv(table_path, index=False)
 
     print(f'written to {table_path}')
+
+
 if __name__ == '__main__':
     main()
