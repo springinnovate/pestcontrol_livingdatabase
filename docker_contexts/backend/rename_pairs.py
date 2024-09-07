@@ -107,7 +107,7 @@ def main():
     args = parser.parse_args()
 
     table_path = f'rename_table_{args.cov_name_a}_xxx_{args.cov_name_b}.csv'
-    if os.path.exists(table_path) and not args.force:
+    if os.path.exists(table_path) and not (args.force or args.rename_table_path):
         print(f'WARNING: {table_path} exists exiting now, re-run with the `--force` flag to overwrite')
         return
 
