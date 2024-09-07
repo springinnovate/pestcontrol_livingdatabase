@@ -108,7 +108,7 @@ def main():
 
     table_path = f'rename_table_{args.cov_name_a}_xxx_{args.cov_name_b}.csv'
     if os.path.exists(table_path) and not args.force:
-        print(f'WARNING: {table_path} exists and I will overwrite it unless you pass --force')
+        print(f'WARNING: {table_path} exists exiting now, re-run with the `--force` flag to overwrite')
         return
 
     if args.rename_table_path:
