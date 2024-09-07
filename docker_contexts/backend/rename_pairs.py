@@ -103,7 +103,13 @@ def main():
     parser.add_argument('cov_name_a')
     parser.add_argument('cov_name_b')
     parser.add_argument('--rename_table_path')
+    parser.add_argument('--force', action='store_true')
     args = parser.parse_args()
+
+    table_path = f'rename_table_{args.cov_name_a}_xxx_{args.cov_name_b}.csv'
+    if os.path.exists(table_path) and not args.force:
+        print(f'WARNING: {table_path} exists and I will overwrite it unless you pass --force')
+        return
 
     if args.rename_table_path:
         covariate_pairs = load_covariate_pairs(args.rename_table_path)
@@ -137,11 +143,10 @@ def main():
     unique_covariate_pairs = collections.defaultdict(list)
     for col_a, col_b in results:
         unique_covariate_pairs[col_a].append(col_b if col_b is not None else BLANK)
-    table_path = f'rename_table_{args.cov_name_a}_xxx_{args.cov_name_b}.csv'
 
     # Prepare the data for DataFrame
     data = []
-    max_len = 0  # To track the maximum number of elements in col_b_list
+    max_len = 1  # include the start
 
     for col_a, col_b_list in sorted(unique_covariate_pairs.items()):
         max_len = max(max_len, len(col_b_list))  # Find the longest col_b_list
