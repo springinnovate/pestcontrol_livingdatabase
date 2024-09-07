@@ -108,8 +108,8 @@ def main():
 
     table_path = f'rename_table_{args.cov_name_a}_xxx_{args.cov_name_b}.csv'
     if os.path.exists(table_path) and not (args.force or args.rename_table_path):
-        print(f'WARNING: {table_path} exists exiting now, re-run with the `--force` flag to overwrite')
-        return
+        print(f'WARNING: "{table_path}" exists, exiting now. Re-run with the `--force` flag to overwrite')
+        sys.exit(-1)
 
     if args.rename_table_path:
         covariate_pairs = load_covariate_pairs(args.rename_table_path)
@@ -128,6 +128,15 @@ def main():
     cov_b_defn = session.execute(
         select(CovariateDefn)
         .filter(CovariateDefn.name == args.cov_name_b)).scalar_one_or_none()
+
+    missing = False
+    for name, cov in [(args.cov_name_a, cov_a_defn), (args.cov_name_b, cov_b_defn)]:
+        if cov is None:
+            print(f'error, "{name}" is not a covariate in the database')
+            missing = True
+    if missing:
+        print('Exiting, fix covariate name issue.')
+        sys.exit(-1)
 
     query = (
         select(cov_a.value, cov_b.value)  # Select cov_a and cov_b values
