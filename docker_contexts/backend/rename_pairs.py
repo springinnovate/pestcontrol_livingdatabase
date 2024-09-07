@@ -146,14 +146,14 @@ def main():
 
     # Prepare the data for DataFrame
     data = []
-    max_len = 1  # include the start
+    max_len = 0
 
     for col_a, col_b_list in sorted(unique_covariate_pairs.items()):
         max_len = max(max_len, len(col_b_list))  # Find the longest col_b_list
         data.append([col_a] + col_b_list)
 
     # Create a list of column names: first two are defined, rest are generic ('col_n')
-    columns = [args.cov_name_a, args.cov_name_b] + [f'col_{i}' for i in range(2, max_len)]
+    columns = [args.cov_name_a, args.cov_name_b] + [f'col_{i}' for i in range(2, max_len+1)]
 
     # Create the DataFrame, filling missing values with NaN where col_b_list is shorter
     df = pd.DataFrame(data, columns=columns)
