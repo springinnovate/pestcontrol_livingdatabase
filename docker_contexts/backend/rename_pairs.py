@@ -26,9 +26,7 @@ BLANK = '*BLANK*'
 
 def update_cov_values(cov_a_name, cov_b_name, covariate_pairs):
     session = SessionLocal()
-
     cov_b_defn = session.query(CovariateDefn).filter(CovariateDefn.name == cov_b_name).first()
-
     cov_a_values = [pair[0] for pair in covariate_pairs]
     samples_with_cov_a = (
         session.query(Sample, CovariateValue.value)
@@ -100,6 +98,8 @@ def load_covariate_pairs(table_path):
 
 
 def main():
+    print('there is an error with this script hat if you pass a covariate that is a study covariate it will replace it with missing sample covariates so it should be flexible to both')
+    return
     init_db()
     parser = argparse.ArgumentParser(description='covariate pairs')
     parser.add_argument('cov_name_a')
