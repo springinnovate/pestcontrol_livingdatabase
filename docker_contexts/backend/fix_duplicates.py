@@ -31,6 +31,9 @@ def main():
         print('not implemented')
         return
 
+    print('not implemented')
+    return
+
     session = SessionLocal()
     # covariate_defn = session.execute(
     #     select(CovariateDefn)
