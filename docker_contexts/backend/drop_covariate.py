@@ -6,12 +6,9 @@ import argparse
 import pandas as pd
 from database import SessionLocal, init_db
 from database_model_definitions import Sample, CovariateValue, CovariateDefn
-from sqlalchemy import select, func, or_, and_
-from sqlalchemy.orm import aliased
-from sqlalchemy import update
-from sqlalchemy.orm import selectinload
+from sqlalchemy import select, delete
 
-BLANK = '*BLANK*'
+DELETE = 'DELETE'
 
 
 def load_covariate_pairs(table_path):
@@ -29,37 +26,44 @@ def main():
     args = parser.parse_args()
 
     session = SessionLocal()
+    covariate_defn = session.execute(
+        select(CovariateDefn)
+        .filter(CovariateDefn.name == args.covariate_name)).scalar_one_or_none()
+    if covariate_defn is None:
+        print(f'could not find a covariate named {args.covariate_name}')
+        return
+
     table_path = f'drop_covariates_{args.covariate_name}.csv'
 
     if os.path.exists(table_path):
         df = pd.read_csv(table_path)
         column_name = df.columns[0]
-        if column_name == 'YES':
+        if column_name == DELETE:
             print(f'deleting {args.covariate_name}')
+            delete_query = delete(CovariateValue).where(CovariateValue.covariate_defn_id == covariate_defn.id_key)
+            session.execute(delete_query)
+            session.delete(covariate_defn)
+            session.commit()
+            print(f'deleted all {args.covariate_name} covariates and the definition')
+            return
         else:
             print(
                 f'ERROR was expecting if you wanted to delete {args.covariate_name} you '
-                f'would have replaced the columname at {table_path} with DELETE, instead '
-                f'it is {column_name}')
+                f'would have replaced the columname at {table_path} with {DELETE}, instead '
+                f'it is "{column_name}"')
         return
 
-    covariate_defn = session.execute(
-        select(CovariateDefn)
-        .filter(CovariateDefn.name == args.covariate_name)).scalar_one_or_none()
 
     print(covariate_defn)
     covariate_values = session.execute(
         select(CovariateValue.value)
         .filter(CovariateValue.covariate_defn_id == covariate_defn.id_key).distinct())
-
-
-
-
     covariate_name_list = [x[0] for x in covariate_values.all()]
 
     df = pd.DataFrame()
-    df[f'{args.covariate_name} (replace this with DELETE if you want to delete it)'] = covariate_name_list
+    df[f'{args.covariate_name} (replace this with {DELETE} if you want to delete it)'] = covariate_name_list
     df.to_csv(table_path, index=False)
+    print(f'okay, check out {table_path} and make sure it is what you want to delete and follow the directions there and run this script again')
     return
 
     query = (
