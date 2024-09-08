@@ -1,7 +1,7 @@
 """Database definitions for news articles and their classifications."""
 import os
 
-from database_model_definitions import Base, CovariateDefn, CovariateType, CovariateAssociation
+from database_model_definitions import Base, CovariateDefn, CovariateType, CovariateAssociation, STUDY_ID
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -25,30 +25,25 @@ def initialize_covariates():
     # display_order, covariate_name, editable_name, covariate_type, covariate_association, queryable, always_display, condition, hidden, show_in_point_table, search_by_unique
     OTHER_COVARIATES = [
         (-1, 'doi', False, CovariateType.STRING.value, CovariateAssociation.STUDY.value, True, False, False, False, True),
-        (0, 'Study_ID', False, CovariateType.STRING.value, CovariateAssociation.STUDY.value, True, False, True, True),
-        (1, 'Year', False, CovariateType.INTEGER.value, CovariateAssociation.SAMPLE.value, True, False, False, True),
-        (2, 'Longitude', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, True),
-        (3, 'Latitude', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, True),
-        (4, 'Response_variable', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, True),
-        (5, 'Observation', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, True),
-        (6, 'Units', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, True),
-        (7, 'Latin_name', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, True),
-        (8, 'Species', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, True),
-        (9, 'Genus', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, True),
-        (10, 'Family', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, True),
-        (11, 'Order', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, True),
-        (12, 'Class', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, True),
-        (13, 'Lifestage', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, True),
-        (14, 'Functional_type', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, True),
-        (15, 'ObserverID', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, True),
-        (16, 'Manager', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, True),
-        (17, 'Crop_latin_name', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, True),
-        (18, 'Crop_common_name', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, True),
-        (19, 'Sampling_method', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, True),
-        (20, 'Month', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, True),
-        (21, 'Day', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, True),
-        (22, 'Time', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, True),
-        (23, 'Replicate', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, True),
+        (4, 'Response_variable', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, False, True),
+        (6, 'Units', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, False, True),
+        (7, 'Latin_name', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, False, True),
+        (8, 'Species', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, False, True),
+        (9, 'Genus', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, False, True),
+        (10, 'Family', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, False, True),
+        (11, 'Order', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, False, True),
+        (12, 'Class', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, False, True),
+        (13, 'Lifestage', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, False, True),
+        (14, 'Functional_type', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, False, True),
+        (15, 'ObserverID', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, False, True),
+        (16, 'Manager', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, False, True),
+        (17, 'Crop_latin_name', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, False, True),
+        (18, 'Crop_common_name', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, False, True),
+        (19, 'Sampling_method', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, False, True),
+        (20, 'Month', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, False, True),
+        (21, 'Day', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, False, True),
+        (22, 'Time', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, False, True),
+        (23, 'Replicate', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, False, True),
     ]
 
     covariates_to_add = []

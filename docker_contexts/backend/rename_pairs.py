@@ -131,6 +131,8 @@ def main():
         select(CovariateDefn)
         .filter(CovariateDefn.name == args.cov_name_b)).scalar_one_or_none()
 
+    print(f'{args.cov_name_a}: {cov_a_defn}; {args.cov_name_b}: {cov_b_defn}')
+
     missing = False
     for name, cov in [(args.cov_name_a, cov_a_defn), (args.cov_name_b, cov_b_defn)]:
         if cov is None:

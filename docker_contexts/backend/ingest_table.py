@@ -169,7 +169,6 @@ def define_new_covariates(session, table_source_path, covariate_names, covariate
             description=f'uncorrelated with existing covariates during ingestion. found in {table_source_path}',
             queryable=True,
             always_display=False,
-            condition=None,
             hidden=False,
             show_in_point_table=False,
             search_by_unique=False,
@@ -363,7 +362,7 @@ def create_matching_table(session, args, column_matching_path):
 
 TO_ADD_BUFFER = []
 
-#@profile
+
 def main():
     global OBJECT_CACHE
     global TO_ADD_BUFFER
@@ -489,15 +488,14 @@ def main():
         study_id = row[STUDY_ID]
         try:
             study = STUDY_CACHE[study_id]
-        except KeyError:
-            LOGGER.warning(f'error on this row: {index} {row}')
+        except KeyError as e:
+            LOGGER.exception(f'error on this row: {index} {row}')
             continue
-
         sample = Sample(
             point=point,
             study=study,
             observation=row[OBSERVATION]
-            )
+        )
         session.add(sample)
         for covariate_defn in sample_covariate_defn_list:
             covariate_name = covariate_defn.name
