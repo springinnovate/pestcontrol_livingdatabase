@@ -15,7 +15,7 @@ import sys, os
 
 import pandas as pd
 from database import SessionLocal, init_db
-from database_model_definitions import Sample, CovariateValue, CovariateDefn
+from database_model_definitions import Sample, CovariateValue, CovariateDefn, CovariateAssociation
 from sqlalchemy import select, func, or_, and_
 from sqlalchemy.orm import aliased
 from sqlalchemy import update
@@ -98,8 +98,6 @@ def load_covariate_pairs(table_path):
 
 
 def main():
-    print('there is an error with this script hat if you pass a covariate that is a study covariate it will replace it with missing sample covariates so it should be flexible to both')
-    return
     init_db()
     parser = argparse.ArgumentParser(description='covariate pairs')
     parser.add_argument('cov_name_a')
@@ -133,6 +131,9 @@ def main():
 
     print(f'{args.cov_name_a}: {cov_a_defn}; {args.cov_name_b}: {cov_b_defn}')
 
+    if not cov_a_defn.covariate_association == cov_b_defn.covariate_association:
+        raise RuntimeError(f'"{args.cov_name_a}" and "{args.cov_name_b}"" are different covariate types (one is Study other is Sample)')
+
     missing = False
     for name, cov in [(args.cov_name_a, cov_a_defn), (args.cov_name_b, cov_b_defn)]:
         if cov is None:
@@ -142,11 +143,18 @@ def main():
         print('Exiting, fix covariate name issue.')
         sys.exit(-1)
 
+    if cov_a_defn.covariate_association == CovariateAssociation.STUDY.value:
+        print('these are STUDY level covariate')
+        same_type_filter = cov_a.study_id == cov_b.study_id
+    elif cov_a_defn.covariate_association == CovariateAssociation.SAMPLE.value:
+        print('these are SAMPLE level covariates')
+        same_type_filter = cov_a.study_id == cov_b.study_id
+
     query = (
         select(cov_a.value, cov_b.value)  # Select cov_a and cov_b values
         .join(CovariateDefn, CovariateDefn.id_key == cov_a.covariate_defn_id)  # Join CovariateDefn for cov_a
         .outerjoin(cov_b, and_(
-            cov_b.sample_id == cov_a.sample_id,
+            same_type_filter,
             cov_b.covariate_defn_id == cov_b_defn.id_key
         ))
         .filter(cov_a.covariate_defn_id == cov_a_defn.id_key)  # Ensure cov_a matches the correct definition

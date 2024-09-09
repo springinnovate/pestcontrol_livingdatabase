@@ -5,7 +5,7 @@ import argparse
 
 import pandas as pd
 from database import SessionLocal, init_db
-from database_model_definitions import Sample, CovariateValue, CovariateDefn
+from database_model_definitions import CovariateValue, CovariateDefn
 from sqlalchemy import select, delete
 
 DELETE = 'DELETE'
