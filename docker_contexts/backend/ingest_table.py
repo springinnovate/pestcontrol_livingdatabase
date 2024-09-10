@@ -527,7 +527,6 @@ def main():
             existing_covariate_value = session.query(CovariateValue).filter_by(
                 sample_id=sample.id_key,  # Assuming sample has an id_key for foreign key reference
                 covariate_defn_id=covariate_defn.id_key,  # Assuming covariate_defn has an id_key
-                value=covariate_value_str
             ).first()
 
             # If no such CovariateValue exists, create a new one
@@ -538,6 +537,8 @@ def main():
                 )
                 session.add(covariate_value_obj)
                 sample.covariates.append(covariate_value_obj)
+            else:
+                existing_covariate_value.value = covariate_value_str
 
     # add all samples in samples_to_add
     print('bulk inserting remainder')
