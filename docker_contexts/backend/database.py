@@ -15,6 +15,7 @@ SessionLocal = sessionmaker(bind=engine)
 
 def init_db():
     Base.metadata.create_all(bind=engine)
+    initialize_covariates()
 
 
 def initialize_covariates():
@@ -25,6 +26,7 @@ def initialize_covariates():
     # display_order, covariate_name, editable_name, covariate_type, covariate_association, queryable, always_display, condition, hidden, show_in_point_table, search_by_unique
     OTHER_COVARIATES = [
         (-1, 'doi', False, CovariateType.STRING.value, CovariateAssociation.STUDY.value, True, False, False, False, True),
+        (1, 'year', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, True, False, False, True),
         (4, 'Response_variable', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, False, True),
         (6, 'Units', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, False, True),
         (7, 'Latin_name', False, CovariateType.STRING.value, CovariateAssociation.SAMPLE.value, True, False, False, False, True),
@@ -69,6 +71,8 @@ def initialize_covariates():
         existing = session.query(CovariateDefn).filter_by(
             name=covariate.name).first()
         if not existing:
+            print(f'adding {covariate.name}')
             session.add(covariate)
+            session.commit()
 
     session.commit()

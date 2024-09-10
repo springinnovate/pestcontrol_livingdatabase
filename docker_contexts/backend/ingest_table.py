@@ -43,6 +43,7 @@ logging.basicConfig(
 logging.getLogger('taskgraph').setLevel(logging.INFO)
 LOGGER = logging.getLogger(__name__)
 
+
 def validate_tables(study_table_df, sample_table_df):
     # all the sample study ids should be in the metadata table
     study_ids_metadata = set(study_table_df['study_id'].unique())
@@ -153,12 +154,15 @@ def fetch_or_create_study(session, covariate_defn_list, row):
     return study
 
 
-#@profile
 def define_new_covariates(session, table_source_path, covariate_names, covariate_association):
     for name in covariate_names:
+        if name in REQUIRED_SAMPLE_INPUT_FIELDS:
+            continue
         existing = session.query(CovariateDefn).filter_by(
             name=name).first()
+        print(f'{name}: {existing}')
         if existing:
+            LOGGER.debug(f'{name} already exists as {existing}')
             continue
         hidden_covariate = CovariateDefn(
             display_order=999,
@@ -294,7 +298,7 @@ def match_strings(base_list, to_match_list):
             item[0] == '',
             item[0].lower()))
 
-#@profile
+
 def extract_column_matching(matching_df, column_matching_path):
     missing_fields = []
     unmatched_field = []
@@ -317,7 +321,7 @@ def extract_column_matching(matching_df, column_matching_path):
             f'`{column_matching_path}` so these fields are defined.')
     return base_to_target_map, unmatched_field
 
-#@profile
+
 def create_matching_table(session, args, column_matching_path):
     study_covariate_list = session.query(CovariateDefn).filter(
         CovariateDefn.covariate_association == CovariateAssociation.STUDY.value).order_by(
@@ -384,7 +388,7 @@ def main():
         nrows = args.n_dataset_rows[0]
     elif len(args.n_dataset_rows) == 2:
         skiprows = lambda x: x > 0 and x < args.n_dataset_rows[0]
-        nrows = args.n_dataset_rows[1]-args.n_dataset_rows[0]
+        nrows = args.n_dataset_rows[1] - args.n_dataset_rows[0]
 
     column_matching_path = (
         f'{rootbasename(args.study_table_path)}_'
@@ -418,17 +422,18 @@ def main():
     sample_table_df = read_csv_with_detected_encoding(
         args.sample_table_path, low_memory=False, skiprows=skiprows, nrows=nrows)
 
+    LOGGER.debug(sample_table_df)
+
     sample_table_df.rename(columns=sample_base_to_user_fields, inplace=True)
 
     columns_to_cast = [LATITUDE, LONGITUDE, OBSERVATION, YEAR]
     for column in columns_to_cast:
         sample_table_df[column] = pd.to_numeric(sample_table_df[column], errors='coerce')
     sample_table_df.dropna(subset=columns_to_cast, inplace=True)
-
-    # drop the columns that aren't being used
-
-    define_new_covariates(session, args.study_table_path, raw_study_user_fields, CovariateAssociation.STUDY.value)
+    sample_table_df.to_csv('debug.csv')
+    print(f'definign new covariates: {raw_sample_user_fields}')
     define_new_covariates(session, args.sample_table_path, raw_sample_user_fields, CovariateAssociation.SAMPLE.value)
+    define_new_covariates(session, args.study_table_path, raw_study_user_fields, CovariateAssociation.STUDY.value)
     validate_tables(study_table_df, sample_table_df)
 
     country_vector = geopandas.read_file(
@@ -491,12 +496,25 @@ def main():
         except KeyError as e:
             LOGGER.exception(f'error on this row: {index} {row}')
             continue
-        sample = Sample(
+
+        existing_sample = session.query(Sample).filter_by(
             point=point,
             study=study,
             observation=row[OBSERVATION]
-        )
-        session.add(sample)
+        ).first()
+
+        if existing_sample:
+            existing_sample.year = row[YEAR]
+            sample = existing_sample
+        else:
+            # Prepare new sample for bulk insert
+            sample = Sample(
+                point=point,
+                study=study,
+                observation=row[OBSERVATION],
+                year=row[YEAR],
+            )
+            session.add(sample)
         for covariate_defn in sample_covariate_defn_list:
             covariate_name = covariate_defn.name
             if covariate_name not in row:
@@ -505,11 +523,21 @@ def main():
             if not isinstance(covariate_value, str) and numpy.isnan(
                     covariate_value):
                 continue
-            covariate_value_obj = CovariateValue(
-                value=str(covariate_value),
-                covariate_defn=covariate_defn)
-            session.add(covariate_value_obj)
-            sample.covariates.append(covariate_value_obj)
+            covariate_value_str = str(covariate_value)
+            existing_covariate_value = session.query(CovariateValue).filter_by(
+                sample_id=sample.id_key,  # Assuming sample has an id_key for foreign key reference
+                covariate_defn_id=covariate_defn.id_key,  # Assuming covariate_defn has an id_key
+                value=covariate_value_str
+            ).first()
+
+            # If no such CovariateValue exists, create a new one
+            if not existing_covariate_value:
+                covariate_value_obj = CovariateValue(
+                    value=covariate_value_str,
+                    covariate_defn=covariate_defn
+                )
+                session.add(covariate_value_obj)
+                sample.covariates.append(covariate_value_obj)
 
     # add all samples in samples_to_add
     print('bulk inserting remainder')
