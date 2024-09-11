@@ -35,9 +35,6 @@ def main():
     return
 
     session = SessionLocal()
-    # covariate_defn = session.execute(
-    #     select(CovariateDefn)
-    #     .filter(CovariateDefn.name == args.covariate_name)).scalar_one_or_none()
 
     query = (
         select(CovariateValue.value)

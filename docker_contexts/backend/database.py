@@ -1,5 +1,8 @@
 """Database definitions for news articles and their classifications."""
 import os
+import datetime
+import shutil
+import sqlite3
 
 from database_model_definitions import Base, CovariateDefn, CovariateType, CovariateAssociation, STUDY_ID
 from sqlalchemy import create_engine
@@ -11,6 +14,28 @@ DATABASE_URI = 'sqlite:///instance/living_database.db'
 engine = create_engine(DATABASE_URI, echo=False)
 
 SessionLocal = sessionmaker(bind=engine)
+
+
+def is_valid_sqlite_db(db_path):
+    try:
+        # Try to connect to the database
+        conn = sqlite3.connect(db_path)
+        conn.close()
+        return True
+    except sqlite3.Error as e:
+        print(f'some kind of error on {db_path}: {e}')
+        return False
+
+
+def backup_db():
+    db_path = DATABASE_URI.split('///')[-1]
+    if not is_valid_sqlite_db(db_path):
+        raise RuntimeError(f'{db_path} is invalid database somehow.')
+    timestamp = datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
+    backup_db_path = f'{os.path.splitext(db_path)[0]}_backup_{timestamp}{os.path.splitext(db_path)[1]}'
+    shutil.copy(db_path, backup_db_path)
+    if not is_valid_sqlite_db(backup_db_path):
+        raise RuntimeError(f'{backup_db_path} backup is invalid database somehow.')
 
 
 def init_db():
@@ -51,7 +76,6 @@ def initialize_covariates():
     covariates_to_add = []
     for (display_order, covariate_name, editable_name, covariate_type, covariate_association,
          queryable, always_display, hidden, show_in_point_table, search_by_unique) in OTHER_COVARIATES:
-        print(covariate_name)
         covariates_to_add.append(
             CovariateDefn(
                 display_order=display_order,
@@ -67,9 +91,9 @@ def initialize_covariates():
             ))
 
     for covariate in covariates_to_add:
-        print(f'adding covariate {covariate}')
-        existing = session.query(CovariateDefn).filter_by(
-            name=covariate.name).first()
+        existing = session.query(CovariateDefn).filter(
+            CovariateDefn.name.ilike(covariate.name)
+        ).first()
         if not existing:
             print(f'adding {covariate.name}')
             session.add(covariate)

@@ -41,6 +41,7 @@ logging.basicConfig(
         '%(asctime)s (%(relativeCreated)d) %(levelname)s %(name)s'
         ' [%(funcName)s:%(lineno)d] %(message)s'))
 logging.getLogger('taskgraph').setLevel(logging.INFO)
+logging.getLogger('fiona').setLevel(logging.INFO)
 LOGGER = logging.getLogger(__name__)
 
 
@@ -106,7 +107,6 @@ def read_csv_with_detected_encoding_from_stringio(stringio_obj, nrows=None):
     return df
 
 
-#@profile
 def fetch_or_create_study(session, covariate_defn_list, row):
     global OBJECT_CACHE
     global STUDY_CACHE
@@ -139,7 +139,7 @@ def fetch_or_create_study(session, covariate_defn_list, row):
             covariate_value_obj = (
                 session.query(CovariateValue)
                 .join(CovariateDefn)
-                .filter(CovariateDefn.name == covariate_name,
+                .filter(CovariateDefn.name.ilike(covariate_name),
                         CovariateValue.value == covariate_value).first())
             if covariate_value_obj is not None:
                 OBJECT_CACHE[covariate_id_tuple] = covariate_value_obj
@@ -158,8 +158,8 @@ def define_new_covariates(session, table_source_path, covariate_names, covariate
     for name in covariate_names:
         if name in REQUIRED_SAMPLE_INPUT_FIELDS:
             continue
-        existing = session.query(CovariateDefn).filter_by(
-            name=name).first()
+        existing = session.query(CovariateDefn).filter(
+            CovariateDefn.name.ilike(name)).first()
         print(f'{name}: {existing}')
         if existing:
             LOGGER.debug(f'{name} already exists as {existing}')
@@ -497,24 +497,13 @@ def main():
             LOGGER.exception(f'error on this row: {index} {row}')
             continue
 
-        existing_sample = session.query(Sample).filter_by(
+        sample = Sample(
             point=point,
             study=study,
-            observation=row[OBSERVATION]
-        ).first()
-
-        if existing_sample:
-            existing_sample.year = row[YEAR]
-            sample = existing_sample
-        else:
-            # Prepare new sample for bulk insert
-            sample = Sample(
-                point=point,
-                study=study,
-                observation=row[OBSERVATION],
-                year=row[YEAR],
-            )
-            session.add(sample)
+            observation=row[OBSERVATION],
+            year=row[YEAR],
+        )
+        session.add(sample)
         for covariate_defn in sample_covariate_defn_list:
             covariate_name = covariate_defn.name
             if covariate_name not in row:
@@ -524,21 +513,12 @@ def main():
                     covariate_value):
                 continue
             covariate_value_str = str(covariate_value)
-            existing_covariate_value = session.query(CovariateValue).filter_by(
-                sample_id=sample.id_key,  # Assuming sample has an id_key for foreign key reference
-                covariate_defn_id=covariate_defn.id_key,  # Assuming covariate_defn has an id_key
-            ).first()
-
-            # If no such CovariateValue exists, create a new one
-            if not existing_covariate_value:
-                covariate_value_obj = CovariateValue(
-                    value=covariate_value_str,
-                    covariate_defn=covariate_defn
-                )
-                session.add(covariate_value_obj)
-                sample.covariates.append(covariate_value_obj)
-            else:
-                existing_covariate_value.value = covariate_value_str
+            covariate_value_obj = CovariateValue(
+                value=covariate_value_str,
+                covariate_defn=covariate_defn
+            )
+            session.add(covariate_value_obj)
+            sample.covariates.append(covariate_value_obj)
 
     # add all samples in samples_to_add
     print('bulk inserting remainder')

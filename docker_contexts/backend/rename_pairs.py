@@ -14,7 +14,7 @@ import sys, os
 
 
 import pandas as pd
-from database import SessionLocal, init_db
+from database import SessionLocal, init_db, backup_db
 from database_model_definitions import Sample, CovariateValue, CovariateDefn, CovariateAssociation
 from sqlalchemy import select, func, or_, and_
 from sqlalchemy.orm import aliased
@@ -112,6 +112,7 @@ def main():
         sys.exit(-1)
 
     if args.rename_table_path:
+        backup_db()
         covariate_pairs = load_covariate_pairs(args.rename_table_path)
         update_cov_values(args.cov_name_a, args.cov_name_b, covariate_pairs)
         print('all updated')
