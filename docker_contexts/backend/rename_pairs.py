@@ -18,7 +18,7 @@ from database import SessionLocal, init_db, backup_db
 from database_model_definitions import Sample, CovariateValue, CovariateDefn, CovariateAssociation
 from sqlalchemy import select, func, or_, and_
 from sqlalchemy.orm import aliased
-from sqlalchemy import update
+from sqlalchemy import update, text
 from sqlalchemy.orm import selectinload
 
 BLANK = '*BLANK*'
@@ -160,6 +160,32 @@ def main():
         ))
         .filter(cov_a.covariate_defn_id == cov_a_defn.id_key)  # Ensure cov_a matches the correct definition
     ).distinct()
+
+    explain_query = text(
+        "EXPLAIN " + str(
+            select(cov_a.value, cov_b.value)
+            .join(CovariateDefn, CovariateDefn.id_key == cov_a.covariate_defn_id)
+            .outerjoin(cov_b, and_(
+                same_type_filter,
+                cov_b.covariate_defn_id == cov_b_defn.id_key
+            ))
+            .filter(cov_a.covariate_defn_id == cov_a_defn.id_key)
+            .distinct()
+        )
+    )
+
+    covariate_defn_id_a = cov_a_defn.id_key  # Example value for covariate_defn_id for cov_a
+    covariate_defn_id_b = cov_b_defn.id_key  # Example value for covariate_defn_id for cov_b
+
+    result = session.execute(explain_query, {
+        'covariate_defn_id_1': covariate_defn_id_a,
+        'covariate_defn_id_2': covariate_defn_id_b
+    })
+
+    for row in result:
+        print(row)
+    return
+
     results = session.execute(query)
 
     unique_covariate_pairs = collections.defaultdict(list)

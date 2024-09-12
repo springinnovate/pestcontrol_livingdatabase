@@ -132,6 +132,19 @@ class CovariateDefn(Base):
     covariate_values: Mapped[List["CovariateValue"]] = relationship(
         "CovariateValue", back_populates="covariate_defn")
 
+    __table_args__ = (
+        Index('ix_covariate_defn_name', name, unique=True),
+        Index('ix_covariate_defn_editable_name', editable_name),
+        Index('ix_covariate_defn_queryable', queryable),
+        Index('ix_covariate_defn_always_display', always_display),
+        Index('ix_covariate_defn_hidden', hidden),
+        Index('ix_covariate_defn_show_in_point_table', show_in_point_table),
+        Index('ix_covariate_defn_search_by_unique', search_by_unique),
+        Index('ix_covariate_defn_covariate_type', covariate_type),
+        Index('ix_covariate_defn_covariate_association', covariate_association),
+        Index('ix_covariatedefn_id_key', id_key),
+    )
+
     def __repr__(self):
         return f'<CovariateDefn(id={self.id_key}, name={self.name})'
 
@@ -151,6 +164,11 @@ class CovariateValue(Base):
 
     sample_id: Mapped[Optional[int]] = mapped_column(ForeignKey('sample.id_key'), index=True)
     sample: Mapped[Optional['Sample']] = relationship("Sample", back_populates="covariates")
+
+
+    __table_args__ = (
+        Index('ix_covariatevalue_covariate_defn_id', covariate_defn_id),
+    )
 
     def __repr__(self):
         return f'<CovariateValue(id={self.id_key}, covariate_defn={self.covariate_defn}, value={self.value})>'

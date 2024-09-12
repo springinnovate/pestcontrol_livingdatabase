@@ -6,6 +6,7 @@ import sqlite3
 
 from database_model_definitions import Base, CovariateDefn, CovariateType, CovariateAssociation, STUDY_ID
 from sqlalchemy import create_engine
+from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
 DATABASE_URI = 'sqlite:///instance/living_database.db'
@@ -98,5 +99,20 @@ def initialize_covariates():
             print(f'adding {covariate.name}')
             session.add(covariate)
             session.commit()
+
+    print('initalizing indexes')
+    with engine.connect() as connection:
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_covariatevalue_covariate_defn_id ON covariate_value (covariate_defn_id);"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_covariatedefn_id_key ON covariate_defn (id_key);"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_covariate_defn_name ON covariate_defn (name);"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_covariate_defn_editable_name ON covariate_defn (editable_name);"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_covariate_defn_queryable ON covariate_defn (queryable);"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_covariate_defn_always_display ON covariate_defn (always_display);"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_covariate_defn_hidden ON covariate_defn (hidden);"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_covariate_defn_show_in_point_table ON covariate_defn (show_in_point_table);"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_covariate_defn_search_by_unique ON covariate_defn (search_by_unique);"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_covariate_defn_covariate_type ON covariate_defn (covariate_type);"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_covariate_defn_covariate_association ON covariate_defn (covariate_association);"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_covariatevalue_covariate_defn_id_id_key ON covariate_value (covariate_defn_id, id_key);"))
 
     session.commit()
