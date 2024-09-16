@@ -72,8 +72,7 @@ def main():
         base_value_to_sample_ids.setdefault(value, []).append(sample_id)
 
     new_covariate_values = []
-    print(len(samples_to_process_list))
-    return
+    n_samples = len(samples_to_process_list)
     # Iterate over rows in the dataframe
     for row_id, row in df.iterrows():
         base_value = row[base_name]
@@ -84,7 +83,9 @@ def main():
             print(f"No samples found for base_value '{base_value}'")
             continue
 
-        for sample_id in sample_ids:
+        for sample_index, sample_id in enumerate(sample_ids):
+            if sample_index % 1000 == 0:
+                print(f'{row_id}: {sample_index} of {n_samples}')
             print(f'{base_name}: {base_value}')
             for covariate_name, new_value in covariate_mappings.items():
                 covariate_defn = covariate_defn_lookup[covariate_name]
@@ -94,15 +95,15 @@ def main():
 
                 if covariate_value:
                     if covariate_value.value != new_value:
-                        print(
-                            f"Updating sample_id {sample_id}: "
-                            f"'{covariate_name}' from "
-                            f"'{covariate_value.value}' to '{new_value}'")
+                        # print(
+                        #     f"Updating sample_id {sample_id}: "
+                        #     f"'{covariate_name}' from "
+                        #     f"'{covariate_value.value}' to '{new_value}'")
                         covariate_value.value = new_value
                 else:
-                    print(
-                        f"Adding new CovariateValue for sample_id "
-                        f"{sample_id}: '{covariate_name}' = '{new_value}'")
+                    # print(
+                    #     f"Adding new CovariateValue for sample_id "
+                    #     f"{sample_id}: '{covariate_name}' = '{new_value}'")
                     new_covariate_value = CovariateValue(
                         sample_id=sample_id,
                         covariate_defn_id=covariate_defn.id_key,
@@ -112,8 +113,6 @@ def main():
                     # Update the lookup to include this new covariate_value
                     covariate_value_lookup.setdefault(sample_id, {})[
                         covariate_defn.id_key] = new_covariate_value
-            break
-        break
     # if new_covariate_values:
     #     session.bulk_save_objects(new_covariate_values)
 
