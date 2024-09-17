@@ -1,15 +1,11 @@
-import collections
-import argparse
-import sys, os
+"""Used to rename elemenets in database given the value of the first covariate"""
 
+import argparse
 
 import pandas as pd
-from database import SessionLocal, init_db, backup_db
-from database_model_definitions import Sample, CovariateValue, CovariateDefn, CovariateAssociation
-from sqlalchemy import select, func, or_, and_
-from sqlalchemy.orm import aliased
-from sqlalchemy import update, text
-from sqlalchemy.orm import selectinload
+from database import SessionLocal, init_db
+from database_model_definitions import Sample, CovariateValue, CovariateDefn
+from sqlalchemy import select
 
 
 def main():
@@ -86,7 +82,6 @@ def main():
         for sample_index, sample_id in enumerate(sample_ids):
             if sample_index % 1000 == 0:
                 print(f'{row_id}: {sample_index} of {n_samples}')
-            print(f'{base_name}: {base_value}')
             for covariate_name, new_value in covariate_mappings.items():
                 covariate_defn = covariate_defn_lookup[covariate_name]
 
@@ -95,30 +90,21 @@ def main():
 
                 if covariate_value:
                     if covariate_value.value != new_value:
-                        # print(
-                        #     f"Updating sample_id {sample_id}: "
-                        #     f"'{covariate_name}' from "
-                        #     f"'{covariate_value.value}' to '{new_value}'")
                         covariate_value.value = new_value
                 else:
-                    # print(
-                    #     f"Adding new CovariateValue for sample_id "
-                    #     f"{sample_id}: '{covariate_name}' = '{new_value}'")
                     new_covariate_value = CovariateValue(
                         sample_id=sample_id,
                         covariate_defn_id=covariate_defn.id_key,
                         value=new_value
                     )
                     new_covariate_values.append(new_covariate_value)
-                    # Update the lookup to include this new covariate_value
                     covariate_value_lookup.setdefault(sample_id, {})[
                         covariate_defn.id_key] = new_covariate_value
-    # if new_covariate_values:
-    #     session.bulk_save_objects(new_covariate_values)
+    if new_covariate_values:
+        session.bulk_save_objects(new_covariate_values)
 
-    # # Commit all changes
-    # session.commit()
-    # session.close()
+    session.commit()
+    session.close()
 
 
 if __name__ == '__main__':
