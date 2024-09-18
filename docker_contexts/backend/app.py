@@ -254,15 +254,26 @@ def calculate_study_display_order(
     return covariate_display_order, display_table
 
 
+@app.route('/initialize_searchable_covariates', methods=['POST'])
 def initialize_searchable_covariates():
+    data = request.get_json()
+    clear_cache = data.get('clear_cache', False)
+    initialize_covariates(clear_cache)
+    return jsonify(success=True)
+
+
+def initialize_covariates(clear_cache):
     global COVARIATE_STATE
     os.makedirs(INSTANCE_DIR, exist_ok=True)
     pkcl_filepath = os.path.join(INSTANCE_DIR, 'initialize_searchable_covariates.pkl')
     if os.path.exists(pkcl_filepath):
-        with open(pkcl_filepath, 'rb') as file:
-            COVARIATE_STATE = pickle.load(file)
-        LOGGER.info(f'loaded covariate state from {pkcl_filepath}')
-        return
+        if clear_cache:
+            os.remove(pkcl_filepath)
+        else:
+            with open(pkcl_filepath, 'rb') as file:
+                COVARIATE_STATE = pickle.load(file)
+            LOGGER.info(f'loaded covariate state from {pkcl_filepath}')
+            return
 
     session = SessionLocal()
     COVARIATE_STATE = {}
@@ -282,6 +293,8 @@ def initialize_searchable_covariates():
     for index, row in enumerate(searchable_unique_covariates):
         if index % 100000 == 0:
             LOGGER.info(f'on searchable descrete covariates index {index}')
+        if isinstance(COVARIATE_STATE['searchable_covariates'][row.name], list):
+            print(f'{row.name} is a list???')
         COVARIATE_STATE['searchable_covariates'][row.name].add(row.value)
 
     for key, value in COVARIATE_STATE['searchable_covariates'].items():
@@ -943,7 +956,7 @@ def download_csv_template():
 
 LOGGER.debug(os.getenv('INIT_COVARIATES'))
 if os.getenv('INIT_COVARIATES') == 'True':
-    initialize_searchable_covariates()
+    initialize_covariates(False)
 
 if __name__ == '__main__':
     app.run(debug=True)
