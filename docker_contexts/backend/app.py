@@ -810,7 +810,7 @@ def _prep_download(task_id):
         session.close()
 
 
-MAX_EO_POINT_SAMPLES = 100
+MAX_EO_POINT_SAMPLES = 5000
 
 
 def point_table_to_point_batch(csv_file):

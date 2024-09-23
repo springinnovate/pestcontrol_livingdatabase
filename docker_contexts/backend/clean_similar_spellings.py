@@ -168,6 +168,8 @@ def main():
     args = parser.parse_args()
     scrubbed_file_path = f'scrubbed_{os.path.basename(args.table_path)}'
 
+    session = SessionLocal()
+
     classifier = _train_classifier()
 
     if not os.path.exists(scrubbed_file_path):
@@ -238,14 +240,10 @@ def main():
         except AttributeError:
             LOGGER.warn(f'too few pairs to compare on {field_name}, no duplicates probably')
 
-    classification_list = classifier.predict(prob_array_list)
-    with open(f'replacement_{scrubbed_file_path}', 'w') as file:
-        file.write(f'{scrubbed_file_path}\n')
-        for raw_class, match_pair in sorted(zip(classification_list, match_pair_list), reverse=True):
-            if raw_class < 1:
-                continue
-            file.write(f'{int(numpy.round(raw_class+0.25))},{",".join(match_pair)}\n')
 
+
+    session.commit()
+    session.close()
 
 if __name__ == '__main__':
     main()
