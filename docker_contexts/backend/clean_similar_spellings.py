@@ -21,7 +21,7 @@ import recordlinkage
 from database import SessionLocal
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
-from database_model_definitions import CovariateValue
+from database_model_definitions import CovariateValue, CovariateDefn
 
 
 logging.basicConfig(
@@ -166,61 +166,28 @@ def main():
     """Entry point."""
     parser = argparse.ArgumentParser(
         description='search for similar spellings in database covariates.')
-    parser.add_argument('covariate_name', help='Covarate name to search values through.')
-    parser.add_argument(
-        '--field_name', nargs='+', required=True,
-        help='a list of field names in the table to deduplicate.')
+    parser.add_argument('covariate_name', nargs='+', help='Covarate name to search values through.')
     args = parser.parse_args()
-    scrubbed_file_path = f'scrubbed_{os.path.basename(args.table_path)}'
-
     session = SessionLocal()
-
     classifier = _train_classifier()
-
-    if not os.path.exists(scrubbed_file_path):
-        scrubbed_file = open(scrubbed_file_path, 'wb')
-        with concurrent.futures.ProcessPoolExecutor() as executor:
-            with open(args.table_path, 'rb') as table_file:
-                n_lines = len(['x' for line in table_file])
-                table_file.seek(0)
-                processed_lines = executor.map(
-                    _process_line, list(table_file))
-            last_percent = 0
-            scrubbed_file.write(b'\xEF\xBB\xBF')
-            missing_letter_set = set()
-            for line_no, line in enumerate(processed_lines):
-                missing_letter_set.update([
-                    word.replace('"', '')
-                    for element in line.decode('utf-8').split(',') if '_' in element
-                    for word in element.split(' ')
-                    if '_' in word])
-                percent_complete = line_no/n_lines*100
-                if percent_complete-last_percent >= 1:
-                    last_percent = percent_complete
-                    LOGGER.info(f'{last_percent:5.2f}% complete processing of {args.table_path}')
-                scrubbed_file.write(line)
-        with open('missing.txt', 'w') as file:
-            file.write('\n'.join(sorted(missing_letter_set)))
-    table = None
-    for encoding in ['utf8', 'latin1', 'cp1252']:
-        try:
-            table = pandas.read_csv(args.table_path, engine='python', encoding=encoding)
-            break
-        except UnicodeDecodeError:
-            pass
-    if table is None:
-        raise RuntimeError(f'could not decode {args.table_path}')
-    LOGGER.info(f'{table.head()}')
-    LOGGER.info(f'{table.columns}')
 
     # now iterate through the args.field_name pairs ....
     prob_array_list = []
     match_pair_list = []
-    for field_name in args.field_name:
-        LOGGER.info(f'processing {field_name}')
+    for covariate_name in args.covariate_name:
+        LOGGER.info(f'processing {covariate_name}')
+
+        unique_covariate_values = (
+            session.query(CovariateValue.value)
+            .join(CovariateValue.covariate_defn)
+            .filter(CovariateDefn.name == covariate_name)
+            .distinct()
+            .all()
+        )
+
         clean_names = pandas.DataFrame(
-            pandas.Series(clean(table[field_name]).dropna().unique()),
-            columns=[field_name])
+            unique_covariate_values,
+            columns=[covariate_name])
 
         indexer = recordlinkage.Index()
         indexer.full()
@@ -230,25 +197,28 @@ def main():
 
         for method in [
                 'qgram', 'cosine', 'smith_waterman', 'lcs']:
-            compare_cl.string(field_name, field_name, method=method)
-
+            compare_cl.string(covariate_name, covariate_name, method=method)
         LOGGER.info(f'Compute the comparison: {pairs}\n\n{clean_names}')
         try:
             features = compare_cl.compute(pairs, clean_names, clean_names)
-
             for prob_array, index_array in zip(features.values, features.index):
-                val1 = clean_names.loc[index_array[0], field_name]
-                val2 = clean_names.loc[index_array[1], field_name]
-                match_pair_list.append((val1, val2, field_name))
+                print(prob_array)
+                print(index_array)
+                val1 = clean_names.loc[index_array[0], covariate_name]
+                val2 = clean_names.loc[index_array[1], covariate_name]
+                match_pair_list.append((val1, val2, covariate_name))
                 prob_array_list.append(
                     numpy.append(prob_array, [len(val1)/MAX_LINE_LEN, len(val2)/MAX_LINE_LEN]))
+                print(prob_array_list)
+                result = classifier.predict(prob_array_list)
+                print(result)
+                return
         except AttributeError:
-            LOGGER.warn(f'too few pairs to compare on {field_name}, no duplicates probably')
-
-
+            LOGGER.warn(f'too few pairs to compare on {covariate_name}, no duplicates probably')
 
     session.commit()
     session.close()
+
 
 if __name__ == '__main__':
     main()

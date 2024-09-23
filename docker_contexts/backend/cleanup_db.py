@@ -1,7 +1,7 @@
 from database import SessionLocal
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func
-from database_model_definitions import CovariateValue
+from database_model_definitions import CovariateValue, CovariateDefn
 
 
 def clean_whitespace(session: Session):
