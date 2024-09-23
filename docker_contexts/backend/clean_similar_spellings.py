@@ -18,6 +18,12 @@ import numpy
 import pandas
 import recordlinkage
 
+from database import SessionLocal
+from sqlalchemy.orm import Session
+from sqlalchemy import select, func
+from database_model_definitions import CovariateValue
+
+
 logging.basicConfig(
     level=logging.DEBUG,
     format=(
@@ -159,9 +165,8 @@ def main():
     # return
     """Entry point."""
     parser = argparse.ArgumentParser(
-        description='search for similar names in space and edit distance')
-    parser.add_argument('table_path', help=(
-        'path to CSV data table with "long", "lat" and defined text fields'))
+        description='search for similar spellings in database covariates.')
+    parser.add_argument('covariate_name', help='Covarate name to search values through.')
     parser.add_argument(
         '--field_name', nargs='+', required=True,
         help='a list of field names in the table to deduplicate.')
