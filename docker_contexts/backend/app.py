@@ -332,6 +332,11 @@ def initialize_covariates(clear_cache):
 
     with open(pkcl_filepath, 'wb') as file:
         pickle.dump(COVARIATE_STATE, file)
+
+    LOGGER.info('sort all the values')
+
+    for key in COVARIATE_STATE['searchable_covariates']:
+        COVARIATE_STATE['searchable_covariates'][key] = sorted(COVARIATE_STATE['searchable_covariates'][key])
     LOGGER.info('all done with unique values')
 
 
@@ -342,8 +347,8 @@ def pcld():
         'query_builder.html',
         status_message=f'Number of samples in db: {n_samples}',
         possible_operations=list(OPERATION_MAP),
-        country_set=COVARIATE_STATE['country_set'],
-        continent_set=COVARIATE_STATE['continent_set'],
+        country_set=sorted(COVARIATE_STATE['country_set']),
+        continent_set=sorted(COVARIATE_STATE['continent_set']),
         unique_covariate_values=COVARIATE_STATE['searchable_covariates'],
         )
 
