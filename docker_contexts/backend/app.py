@@ -459,8 +459,8 @@ def build_filter(session, form):
                 form['centerPointBuffer'].strip())/2
             ul_lat = lat+center_point_buffer/2
             lr_lat = lat-center_point_buffer/2
-            ul_lng = lng+center_point_buffer/2
-            lr_lng = lng-center_point_buffer/2
+            ul_lng = lng-center_point_buffer/2
+            lr_lng = lng+center_point_buffer/2
 
             filter_text += f'center point at ({lat},{lng}) + +/-{center_point_buffer}\n'
 
