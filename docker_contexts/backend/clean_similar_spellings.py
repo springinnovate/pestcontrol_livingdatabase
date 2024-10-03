@@ -15,7 +15,7 @@ import editdistance
 import ftfy
 import matplotlib.pyplot as plt
 import numpy
-import pandas
+import pandas as pd
 import recordlinkage
 
 from database import SessionLocal
@@ -60,9 +60,10 @@ RAW_LOOKUP = [
     ['n_', 'na'],
     ['m_', 'ma'],
     ['o_e', 'one'],
-    ]
+]
 
 MAX_LINE_LEN = 27
+
 
 def _generate_scatter_plot(
         table_path, cluster_resolution, clusters, table):
@@ -152,7 +153,7 @@ def count_valid_characters(name):
 
 
 def _train_classifier():
-    table = pandas.read_csv('modified_training.csv')
+    table = pd.read_csv('modified_training.csv')
     X_set = table[['qgram', 'cosine', 'smith_waterman', 'lcs', 'len_a', 'len_b']]
     y_vector = table['category']
     reg = LinearRegression().fit(X_set, y_vector)
@@ -172,8 +173,6 @@ def main():
     classifier = _train_classifier()
 
     # now iterate through the args.field_name pairs ....
-    prob_array_list = []
-    match_pair_list = []
     for covariate_name in args.covariate_name:
         LOGGER.info(f'processing {covariate_name}')
 
@@ -185,7 +184,7 @@ def main():
             .all()
         )
 
-        clean_names = pandas.DataFrame(
+        clean_names = pd.DataFrame(
             unique_covariate_values,
             columns=[covariate_name])
 
@@ -201,18 +200,25 @@ def main():
         LOGGER.info(f'Compute the comparison: {pairs}\n\n{clean_names}')
         try:
             features = compare_cl.compute(pairs, clean_names, clean_names)
+            table_columns = {
+                'probability': [],
+                'str1': [],
+                'str2': [],
+            }
+            prob_array_list = []
             for prob_array, index_array in zip(features.values, features.index):
-                print(prob_array)
-                print(index_array)
-                val1 = clean_names.loc[index_array[0], covariate_name]
-                val2 = clean_names.loc[index_array[1], covariate_name]
-                match_pair_list.append((val1, val2, covariate_name))
+                str1 = clean_names.loc[index_array[0], covariate_name]
+                str2 = clean_names.loc[index_array[1], covariate_name]
+                table_columns['str1'].append(str1)
+                table_columns['str2'].append(str2)
                 prob_array_list.append(
-                    numpy.append(prob_array, [len(val1)/MAX_LINE_LEN, len(val2)/MAX_LINE_LEN]))
-                print(prob_array_list)
-                result = classifier.predict(prob_array_list)
-                print(result)
-                return
+                    numpy.append(prob_array, [len(str1)/MAX_LINE_LEN, len(str2)/MAX_LINE_LEN]))
+            LOGGER.info('running prediction')
+            result = classifier.predict(prob_array_list)
+            table_columns['probability'] = result
+            df = pd.DataFrame(table_columns)
+            df = df.sort_values(by='probability', ascending=False)
+            df.to_csv(f'{covariate_name}.csv', index=False)
         except AttributeError:
             LOGGER.warn(f'too few pairs to compare on {covariate_name}, no duplicates probably')
 

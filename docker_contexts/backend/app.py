@@ -463,7 +463,6 @@ def build_filter(session, form):
     if upper_left_point is not None:
         upper_left_point = form['upperLeft'].strip()
         lower_right_point = form['lowerRight'].strip()
-
         if upper_left_point != '':
             m = re.match(r"[(]?([^, ]+)[, ]*([^, )]+)[\)]?", upper_left_point)
             ul_lat, ul_lng = [float(v) for v in m.group(1, 2)]
@@ -496,8 +495,8 @@ def build_filter(session, form):
         filters.append(and_(
             Point.latitude <= ul_lat,
             Point.latitude >= lr_lat,
-            Point.longitude <= ul_lng,
-            Point.longitude >= lr_lng))
+            Point.longitude >= ul_lng,
+            Point.longitude <= lr_lng))
 
     min_sites_per_study = int(form['minSitesPerStudy'])
     if min_sites_per_study:
