@@ -280,7 +280,9 @@ def chunk_points(point_list, chunk_size):
 def initalize_gee(authenicate_flag):
     if authenicate_flag:
         ee.Authenticate()
-    ee.Initialize(opt_url='https://earthengine-highvolume.googleapis.com')
+    credentials_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
+    credentials = ee.ServiceAccountCredentials(None, credentials_path)
+    ee.Initialize(credentials, opt_url='https://earthengine-highvolume.googleapis.com')
     initalize_global_stat_functions()
 
 

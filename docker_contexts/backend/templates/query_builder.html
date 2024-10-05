@@ -3,19 +3,22 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.1.3/css/bootstrap.min.css" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.5.0/font/bootstrap-icons.min.css" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.1.3/js/bootstrap.bundle.min.js"></script>
+
 <style>
 #queryForm {
     display: grid;
-    grid-template-columns: repeat(2, 1fr); /* Adjust number of columns as needed */
-    gap: 20px; /* Spacing between columns */
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
 }
 
 .section-title {
     font-size: 18px;
     font-weight: bold;
     margin-bottom: 5px;
-    cursor: pointer; /* Makes it look clickable */
+    cursor: pointer;
 }
 
 .queryRow {
@@ -33,7 +36,6 @@
     border-radius: 5px;
 }
 
-/* Style for collapsible content */
 .collapsible-content {
     display: 'block';
     padding: 10px;
@@ -42,7 +44,7 @@
 }
 
 .querySection input[type="text"], .querySection select {
-    width: 90%;  // Ensures the inputs don't overflow the positioned divs
+    width: 90%;
     padding: 8px;
     margin: 4px 0;  // Reduced margin for a tighter fit
     box-sizing: border-box;
@@ -62,11 +64,11 @@
 }
 
 .query-input-group {
-    margin-bottom: 15px; /* Add space between each input group */
-    padding: 10px; /* Add padding for better separation */
-    border: 1px solid #ccc; /* Add border around each input group */
-    border-radius: 5px; /* Add rounded corners */
-    background-color: #f9f9f9; /* Light background color */
+    margin-bottom: 15px;
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    background-color: #f9f9f9;
 }
 .submit-container {
     display: flex;
@@ -74,8 +76,8 @@
     margin-top: 20px;
 }
 .btn-primary {
-    width: auto;  /* Ensure the button is not too wide */
-    height: auto; /* Ensure the button is not too tall */
+    width: auto;
+    height: auto;
 }
 #loadingOverlay {
     display: none;
@@ -92,15 +94,35 @@
 }
 
 #validSampleCount {
-    z-index: 1000; /* Ensure it's above other elements */
+    z-index: 1000;
     background-color: white;
     padding: 10px;
     border: 1px solid #ccc;
     border-radius: 5px;
 }
 
+.placeholder-text {
+    font-size: 14px;
+    font-weight: 300;
+    font-style: italic;
+    color: #666;
+    margin-top: 10px;
+    margin-bottom: 10px;
+    padding: 10px;
+    background-color: #f4f4f4;
+    border-left: 4px solid #ddd;
+}
+.main-title {
+    font-size: 28px;
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 20px;
+    padding-bottom: 5px;
+    border-bottom: 2px solid #ddd;
+}
+
 </style>
-<title>Dynamic Query Builder</title>
+<title>Pest Control "Living Database"</title>
 </head>
 <body>
 <div class="container mt-5">
@@ -118,11 +140,16 @@
     </div>
     <form id="queryForm" action="/api/process_query" method="post">
         <div id="queryBuilder">
+            <div class="main-title">Pest Control Living Database</div>
+            <div class="querySection placeholder-text info-box">
+                The database is currently under development and is being used in workshops and demos led by our team. A full release, including tutorials and user guidance, is planned for December 2024. If you'd like to be notified about the release, please email richard.sharp@wwfus.org, and we'll keep you updated.
+            </div>
             <div class="querySection">
                 <div class="section-title" onclick="toggleVisibility('columnQuery')">Query by covariate value
+                    <i class="bi bi-info-circle" data-bs-toggle="tooltip" data-bs-placement="right" title="Covariates are user generated variables that were collected beyond what is recommended by the Living Database administrative team. These are organized and filterable by the category of covariate. Find the list of general categories, covariate names, their descriptions, and units below. For notes on covariates of a given study, see study metadata."></i>
                 </div>
                 <div class="collapsible-content" id="columnQuery">
-                <p><a href="{{ url_for('view_covariate') }}" class="btn btn-link" target="_blank">Inspect covariate definitions</a></p>
+                <p><a href="{{ url_for('view_covariate') }}" class="btn btn-link" target="_blank">Inspect covariate categories/names/descriptions/units</a></p>
                 <div id="queryRows">
                     <div class="queryRow">
                         <label for="fieldSelect">Choose a covariate variable:</label>
@@ -149,7 +176,9 @@
             </div>
             </div>
             <div class="querySection">
-                <div class="section-title" onclick="toggleVisibility('spaceQuery')">Query by space</div>
+                <div class="section-title" onclick="toggleVisibility('spaceQuery')">Query by space
+                    <i class="bi bi-info-circle" data-bs-toggle="tooltip" data-bs-placement="right" title="Filter the dataset geospatially, by a central point (lat, long), corner coordinates (lat, long of one corner of a bounding box; lat, long of another corner of a bounding box), or by country or continent."></i>
+                </div>
                 <div class="collapsible-content" id="spaceQuery">
                     <label>Select query type:</label>
                     <select id="spaceQueryType" onchange="toggleSpaceQueryType()">
@@ -197,7 +226,10 @@
                 </div>
             </div>
             <div class="querySection">
-                <div class="section-title" onclick="toggleVisibility('timeQuery')">Query by year</div>
+                <div class="section-title" onclick="toggleVisibility('timeQuery')">Query by year
+                    <i class="bi bi-info-circle" data-bs-toggle="tooltip" data-bs-placement="right" title="Filter the dataset by years during which samples were collected, either as any one year when data were sampled or a range of years."></i>
+
+                </div>
                 <div class="collapsible-content" id="timeQuery">
                     <p>Please enter a year, a comma-separated list of years, or a range using a hyphen (e.g., 1990-1995).</p>
                     <label for="yearRange">Enter year(s):</label>
@@ -205,7 +237,9 @@
                 </div>
             </div>
             <div class="querySection">
-                <div class="section-title" onclick="toggleVisibility('sampleSizeQuery')">Query by minimum sample size</div>
+                <div class="section-title" onclick="toggleVisibility('sampleSizeQuery')">Query by minimum sample size
+                    <i class="bi bi-info-circle" data-bs-toggle="tooltip" data-bs-placement="right" title="Filter the dataset by setting a minimum sample size of the studies you want included; either by the number of sites (unique locations) in a study, the number of years sampled, or by the total number of observations in the study."></i>
+                </div>
                     <div class="collapsible-content" id="sampleSizeQuery">
                         <div class="query-input-group">
                             <label for="minSitesPerStudy">Minimum number of sites in study:</label><br/>
@@ -228,8 +262,14 @@
     </form>
 </div>
 <div id="loadingOverlay">Processing, sometimes this takes a couple of minutes...</div>
-
 <script>
+document.addEventListener('DOMContentLoaded', function () {
+    var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+    var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+        return new bootstrap.Tooltip(tooltipTriggerEl)
+    })
+});
+
 function showLoadingOverlay() {
     const loadingOverlay = document.getElementById('loadingOverlay');
     loadingOverlay.style.display = 'block';
