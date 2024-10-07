@@ -128,23 +128,6 @@ def _replace_common_substring_errors(base_string):
     return base_string
 
 
-def _process_line(raw_line):
-    line = raw_line.decode('utf-8', errors='ignore')
-    # remove all the in-word quotes
-    quoteless = [
-        item.replace('"', '')
-        for item in next(iter(csv.reader([line])))]
-    # run any unicode fixes
-    fixed_line = [
-        # _replace_common_substring_errors(
-        #     ftfy.fix_text(
-        #         element, normalization='NFKC').replace('"', '').lower())
-        ftfy.fix_text(element, normalization='NFKC').replace('"', '')
-        for element in quoteless]
-    return (','.join(
-        [f'"{val}"' for val in fixed_line])+'\n').encode('utf-8')
-
-
 def count_valid_characters(name):
     other_valid_letters = ['á', 'õ', 'ě', 'ë', 'ő', 'í', 'í', 'Á']
     return sum(
