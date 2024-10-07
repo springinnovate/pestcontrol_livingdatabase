@@ -869,7 +869,10 @@ def data_extractor():
             sp_tm_agg_op)
 
         value_dict = dict(point_id_value_list)
-        point_table[f'{dataset_id}:{band_name} -> {sp_tm_agg_op}'] = point_table.index.map(value_dict)
+        header_id = f'{dataset_id}:{band_name} -> {sp_tm_agg_op}'
+        point_table[header_id] = point_table.index.map(value_dict)
+        point_table[header_id] = point_table[header_id].apply(
+            lambda x: pd.to_numeric(x, errors='ignore'))
 
         csv_output = StringIO()
         point_table.to_csv(csv_output, index=False)

@@ -609,7 +609,7 @@ def process_gee_dataset(
                         aggregate_image = IMG_COL_AGGREGATION_FUNCTIONS[
                             op_type](daily_collection)
                         aggregate_image = aggregate_image.set(
-                                'system:time_start', time_start_millis)
+                            'system:time_start', time_start_millis)
                         return aggregate_image
                     # Defines as the min/max year that will be aggregated
                     # later for current year
