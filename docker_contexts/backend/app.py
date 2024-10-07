@@ -877,7 +877,7 @@ def data_extractor():
         csv_output = StringIO()
         point_table.to_csv(csv_output, index=False)
         csv_output.seek(0)
-
+        print(csv_output.getvalue())
         return send_file(
             BytesIO(csv_output.getvalue().encode()),
             mimetype='text/csv',
