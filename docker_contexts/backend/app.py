@@ -879,7 +879,7 @@ def data_extractor():
         csv_output.seek(0)
         print(csv_output.getvalue())
         return send_file(
-            BytesIO(csv_output.getvalue().encode()),
+            BytesIO(('\ufeff' + csv_output.getvalue()).encode('utf-8')),
             mimetype='text/csv',
             as_attachment=True,
             download_name=f'remote_sensed_point_table_{datetime.now().strftime("%Y_%m_%d_%H_%M_%S")}.csv')
