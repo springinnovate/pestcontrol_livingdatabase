@@ -109,7 +109,7 @@ def to_dict(covariate_list):
     for covariate in covariate_list:
         if isinstance(covariate, str):
             # hard-code study-id
-            covariate_dict['study_id'] = covariate
+            covariate_dict['Study_ID'] = covariate
         else:
             covariate_dict[covariate.covariate_defn.name] = covariate.value
     return covariate_dict
@@ -159,7 +159,7 @@ def calculate_sample_display_table(session, query_to_filter):
         for covariate in all_covariates:
             if isinstance(covariate, str):
                 # this will be the study_id
-                unique_values_per_covariate['study_id'].add(covariate)
+                unique_values_per_covariate['Study_ID'].add(covariate)
                 continue
             if not isinstance(covariate.value, str) and (
                     covariate.value is None or numpy.isnan(covariate.value)):
@@ -181,7 +181,7 @@ def calculate_sample_display_table(session, query_to_filter):
                 unique_values_per_covariate[
                     covariate.covariate_defn.name].add(True)
 
-    covariate_display_order = ['study_id']
+    covariate_display_order = ['Study_ID']
     for name, always_display, hidden in pre_covariate_display_query:
         if hidden:
             continue
@@ -235,8 +235,8 @@ def calculate_study_display_order(
                 unique_values_per_covariate[
                     covariate.covariate_defn.name].add(True)
 
-    # hard-code 'study_id'
-    covariate_display_order = ['study_id']
+    # hard-code 'Study_ID'
+    covariate_display_order = ['Study_ID']
     for name, always_display, hidden in pre_covariate_display_order:
         if hidden:
             continue
@@ -246,8 +246,8 @@ def calculate_study_display_order(
     display_table = []
     for study in query_to_filter:
         covariate_dict = to_dict(study.covariates)
-        # hard coding 'study_id' which is study.name
-        covariate_dict['study_id'] = study.name
+        # hard coding 'Study_ID' which is study.name
+        covariate_dict['Study_ID'] = study.name
         display_table.append([
             covariate_dict[name]
             for name in covariate_display_order])
@@ -328,7 +328,7 @@ def initialize_covariates(clear_cache):
             Geolocation.geolocation_type == 'CONTINENT').all()]
 
     # add the study ids manually
-    COVARIATE_STATE['searchable_covariates']['study_id'] = [x[0] for x in session.query(distinct(Study.name)).all()]
+    COVARIATE_STATE['searchable_covariates']['Study_ID'] = [x[0] for x in session.query(distinct(Study.name)).all()]
 
     with open(pkcl_filepath, 'wb') as file:
         pickle.dump(COVARIATE_STATE, file)
@@ -417,7 +417,7 @@ def build_filter(session, form):
             continue
 
         # hardcode in the study_id
-        if field == 'study_id':
+        if field == 'Study_ID':
             filters.append(Study.name == value)
             continue
 

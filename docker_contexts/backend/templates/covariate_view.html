@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Covariate Definitions</title>
-    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
     <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.1.3/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.5.0/font/bootstrap-icons.min.css" rel="stylesheet">
@@ -15,27 +14,30 @@
             border-color: #d3d3d3;
             color: #808080;
         }
-       .uncommitted-edit {
-            background-color: #ffffcc; /* light yellow background */
+        .uncommitted-edit {
+            background-color: #ffffcc;
         }
         option[value="true"], select.true {
-            background-color: #d4edda; /* Light green for true */
+            background-color: #d4edda;
         }
-
         option[value="false"], select.false {
-            background-color: #f8d7da; /* Light red for false */
+            background-color: #f8d7da;
         }
         .description-box {
-          width: auto;
-          min-height: 50px;
-          max-height: 50px;
-          overflow: hidden;
-          cursor: pointer;
-          border: 1px solid #ccc;
-          padding: 5px;
+            width: auto;
+            min-height: 50px;
+            max-height: 50px;
+            overflow: hidden;
+            cursor: pointer;
+            border: 1px solid #ccc;
+            padding: 5px;
         }
         .description-box.expanded {
-          max-height: none;
+            max-height: none;
+        }
+        .tooltip-inner {
+            text-align: left;
+            max-width: 200px;
         }
     </style>
 </head>
