@@ -664,7 +664,7 @@ def admin_covariate():
 def view_covariate():
     return render_template(
         'covariate_view.html',
-        covariate_association_states=[x.value for x in CovariateAssociation],)
+        covariate_association_states=[str(x).split('.')[1] for x in CovariateAssociation],)
 
 
 @app.route('/api/get_covariates', methods=['GET'])
