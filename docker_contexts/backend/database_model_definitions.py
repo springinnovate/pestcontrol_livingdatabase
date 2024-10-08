@@ -22,11 +22,11 @@ RESPONSE_TYPES = [
 ]
 
 
-STUDY_ID = 'study_id'
-OBSERVATION = 'observation'
-LATITUDE = 'latitude'
-LONGITUDE = 'longitude'
-YEAR = 'year'
+STUDY_ID = 'Study_ID'
+OBSERVATION = 'Observation'
+LATITUDE = 'Latitude'
+LONGITUDE = 'Longitude'
+YEAR = 'Year'
 
 REQUIRED_SAMPLE_INPUT_FIELDS = [
     OBSERVATION,

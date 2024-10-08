@@ -14,7 +14,7 @@ import zipfile
 
 from celery_config import make_celery
 from database import SessionLocal
-from database_model_definitions import OBSERVATION, LATITUDE, LONGITUDE, YEAR
+from database_model_definitions import OBSERVATION, LATITUDE, LONGITUDE, YEAR, STUDY_ID
 from database_model_definitions import Study, Sample, Point, CovariateDefn, CovariateValue, CovariateType, CovariateAssociation, Geolocation
 from flask import Flask
 from flask import jsonify
@@ -109,7 +109,7 @@ def to_dict(covariate_list):
     for covariate in covariate_list:
         if isinstance(covariate, str):
             # hard-code study-id
-            covariate_dict['Study_ID'] = covariate
+            covariate_dict[STUDY_ID] = covariate
         else:
             covariate_dict[covariate.covariate_defn.name] = covariate.value
     return covariate_dict
@@ -155,11 +155,10 @@ def calculate_sample_display_table(session, query_to_filter):
         ] + [study.name]
         all_covariates = sample_covariates + study_covariates
         sample_covariate_list.append((sample, all_covariates))
-
         for covariate in all_covariates:
             if isinstance(covariate, str):
                 # this will be the study_id
-                unique_values_per_covariate['Study_ID'].add(covariate)
+                unique_values_per_covariate[STUDY_ID].add(covariate)
                 continue
             if not isinstance(covariate.value, str) and (
                     covariate.value is None or numpy.isnan(covariate.value)):
@@ -181,7 +180,7 @@ def calculate_sample_display_table(session, query_to_filter):
                 unique_values_per_covariate[
                     covariate.covariate_defn.name].add(True)
 
-    covariate_display_order = ['Study_ID']
+    covariate_display_order = [STUDY_ID]
     for name, always_display, hidden in pre_covariate_display_query:
         if hidden:
             continue
@@ -214,6 +213,7 @@ def calculate_study_display_order(
 
     unique_values_per_covariate = collections.defaultdict(set)
     for index, study in enumerate(query_to_filter):
+        LOGGER.debug(f'STUDY COVARIATERS: {list(study.covariates)}')
         for covariate in study.covariates:
             if not isinstance(covariate.value, str) and (
                     covariate.value is None or numpy.isnan(covariate.value)):
@@ -235,8 +235,8 @@ def calculate_study_display_order(
                 unique_values_per_covariate[
                     covariate.covariate_defn.name].add(True)
 
-    # hard-code 'Study_ID'
-    covariate_display_order = ['Study_ID']
+    # hard-code STUDY_ID
+    covariate_display_order = [STUDY_ID]
     for name, always_display, hidden in pre_covariate_display_order:
         if hidden:
             continue
@@ -246,8 +246,8 @@ def calculate_study_display_order(
     display_table = []
     for study in query_to_filter:
         covariate_dict = to_dict(study.covariates)
-        # hard coding 'Study_ID' which is study.name
-        covariate_dict['Study_ID'] = study.name
+        # hard coding STUDY_ID which is study.name
+        covariate_dict[STUDY_ID] = study.name
         display_table.append([
             covariate_dict[name]
             for name in covariate_display_order])
@@ -328,7 +328,7 @@ def initialize_covariates(clear_cache):
             Geolocation.geolocation_type == 'CONTINENT').all()]
 
     # add the study ids manually
-    COVARIATE_STATE['searchable_covariates']['Study_ID'] = [x[0] for x in session.query(distinct(Study.name)).all()]
+    COVARIATE_STATE['searchable_covariates'][STUDY_ID] = [x[0] for x in session.query(distinct(Study.name)).all()]
 
     with open(pkcl_filepath, 'wb') as file:
         pickle.dump(COVARIATE_STATE, file)
@@ -417,7 +417,7 @@ def build_filter(session, form):
             continue
 
         # hardcode in the study_id
-        if field == 'Study_ID':
+        if field == STUDY_ID:
             filters.append(Study.name == value)
             continue
 
@@ -589,6 +589,7 @@ def process_query():
     try:
         session = SessionLocal()
         form_as_dict = form_to_dict(request.form)
+        LOGGER.debug(f'FORM AS DICT: {form_as_dict}')
         filters, filter_text = build_filter(session, form_as_dict)
         sample_query = (
             session.query(Sample, Study)
@@ -612,6 +613,8 @@ def process_query():
             )
             .options(selectinload(Study.covariates))
         )
+        LOGGER.debug(f'FILTERS: {filters}\n\n|{filter_text}')
+        LOGGER.debug(f'STUDY QUERY: {study_query}')
         unique_studies = {study for study in study_query}
 
         # determine what covariate ids are in this query
@@ -766,6 +769,7 @@ def _prep_download(task_id):
             )
             .options(selectinload(Study.covariates))
         )
+        LOGGER.debug(f'studies: {study_query}')
 
         unique_studies = {study for study in study_query}
         # determine what covariate ids are in this query

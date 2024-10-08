@@ -148,11 +148,11 @@
                 The database is currently under development and is being used in workshops and demos led by our team. A full release, including tutorials and user guidance, is planned for December 2024. If you'd like to be notified about the release, please email rich@springinnovate.org, and we'll keep you updated.
             </div>
             <div class="querySection">
-                <div class="section-title" onclick="toggleVisibility('columnQuery')">Query by covariate value
-                    <i class="bi bi-info-circle" data-bs-toggle="tooltip" data-bs-placement="right" title="Covariates are user generated variables that were collected beyond what is recommended by the Living Database administrative team. These are organized and filterable by the category of covariate. Find the list of general categories, covariate names, their descriptions, and units below. For notes on covariates of a given study, see study metadata."></i>
+                <div class="section-title" onclick="toggleVisibility('columnQuery')">Query by variables
+                    <i class="bi bi-info-circle" data-bs-toggle="tooltip" data-bs-placement="right" title="In addition to these basic variables shared across all studies in the database, we allow contributor-defined variables, or covariates. You can see the current list of all variables and their descriptions in the link below. For additional notes on contributor-defined covariates of a given study, see study metadata."></i>
                 </div>
                 <div class="collapsible-content" id="columnQuery">
-                <p><a href="{{ url_for('view_covariate') }}" class="btn btn-link" target="_blank">Inspect covariate categories/names/descriptions/units</a></p>
+                <p><a href="{{ url_for('view_covariate') }}" class="btn btn-link" target="_blank">Full descriptions of variables included in database</a></p>
                 <div id="queryRows">
                     <div class="queryRow">
                         <label for="fieldSelect">Choose a covariate variable:</label>
