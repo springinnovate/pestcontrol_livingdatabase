@@ -411,41 +411,37 @@ def build_filter(session, form):
     values = form['value']
     filters = []
     filter_text = ''
+
+    # Fetch all covariate_defns at once
+    covariate_defns = session.query(
+        CovariateDefn.name, CovariateDefn.covariate_association
+    ).filter(
+        CovariateDefn.name.in_(fields)
+    ).all()
+    covariate_type_map = dict(covariate_defns)
+
     for field, operation, value in zip(fields, operations, values):
         if not field or not value:
             continue
 
-        # hardcode in the study_id
         if field == STUDY_ID:
             filters.append(Study.name == value)
             continue
 
-        covariate_type = session.query(
-            CovariateDefn.covariate_association).filter(
-            CovariateDefn.name == field).first()[0]
+        covariate_type = covariate_type_map.get(field)
+        if covariate_type is None:
+            continue  # Handle missing fields
+
         filter_text += f'{field}({covariate_type}) {operation} {value}\n'
+        covariate_filter = and_(
+            CovariateDefn.name == field,
+            OPERATION_MAP[operation](CovariateValue.value, value)
+        )
 
         if covariate_type == CovariateAssociation.STUDY.value:
-            covariate_subquery = (
-                session.query(CovariateValue.study_id)
-                .join(CovariateValue.covariate_defn)
-                .filter(
-                    and_(CovariateDefn.name == field,
-                         OPERATION_MAP[operation](CovariateValue.value, value))
-                ).subquery())
-            filters.append(
-                Study.id_key.in_(session.query(covariate_subquery.c.study_id)))
-
+            filters.append(Study.covariates.any(covariate_filter))
         elif covariate_type == CovariateAssociation.SAMPLE.value:
-            covariate_subquery = (
-                session.query(CovariateValue.sample_id)
-                .join(CovariateValue.covariate_defn)
-                .filter(
-                    and_(CovariateDefn.name == field,
-                         OPERATION_MAP[operation](CovariateValue.value, value))
-                ).subquery())
-            filters.append(
-                Sample.id_key.in_(session.query(covariate_subquery.c.sample_id)))
+            filters.append(Sample.covariates.any(covariate_filter))
 
     ul_lat = None
     center_point = form['centerPoint']
