@@ -600,6 +600,7 @@ def process_query():
             )
             .options(selectinload(Sample.covariates))
         )
+        LOGGER.debug(sample_query.all())
 
         sample_covariate_display_order, sample_table = calculate_sample_display_table(
             session, sample_query.limit(MAX_SAMPLE_DISPLAY_SIZE))
@@ -613,8 +614,6 @@ def process_query():
             )
             .options(selectinload(Study.covariates))
         )
-        LOGGER.debug(f'FILTERS: {filters}\n\n|{filter_text}')
-        LOGGER.debug(f'STUDY QUERY: {study_query}')
         unique_studies = {study for study in study_query}
 
         # determine what covariate ids are in this query
@@ -769,11 +768,7 @@ def _prep_download(task_id):
             )
             .options(selectinload(Study.covariates))
         )
-        LOGGER.debug(f'studies: {study_query}')
-
         unique_studies = {study for study in study_query}
-        # determine what covariate ids are in this query
-        LOGGER.info('calculate covariate display order for study')
         study_covariate_display_order, study_table = calculate_study_display_order(
             session, unique_studies)
         sample_covariate_display_order, sample_table = calculate_sample_display_table(
@@ -802,7 +797,7 @@ def _prep_download(task_id):
             study_table_io.write(','.join(study_covariate_display_order))
             study_table_io.write('\n')
             for row in study_table:
-                clean_row = [x if x is not None else 'None' for x in row]
+                clean_row = [_wrap_in_quotes_if_needed(x) if x is not None else 'None' for x in row]
                 study_table_io.write(','.join(clean_row))
                 study_table_io.write('\n')
 
@@ -816,6 +811,15 @@ def _prep_download(task_id):
         LOGGER.exception('error on _prep_download')
     finally:
         session.close()
+
+
+def _wrap_in_quotes_if_needed(value):
+    if isinstance(value, str):
+        if '"' in value:
+            value = value.replace('"', '""')
+        if ',' in value or '"' in value:
+            return f'"{value}"'
+    return value
 
 
 MAX_EO_POINT_SAMPLES = 5000
