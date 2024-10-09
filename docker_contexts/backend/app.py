@@ -213,7 +213,6 @@ def calculate_study_display_order(
 
     unique_values_per_covariate = collections.defaultdict(set)
     for index, study in enumerate(query_to_filter):
-        LOGGER.debug(f'STUDY COVARIATERS: {list(study.covariates)}')
         for covariate in study.covariates:
             if not isinstance(covariate.value, str) and (
                     covariate.value is None or numpy.isnan(covariate.value)):
@@ -589,7 +588,6 @@ def process_query():
     try:
         session = SessionLocal()
         form_as_dict = form_to_dict(request.form)
-        LOGGER.debug(f'FORM AS DICT: {form_as_dict}')
         filters, filter_text = build_filter(session, form_as_dict)
         sample_query = (
             session.query(Sample, Study)
@@ -600,7 +598,6 @@ def process_query():
             )
             .options(selectinload(Sample.covariates))
         )
-        LOGGER.debug(sample_query.all())
 
         sample_covariate_display_order, sample_table = calculate_sample_display_table(
             session, sample_query.limit(MAX_SAMPLE_DISPLAY_SIZE))
