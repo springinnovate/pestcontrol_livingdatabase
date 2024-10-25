@@ -46,8 +46,6 @@ def find_matches(name):
 
 
 def main():
-    # print(attempt_to_correct('jos_ maría coronel bejarano 23', 'utf-8'))
-    # return
     """Entry point."""
     parser = argparse.ArgumentParser(
         description='check latin species name spellings and suggest alternatives if they are spelled wrong.')
