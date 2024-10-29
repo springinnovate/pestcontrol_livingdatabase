@@ -1,15 +1,12 @@
 """Fix bad encodings and deduplicate field names."""
-import argparse
-import string
-import logging
-import re
-import sys
 from joblib import Parallel, delayed
+import argparse
+from datetime import datetime
+import logging
 import multiprocessing
+import sys
 
 from rapidfuzz import process, fuzz
-from sklearn.linear_model import LinearRegression
-import editdistance
 import pandas as pd
 
 from database import SessionLocal
@@ -65,7 +62,7 @@ def main():
 
     LOGGER.info(f'there are {len(unique_latin_names)} unique names')
     print(unique_latin_names)
-    base_latin_names_df = pd.read_csv('base_data/all_species_names.csv')
+    base_latin_names_df = pd.read_csv('base_data/gbif-phylum-Arthropoda-20241028.csv')
 
     global base_names
     base_names = base_latin_names_df.iloc[:, 0].astype(str).str.lower().tolist()
@@ -79,12 +76,12 @@ def main():
         else:
             LOGGER.info(f'found {lower_name} in the base names set')
 
-
     num_cores = multiprocessing.cpu_count()
     output_rows = Parallel(n_jobs=num_cores, batch_size='auto')(delayed(find_matches)(name) for name in unmatched_names)
 
     output_df = pd.DataFrame(output_rows)
-    output_df.to_csv('suggested_corrections.csv', index=False, header=False)
+    current_datetime = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
+    output_df.to_csv(f'suggested_corrections_{current_datetime}.csv', index=False, header=False)
 
     session.commit()
     session.close()
