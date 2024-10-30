@@ -1,0 +1,85 @@
+lygus
+cephus cinctus
+ceratitis capitata
+coccus viridis
+deudorix livia
+helicoverpa zea
+leucoptera coffeella
+oulema
+petrusa epilepsis
+scaptomyza flava
+aceria oleae
+acrosternum hilare
+acyrthosiphon kondoi
+adelphocoris lineolatus
+amrasca terraereginae
+anthonomus signatus
+aonidiella aurantii
+aphididae
+aphis fabae
+aphodius tasmaniae
+austroasca
+austroasca viridigrisea
+bagrada hilaris
+bemisia tabaci
+calamobius filum
+calepitrimerus vitis
+campylomma liebknechti
+capitophorus elaeagni
+carpophilus
+cerotoma trifurcata
+chaetocnema
+cicadellidae
+creontiades pacificus
+curculionidae
+deraeocoris
+diabrotica undecimpunctata
+diabrotica
+earias insulana
+empoasca fabae
+estigmene acrea
+eucarazzia elegans
+euphyllura olivina
+euschistus
+eutetranychus banksi
+forficula auricularia
+frankliniella occidentalis
+frankliniella schultzei
+frankliniella
+habrochila ghesquierei
+halticus bractatus
+helicoverpa
+hyadaphis foeniculi
+hyperomyzus lactucae
+lepidoptera
+leucoptera meyricki
+lipaphis erysimi
+liriomyza
+myodocha
+mythimna loreyi
+myzus persicae
+nezara viridula
+nysius vinitor
+oulema
+panonychus citri
+parabemisia myricae
+paria fragariae
+pectinophora gossypiella
+pieris brassicae
+piezodorus
+planococcus citri
+popillia japonica
+pterohelaeus
+rhabdopterus jansoni
+rhizoglyphus
+rhopalosiphum maidis
+sipha maydis
+solenopsis saevissima
+spodoptera exigua
+spodoptera littoralis
+stelidota geminata
+systena frontalis
+tetranychus urticae
+thrips tabaci
+trichoplusia ni
+uroleucon ambrosiae
