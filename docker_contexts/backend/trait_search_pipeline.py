@@ -3,26 +3,23 @@ import logging
 import csv
 import argparse
 import collections
+from functools import partial
 import os
 import sys
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from contextlib import contextmanager
 
 from bs4 import BeautifulSoup
 from transformers import pipeline
 import pandas as pd
 import spacy
 from duckduckgo_search import DDGS
+from playwright.async_api import async_playwright
+
+N_WORKERS = 1#os.cpu_count()
 
 if sys.platform.startswith('win'):
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-
-
-# from selenium import webdriver
-# from selenium.webdriver.chrome.options import Options
-
-from playwright.sync_api import sync_playwright
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -89,9 +86,13 @@ LOGGER = logging.getLogger(__name__)
 #         driver.quit()
 
 
-def duckduckgo_search(query):
-    results = DDGS().text(query, max_results=20)
-    return results
+async def duckduckgo_search(DDG_SEMAPHORE, query):
+    async with DDG_SEMAPHORE:
+        loop = asyncio.get_event_loop()
+        results = await loop.run_in_executor(
+            None,
+            partial(DDGS().text, query, max_results=20))
+        return results
 
 
 spacy_tokenizer = spacy.load('en_core_web_sm')
@@ -101,11 +102,12 @@ qa_pipeline = pipeline(
     device='cuda')
 
 
-def process_result(args):
+async def extract_query_relevant_text(args):
     result = args['result']
     query_template = args['query_template']
     subject = args['subject']
-    detailed_snippet = fetch_relevant_snippet(
+    detailed_snippet = await fetch_relevant_snippet(
+        args['browser'],
         result['href'],
         query_template.format(subject=''),
         subject)
@@ -115,40 +117,52 @@ def process_result(args):
         'href': result['href']}
 
 
-def parse_search_results(raw_search_results, query_template, subject):
-    detailed_snippet_list = []
-    with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
-        detailed_snippet_list = list(executor.map(
-            process_result,
-            ({'result': result,
-              'query_template': query_template,
-              'subject': subject,
-              'index': index,
-              'n_to_process': len(raw_search_results)}
-             for index, result in enumerate(raw_search_results))))
-    return detailed_snippet_list
+async def extract_relevant_text_from_search_results(
+        browser, raw_search_results, query_template, subject):
+    tasks = []
+    for index, result in enumerate(raw_search_results):
+        tasks.append(extract_query_relevant_text({
+            'result': result,
+            'browser': browser,
+            'query_template': query_template,
+            'subject': subject,
+            'index': index,
+            'n_to_process': len(raw_search_results)
+        }))
+    relevant_text_list = await asyncio.gather(*tasks)
+    return relevant_text_list
 
 
 def find_relevant_snippets_nlp(text_elements, query_template, subject):
-    query_tokens = set([token.lemma_ for token in spacy_tokenizer(query_template) if not token.is_stop])
-    subject_tokens = set([token.lemma_ for token in spacy_tokenizer(subject) if not token.is_stop])
+    query_tokens = set(
+        [token.lemma_
+         for token in spacy_tokenizer(query_template)
+         if not token.is_stop])
+    subject_tokens = set(
+        [token.lemma_
+         for token in spacy_tokenizer(subject)
+         if not token.is_stop])
     relevant_snippets = []
     for text in text_elements:
         text_doc = spacy_tokenizer(text)
         text_tokens = set([token.lemma_ for token in text_doc if not token.is_stop])
+        # must be something about the query AND the subject in the text in
+        # order to be considered
         if (query_tokens & text_tokens) and (subject_tokens & text_tokens):
             relevant_snippets.append(text)
     return ' '.join(relevant_snippets)
 
 
-def fetch_page_content(url):
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
-        page = browser.new_page()
-        page.goto(url)
-        content = page.content()
-        browser.close()
+async def fetch_page_content(browser, url):
+    context = await browser.new_context()
+    page = await context.new_page()
+    try:
+        await page.goto(url, timeout=10000)
+        content = await page.content()
         return content
+    finally:
+        await context.close()
+    return content
 
 
 def extract_text_elements(html_content):
@@ -157,59 +171,70 @@ def extract_text_elements(html_content):
     return [element.get_text(strip=True) for element in text_elements]
 
 
-def fetch_relevant_snippet(url, query_template, subject):
+async def fetch_relevant_snippet(browser, url, query_template, subject):
     try:
-        html_content = fetch_page_content(url)
+        html_content = await fetch_page_content(browser, url)
         text_elements = extract_text_elements(html_content)
         relevant_snippets = find_relevant_snippets_nlp(
             text_elements, query_template, subject)
         return relevant_snippets
     except Exception as e:
-        LOGGER.exception(f'error on {url}')
-        return ''
+        return 'got exception: ' + str(e)
+
+
+def normalize_answer(answer):
+    tokens = spacy_tokenizer(answer.lower())
+    return " ".join([token.lemma_ for token in tokens if not token.is_stop])
 
 
 def answer_question_with_context(args):
     context = args['context']
-    LOGGER.debug(f'processing context: {context}')
     query_template = args['query_template']
     full_query = args['full_query']
     result = qa_pipeline(
         question=full_query + ' Answer in one word.',
         context=context['body'])
-    query_doc = spacy_tokenizer(query_template)
     query_tokens = set(
-        [token.lemma_ for token in query_doc if not token.is_stop])
-    answer_doc = spacy_tokenizer(result['answer'])
-    answer_tokens = set(
-        [token.lemma_ for token in answer_doc if not token.is_stop])
+        [token.lemma_
+         for token in spacy_tokenizer(query_template)
+         if not token.is_stop])
 
+    answer_tokens = set(
+        [token.lemma_
+         for token in spacy_tokenizer(result['answer'])
+         if not token.is_stop])
+
+    # make sure something from the query is part of the answer
     if query_tokens & answer_tokens:
-        return (result['score'], result['answer'], context['body'], context['href'])
+
+        return (result['score'], normalize_answer(result['answer']), context['body'], context['href'])
     else:
         return (0.0, None, '', '')
 
 
 def get_answers(cleaned_context_list, query_template, full_query):
-    with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
+    with ThreadPoolExecutor(max_workers=N_WORKERS) as executor:
         answers = list(executor.map(
             answer_question_with_context,
             ({'context': context,
               'query_template': query_template,
               'full_query': full_query}
              for context in cleaned_context_list)))
-    return answers
+        clean_answers = [answer for answer in answers if answer[1] is not None]
+    return clean_answers
 
 
-def answer_question(subject, args):
+async def answer_question(DDG_SEMAPHORE, browser, subject, args):
     subject = subject.strip()
     query = args.query_template.format(subject=subject)
-    raw_search_results = duckduckgo_search(query)
-    LOGGER.info(f'1/3 INTERNET SEARCH COMPLETE - {query}')
-    detailed_snippet_list = parse_search_results(raw_search_results, args.query_template, subject)
-    LOGGER.info(f'2/3 CLEANED INTERNET SNIPPETS COMPLETE - {query}')
-    answers = get_answers(detailed_snippet_list, args.query_template, query)
-    LOGGER.info(f'3/3 ANSWERS COMPLETE - {query}')
+    raw_search_results = await duckduckgo_search(DDG_SEMAPHORE, query)
+    LOGGER.info(f'1/4 INTERNET SEARCH COMPLETE - {query}')
+    relevant_text_list = await extract_relevant_text_from_search_results(
+        browser, raw_search_results, args.query_template, subject)
+    LOGGER.info(f'2/4 RELEVANT TEXT EXTRACTED - {query}')
+    answers = get_answers(
+        relevant_text_list, args.query_template, query)
+    LOGGER.info(f'3/4 ANSWERS ARE ANSWERED - {query}')
     answer_to_score = collections.defaultdict(lambda: (0, ''))
 
     for score, answer, snippet, href in answers:
@@ -225,7 +250,12 @@ def answer_question(subject, args):
     sorted_answers = sorted(answer_to_score.items(), key=lambda x: x[1][0], reverse=True)
     if sorted_answers:
         answer, (score, snippet) = sorted_answers[0]
-        LOGGER.info(f'{subject} {score:.2f}: {answer}')
+        LOGGER.debug(
+            'ALL SCORES:\n\t' +
+            '\n\t'.join([f'{score:.2f}:{answer}'
+                         for score, answer, _, _ in
+                         sorted(answers, key=lambda x: x[0], reverse=True)]))
+        LOGGER.info(f'*** FINAL ANSWER {subject} {score:.2f}: {answer}')
         return {
             'subject': subject,
             'answer': answer,
@@ -239,9 +269,10 @@ def answer_question(subject, args):
             'score': -1,
             'snippet': ''
         }
+    LOGGER.info(f'4/4 TOP ANSWER IS SAVED - {query}')
 
 
-if __name__ == '__main__':
+async def main():
     parser = argparse.ArgumentParser(description="Process a list of queries from a file.")
     parser.add_argument(
         'query_template', help="Query and insert {subject} to be queried around")
@@ -249,26 +280,42 @@ if __name__ == '__main__':
         'query_subject_list', type=argparse.FileType('r'), help="Path to the file containing query subjects")
     args = parser.parse_args()
 
-    current_time = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    query_result_filename = f'query_result_{current_time}.csv'
+    DDG_SEMAPHORE = asyncio.Semaphore(1)
 
-    # Initialize CSV with headers
-    pd.DataFrame(columns=['subject', 'answer', 'score', 'snippet']).to_csv(query_result_filename, index=False)
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(headless=False)
 
-    with args.query_subject_list as subject_list_file:
-        subjects = subject_list_file.readlines()
+        current_time = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
+        query_result_filename = f'query_result_{current_time}.csv'
 
-    # Process subjects in parallel and stream results to CSV
-    for subject in subjects:
-        LOGGER.info(f'processing {subject}')
-        answer = answer_question(subject, args)
-        if answer is not None:
-            LOGGER.info(f'answer: {answer["subject"]}:{answer["answer"]}')
-            df = pd.DataFrame([answer])
-            df.to_csv(
-                query_result_filename,
-                mode='a',
-                index=False,
-                header=False,
-                quoting=csv.QUOTE_ALL)
-        break
+        # Initialize CSV with headers
+        pd.DataFrame(columns=['subject', 'answer', 'score', 'snippet']).to_csv(query_result_filename, index=False)
+
+        with args.query_subject_list as subject_list_file:
+            subjects = subject_list_file.readlines()
+
+        # Process subjects in parallel and stream results to CSV
+        tasks = []
+        for index, subject in enumerate(subjects):
+            LOGGER.info(f'processing {subject}')
+            tasks.append(answer_question(DDG_SEMAPHORE, browser, subject, args))
+            if index == 3:
+                break
+        for answer in await asyncio.gather(*tasks):
+            # for task in tasks:
+            #     answer = await task
+            # results = await asyncio.gather(*tasks)
+            # for answer in results:
+            if answer is not None:
+                LOGGER.info(f'answer: {answer["subject"]}:{answer["answer"]}')
+                df = pd.DataFrame([answer])
+                df.to_csv(
+                    query_result_filename,
+                    mode='a',
+                    index=False,
+                    header=False,
+                    quoting=csv.QUOTE_ALL)
+
+
+if __name__ == '__main__':
+    asyncio.run(main())
