@@ -259,7 +259,7 @@ async def main():
         for index, subject in enumerate(subjects):
             LOGGER.info(f'processing {subject}')
             tasks.append(answer_question(ddg_semaphore, browser_semaphore, browser, subject, args))
-            if index == 0:
+            if index == 1:
                 break
         for answer in await asyncio.gather(*tasks):
             if answer is not None:
