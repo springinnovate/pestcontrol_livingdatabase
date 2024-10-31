@@ -41,53 +41,16 @@ for module in [
 
 LOGGER = logging.getLogger(__name__)
 
+spacy_tokenizer = spacy.load('en_core_web_sm')
+qa_pipeline = pipeline(
+    "question-answering",
+    model="distilbert-base-uncased-distilled-squad",
+    device='cuda')
 
-# @contextmanager
-# def get_driver():
-#     chrome_options = Options()
-#     chrome_options.add_argument("--headless")  # Run in headless mode
-#     chrome_options.add_argument("--disable-gpu")
-#     chrome_options.add_argument("--window-size=1920,1080")
-#     chrome_options.add_argument("--disable-extensions")
-#     chrome_options.add_argument("--proxy-server='direct://'")
-#     chrome_options.add_argument("--proxy-bypass-list=*")
-#     chrome_options.add_argument("--start-maximized")
-#     chrome_options.add_argument("--disable-dev-shm-usage")
-#     chrome_options.add_argument("--no-sandbox")
-#     # Add other options as needed
+MAX_TABS = 10
 
-#     driver = webdriver.Chrome(options=chrome_options)
-
-#     headers = {
-#         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-#         'Accept-Language': 'en-US,en;q=0.9',
-#         'Accept-Encoding': 'gzip, deflate, br, zstd',
-#         'dnt': '1',
-#         'pragma': 'no-cache',
-#         'priority': 'u=0, i',
-#         'sec-ch-ua': '"Chromium";v="130", "Google Chrome";v="130", "Not?A_Brand";v="99"',
-#         'sec-ch-ua-mobile': '?0',
-#         'sec-ch-ua-platform': "Windows",
-#         'sec-fetch-dest': 'document',
-#         'sec-fetch-mode': 'navigate',
-#         'sec-fetch-site': 'none',
-#         'sec-fetch-user': '?1',
-#         'sec-gpc': '1',
-#         'upgrade-insecure-requests': '1',
-#     }
-#     driver.execute_cdp_cmd("Network.enable", {})
-#     driver.execute_cdp_cmd("Network.setExtraHTTPHeaders", {"headers": headers})
-#     driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-#     driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-#     chrome_options.add_argument("--user-data-dir=./custom_profile_chrome")  # Persistent session storage
-#     try:
-#         yield driver
-#     finally:
-#         driver.quit()
-
-
-async def duckduckgo_search(DDG_SEMAPHORE, query):
-    async with DDG_SEMAPHORE:
+async def duckduckgo_search(ddg_semaphore, query):
+    async with ddg_semaphore:
         loop = asyncio.get_event_loop()
         results = await loop.run_in_executor(
             None,
@@ -95,11 +58,17 @@ async def duckduckgo_search(DDG_SEMAPHORE, query):
         return results
 
 
-spacy_tokenizer = spacy.load('en_core_web_sm')
-qa_pipeline = pipeline(
-    "question-answering",
-    model="distilbert-base-uncased-distilled-squad",
-    device='cuda')
+async def fetch_page_content(browser_semaphore, browser, url):
+    async with browser_semaphore:
+        context = await browser.new_context()
+        page = await context.new_page()
+        try:
+            await page.goto(url, timeout=5000)
+            content = await page.content()
+            return content
+        finally:
+            await context.close()
+        return content
 
 
 async def extract_query_relevant_text(args):
@@ -107,6 +76,7 @@ async def extract_query_relevant_text(args):
     query_template = args['query_template']
     subject = args['subject']
     detailed_snippet = await fetch_relevant_snippet(
+        args['browser_semaphore'],
         args['browser'],
         result['href'],
         query_template.format(subject=''),
@@ -118,11 +88,12 @@ async def extract_query_relevant_text(args):
 
 
 async def extract_relevant_text_from_search_results(
-        browser, raw_search_results, query_template, subject):
+        browser_semaphore, browser, raw_search_results, query_template, subject):
     tasks = []
     for index, result in enumerate(raw_search_results):
         tasks.append(extract_query_relevant_text({
             'result': result,
+            'browser_semaphore': browser_semaphore,
             'browser': browser,
             'query_template': query_template,
             'subject': subject,
@@ -153,27 +124,15 @@ def find_relevant_snippets_nlp(text_elements, query_template, subject):
     return ' '.join(relevant_snippets)
 
 
-async def fetch_page_content(browser, url):
-    context = await browser.new_context()
-    page = await context.new_page()
-    try:
-        await page.goto(url, timeout=10000)
-        content = await page.content()
-        return content
-    finally:
-        await context.close()
-    return content
-
-
 def extract_text_elements(html_content):
     soup = BeautifulSoup(html_content, 'html.parser')
     text_elements = soup.find_all(['p', 'h1', 'h2', 'h3', 'li'])
     return [element.get_text(strip=True) for element in text_elements]
 
 
-async def fetch_relevant_snippet(browser, url, query_template, subject):
+async def fetch_relevant_snippet(browser_semaphore, browser, url, query_template, subject):
     try:
-        html_content = await fetch_page_content(browser, url)
+        html_content = await fetch_page_content(browser_semaphore, browser, url)
         text_elements = extract_text_elements(html_content)
         relevant_snippets = find_relevant_snippets_nlp(
             text_elements, query_template, subject)
@@ -187,7 +146,7 @@ def normalize_answer(answer):
     return " ".join([token.lemma_ for token in tokens if not token.is_stop])
 
 
-async def answer_question_with_context(args):
+def answer_question_with_context(args):
     context = args['context']
     query_template = args['query_template']
     full_query = args['full_query']
@@ -220,17 +179,17 @@ async def get_answers(cleaned_context_list, query_template, full_query):
             'full_query': full_query})
         for context in cleaned_context_list]
     clean_answers = [
-        answer for answer in asyncio.gather(*answers) if answer[1] is not None]
+        answer for answer in answers if answer[1] is not None]
     return clean_answers
 
 
-async def answer_question(DDG_SEMAPHORE, browser, subject, args):
+async def answer_question(ddg_semaphore, browser_semaphore, browser, subject, args):
     subject = subject.strip()
     query = args.query_template.format(subject=subject)
-    raw_search_results = await duckduckgo_search(DDG_SEMAPHORE, query)
+    raw_search_results = await duckduckgo_search(ddg_semaphore, query)
     LOGGER.info(f'1/4 INTERNET SEARCH COMPLETE - {query}')
     relevant_text_list = await extract_relevant_text_from_search_results(
-        browser, raw_search_results, args.query_template, subject)
+        browser_semaphore, browser, raw_search_results, args.query_template, subject)
     LOGGER.info(f'2/4 RELEVANT TEXT EXTRACTED - {query}')
     answers = await get_answers(
         relevant_text_list, args.query_template, query)
@@ -280,7 +239,8 @@ async def main():
         'query_subject_list', type=argparse.FileType('r'), help="Path to the file containing query subjects")
     args = parser.parse_args()
 
-    DDG_SEMAPHORE = asyncio.Semaphore(1)
+    ddg_semaphore = asyncio.Semaphore(1)
+    browser_semaphore = asyncio.Semaphore(MAX_TABS)
 
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=False)
@@ -298,8 +258,8 @@ async def main():
         tasks = []
         for index, subject in enumerate(subjects):
             LOGGER.info(f'processing {subject}')
-            tasks.append(answer_question(DDG_SEMAPHORE, browser, subject, args))
-            if index == 1:
+            tasks.append(answer_question(ddg_semaphore, browser_semaphore, browser, subject, args))
+            if index == 0:
                 break
         for answer in await asyncio.gather(*tasks):
             if answer is not None:
