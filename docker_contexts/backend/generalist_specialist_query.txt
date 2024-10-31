@@ -1,8 +1,3 @@
-lygus
-cephus cinctus
-ceratitis capitata
-coccus viridis
-deudorix livia
 helicoverpa zea
 leucoptera coffeella
 oulema
@@ -83,3 +78,8 @@ tetranychus urticae
 thrips tabaci
 trichoplusia ni
 uroleucon ambrosiae
+lygus
+cephus cinctus
+ceratitis capitata
+coccus viridis
+deudorix livia
