@@ -187,7 +187,7 @@ def normalize_answer(answer):
     return " ".join([token.lemma_ for token in tokens if not token.is_stop])
 
 
-def answer_question_with_context(args):
+async def answer_question_with_context(args):
     context = args['context']
     query_template = args['query_template']
     full_query = args['full_query']
@@ -212,15 +212,15 @@ def answer_question_with_context(args):
         return (0.0, None, '', '')
 
 
-def get_answers(cleaned_context_list, query_template, full_query):
-    with ThreadPoolExecutor(max_workers=N_WORKERS) as executor:
-        answers = list(executor.map(
-            answer_question_with_context,
-            ({'context': context,
-              'query_template': query_template,
-              'full_query': full_query}
-             for context in cleaned_context_list)))
-        clean_answers = [answer for answer in answers if answer[1] is not None]
+async def get_answers(cleaned_context_list, query_template, full_query):
+    answers = [
+        answer_question_with_context({
+            'context': context,
+            'query_template': query_template,
+            'full_query': full_query})
+        for context in cleaned_context_list]
+    clean_answers = [
+        answer for answer in asyncio.gather(*answers) if answer[1] is not None]
     return clean_answers
 
 
@@ -232,7 +232,7 @@ async def answer_question(DDG_SEMAPHORE, browser, subject, args):
     relevant_text_list = await extract_relevant_text_from_search_results(
         browser, raw_search_results, args.query_template, subject)
     LOGGER.info(f'2/4 RELEVANT TEXT EXTRACTED - {query}')
-    answers = get_answers(
+    answers = await get_answers(
         relevant_text_list, args.query_template, query)
     LOGGER.info(f'3/4 ANSWERS ARE ANSWERED - {query}')
     answer_to_score = collections.defaultdict(lambda: (0, ''))
@@ -299,13 +299,9 @@ async def main():
         for index, subject in enumerate(subjects):
             LOGGER.info(f'processing {subject}')
             tasks.append(answer_question(DDG_SEMAPHORE, browser, subject, args))
-            if index == 3:
+            if index == 1:
                 break
         for answer in await asyncio.gather(*tasks):
-            # for task in tasks:
-            #     answer = await task
-            # results = await asyncio.gather(*tasks)
-            # for answer in results:
             if answer is not None:
                 LOGGER.info(f'answer: {answer["subject"]}:{answer["answer"]}')
                 df = pd.DataFrame([answer])
