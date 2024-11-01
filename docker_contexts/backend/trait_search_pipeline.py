@@ -1,24 +1,22 @@
-import re
-import asyncio
-import logging
-import csv
-import argparse
-import collections
-from functools import partial
-import os
-import sys
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from functools import partial
+import argparse
+import asyncio
+import collections
+import csv
+import logging
+import re
+import sys
 
 from bs4 import BeautifulSoup
+from duckduckgo_search import DDGS
+from playwright.async_api import async_playwright
 from transformers import pipeline
+import duckduckgo_search.exceptions
 import pandas as pd
 import spacy
-from duckduckgo_search import DDGS
-import duckduckgo_search.exceptions
-from playwright.async_api import async_playwright
 
-N_WORKERS = 1#os.cpu_count()
+MAX_TABS = 20
 
 if sys.platform.startswith('win'):
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -37,8 +35,7 @@ for module in [
         'urllib3.connectionpool',
         'primp',
         'rquest',
-        'duckduckgo_search.DDGS',
-        ]:
+        'duckduckgo_search.DDGS',]:
     logging.getLogger(module).setLevel(logging.ERROR)
 
 LOGGER = logging.getLogger(__name__)
@@ -48,8 +45,6 @@ qa_pipeline = pipeline(
     "question-answering",
     model="distilbert-base-uncased-distilled-squad",
     device='cuda')
-
-MAX_TABS = 10
 
 
 async def searchengine_search(ddg_semaphore, query):
@@ -293,6 +288,8 @@ async def main():
         'query_template', help="Query and insert {subject} to be queried around")
     parser.add_argument(
         'query_subject_list', type=argparse.FileType('r'), help="Path to the file containing query subjects")
+    parser.add_argument(
+        '--max_subjects', type=int, help='limit to this many subjects for debugging reasons')
     args = parser.parse_args()
 
     ddg_semaphore = asyncio.Semaphore(1)
@@ -315,7 +312,7 @@ async def main():
         for index, subject in enumerate(subjects):
             LOGGER.info(f'processing {subject}')
             tasks.append(answer_question(ddg_semaphore, browser_semaphore, browser, subject, args))
-            if index == 0:
+            if args.max_subjects is not None and index == args.max_subjects:
                 break
         for answer in await asyncio.gather(*tasks):
             if answer is not None:
