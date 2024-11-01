@@ -314,10 +314,18 @@ async def answer_question(ddg_semaphore, browser_semaphore, browser, subject, ar
     LOGGER.info(f'4/4 TOP ANSWER IS SAVED - {query}')
 
 
+def validate_query_template(value):
+    if '{subject}' not in value:
+        raise argparse.ArgumentTypeError("The query template must contain '{subject}'")
+    return value
+
+
 async def main():
     parser = argparse.ArgumentParser(description="Process a list of queries from a file.")
     parser.add_argument(
-        'query_template', help="Query and insert {subject} to be queried around")
+        'query_template',
+        type=validate_query_template,
+        help="Query and insert {subject} to be queried around")
     parser.add_argument(
         'query_subject_list', type=argparse.FileType('r'), help="Path to the file containing query subjects")
     parser.add_argument(
