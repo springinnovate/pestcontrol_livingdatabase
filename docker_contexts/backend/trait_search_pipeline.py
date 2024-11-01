@@ -7,6 +7,7 @@ import csv
 import logging
 import re
 import sys
+import warnings
 
 from bs4 import BeautifulSoup
 from duckduckgo_search import DDGS
@@ -15,6 +16,16 @@ from transformers import pipeline
 import duckduckgo_search.exceptions
 import pandas as pd
 import spacy
+from transformers import logging as hf_logging
+hf_logging.set_verbosity_error()
+
+
+def encode_text(text, tokenizer, max_length=512):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        tokens = tokenizer.encode(text, add_special_tokens=False, truncation=False)
+        return tokens
+
 
 MAX_TABS = 20
 
@@ -107,41 +118,56 @@ async def extract_relevant_text_from_search_results(
     return relevant_text_list
 
 
-def find_relevant_snippets_nlp(text_elements, query_template, subject):
-    query_tokens = set(
-        [token.lemma_
-         for token in spacy_tokenizer(query_template)
-         if not token.is_stop])
-    subject_tokens = set(
-        [token.lemma_
-         for token in spacy_tokenizer(subject)
-         if not token.is_stop])
-    relevant_snippets = []
-    for text in text_elements:
-        text_doc = spacy_tokenizer(text)
-        text_tokens = set([token.lemma_ for token in text_doc if not token.is_stop])
-        # must be something about the query AND the subject in the text in
-        # order to be considered
-        if (query_tokens & text_tokens) and (subject_tokens & text_tokens):
-            relevant_snippets.append(text)
-    return ' '.join(relevant_snippets)
+async def filter_by_query_and_subject(query_tokens, subject_tokens, candidate_text):
+    text_tokens = set([
+        token.lemma_
+        for token in spacy_tokenizer(candidate_text) if not token.is_stop])
+    if (query_tokens & text_tokens) and (subject_tokens & text_tokens):
+        return candidate_text
+    return None
+
+
+async def find_relevant_snippets_nlp(text_elements, query_template, subject):
+    try:
+        query_tokens = set(
+            [token.lemma_
+             for token in spacy_tokenizer(query_template)
+             if not token.is_stop])
+        subject_tokens = set(
+            [token.lemma_
+             for token in spacy_tokenizer(subject)
+             if not token.is_stop])
+        task_list = [
+            filter_by_query_and_subject(query_tokens, subject_tokens, candidate_text)
+            for candidate_text in text_elements
+        ]
+        return ' '.join([
+            filtered_text for filtered_text in await asyncio.gather(*task_list)
+            if filtered_text is not None])
+    except Exception:
+        LOGGER.exception('bad stuff')
 
 
 def extract_text_elements(html_content):
-    soup = BeautifulSoup(html_content, 'html.parser')
-    text_elements = soup.find_all(['p', 'h1', 'h2', 'h3', 'li'])
-    extracted_text = [element.get_text(strip=True) for element in text_elements]
-    combined_text = ' '.join(extracted_text)
-    cleaned_text = re.sub(r'\s+', ' ', combined_text)
-    cleaned_text = re.sub(r'[^\x20-\x7E]+', '', cleaned_text)
-    return cleaned_text
+    try:
+        soup = BeautifulSoup(html_content, 'html.parser')
+        text_elements = soup.find_all(['p', 'h1', 'h2', 'h3', 'li'])
+        extracted_text_list = []
+        for element in text_elements:
+            local_text = element.get_text(strip=True)
+            local_text = re.sub(r'\s+', ' ', local_text)
+            local_text = re.sub(r'[^\x20-\x7E]+', '', local_text)
+            extracted_text_list.append(local_text)
+        return extracted_text_list
+    except Exception as e:
+        print(f'MASSIVE ERROR {e}')
 
 
 async def fetch_relevant_snippet(browser_semaphore, browser, url, query_template, subject):
     try:
         html_content = await fetch_page_content(browser_semaphore, browser, url)
         text_elements = extract_text_elements(html_content)
-        relevant_snippets = find_relevant_snippets_nlp(
+        relevant_snippets = await find_relevant_snippets_nlp(
             text_elements, query_template, subject)
         return relevant_snippets
     except Exception as e:
@@ -180,44 +206,39 @@ def answer_question_with_context(args):
 
 def split_contexts_into_chunks(contexts, max_length, tokenizer, question):
     chunks = []
-    current_chunk = ""
-    current_length = 0
-    question_length = len(tokenizer.encode(question, add_special_tokens=False))
-
+    question_length = len(encode_text(question, tokenizer))
+    max_context_length = max_length - question_length - 3
     for context, href in contexts:
-        context_length = len(tokenizer.encode(context, add_special_tokens=False))
-        total_length = current_length + context_length + question_length + 3  # +3 for special tokens
-
-        if total_length <= max_length:
-            if current_chunk:
-                current_chunk += " " + context
-            else:
-                current_chunk = context
-            current_length += context_length
+        context_tokens = encode_text(context, tokenizer)
+        context_length = len(context_tokens)
+        if context_length <= max_context_length:
+            chunks.append((context, href))
         else:
-            if current_chunk:
-                chunks.append((current_chunk, href))
-            current_chunk = context
-            current_length = context_length
-
-    if current_chunk:
-        chunks.append((current_chunk, href))
-
+            # Context is too long, need to split it into smaller chunks
+            for i in range(0, context_length, max_context_length):
+                chunk_tokens = context_tokens[i:i + max_context_length]
+                chunk_text = tokenizer.decode(
+                    chunk_tokens,
+                    skip_special_tokens=True,
+                    clean_up_tokenization_spaces=True
+                )
+                chunks.append((chunk_text, href))
     return chunks
 
 
 async def get_answers(cleaned_context_list, query_template, full_query):
     max_length = qa_pipeline.tokenizer.model_max_length  # Typically 512 for BERT models
-
     contexts = [(context['body'], context['href']) for context in cleaned_context_list]
+    LOGGER.debug('about to split into chunks')
     chunks = split_contexts_into_chunks(
         contexts, max_length, qa_pipeline.tokenizer, full_query + ' Answer in one word.')
+    LOGGER.debug(f'split into {len(chunks)}')
     answers = []
     for chunk, href in chunks:
         result = qa_pipeline(
             question=full_query + ' Answer in one word.',
             context=chunk)
-
+        LOGGER.debug(f'got an answer {result}')
         query_tokens = set(
             token.lemma_ for token in spacy_tokenizer(query_template) if not token.is_stop
         )
@@ -296,7 +317,7 @@ async def main():
     browser_semaphore = asyncio.Semaphore(MAX_TABS)
 
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=False)
+        browser = await playwright.chromium.launch(headless=True)
 
         current_time = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
         query_result_filename = f'query_result_{current_time}.csv'
@@ -312,7 +333,7 @@ async def main():
         for index, subject in enumerate(subjects):
             LOGGER.info(f'processing {subject}')
             tasks.append(answer_question(ddg_semaphore, browser_semaphore, browser, subject, args))
-            if args.max_subjects is not None and index == args.max_subjects:
+            if args.max_subjects is not None and index == args.max_subjects-1:
                 break
         for answer in await asyncio.gather(*tasks):
             if answer is not None:
