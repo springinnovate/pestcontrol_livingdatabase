@@ -365,6 +365,7 @@ async def main():
                     index=False,
                     header=False,
                     quoting=csv.QUOTE_ALL)
+    LOGGER.info(f'all done, results in: {query_result_filename}')
 
 
 if __name__ == '__main__':
