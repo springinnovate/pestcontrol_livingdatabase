@@ -28,7 +28,7 @@ def encode_text(text, tokenizer, max_length=512):
         return tokens
 
 
-MAX_TABS = 20
+MAX_TABS = 5
 
 if sys.platform.startswith('win'):
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -61,15 +61,17 @@ qa_pipeline = pipeline(
 
 async def searchengine_search(ddg_semaphore, query):
     async with ddg_semaphore:
-        loop = asyncio.get_event_loop()
-        try:
-            results = await loop.run_in_executor(
-                None,
-                partial(DDGS().text, query, max_results=20))
-        except duckduckgo_search.exceptions.RatelimitException:
-            LOGGER.warn('rate limit error, sleeping for a bit')
-            await asyncio.sleep(3)
-        return results
+        while True:
+            loop = asyncio.get_event_loop()
+            try:
+                results = await loop.run_in_executor(
+                    None,
+                    partial(DDGS().text, query, max_results=20))
+            except duckduckgo_search.exceptions.RatelimitException:
+                LOGGER.warning('duckduckgo rate limit error, sleeping for a bit')
+                await asyncio.sleep(3)
+                continue
+            return results
 
 
 async def fetch_page_content(browser_semaphore, browser, url):
@@ -261,13 +263,13 @@ async def answer_question(ddg_semaphore, browser_semaphore, browser, subject, ar
     subject = subject.strip()
     query = args.query_template.format(subject=subject)
     raw_search_results = await searchengine_search(ddg_semaphore, query)
-    LOGGER.info(f'1/4 INTERNET SEARCH COMPLETE - {query}')
+    LOGGER.info(f'1/3 INITAL INTERNET SEARCH COMPLETE - {query}')
     relevant_text_list = await extract_relevant_text_from_search_results(
         browser_semaphore, browser, raw_search_results, args.query_template, subject)
-    LOGGER.info(f'2/4 RELEVANT TEXT EXTRACTED - {query}')
+    LOGGER.info(f'2/3 RELEVANT TEXT EXTRACTED FROM SEARCH - {query}')
     answers = await get_answers(
         relevant_text_list, args.query_template, query)
-    LOGGER.info(f'3/4 ANSWERS ARE ANSWERED - {query}')
+    LOGGER.info(f'3/3 ANSWERS ARE ANSWERED - {query}')
     answer_to_score = collections.defaultdict(lambda: (0, ''))
 
     base_urls = '\n'.join([
