@@ -1,3 +1,4 @@
+import re
 import asyncio
 import logging
 import csv
@@ -14,6 +15,7 @@ from transformers import pipeline
 import pandas as pd
 import spacy
 from duckduckgo_search import DDGS
+import duckduckgo_search.exceptions
 from playwright.async_api import async_playwright
 
 N_WORKERS = 1#os.cpu_count()
@@ -49,26 +51,32 @@ qa_pipeline = pipeline(
 
 MAX_TABS = 10
 
-async def duckduckgo_search(ddg_semaphore, query):
+
+async def searchengine_search(ddg_semaphore, query):
     async with ddg_semaphore:
         loop = asyncio.get_event_loop()
-        results = await loop.run_in_executor(
-            None,
-            partial(DDGS().text, query, max_results=20))
+        try:
+            results = await loop.run_in_executor(
+                None,
+                partial(DDGS().text, query, max_results=20))
+        except duckduckgo_search.exceptions.RatelimitException:
+            LOGGER.warn('rate limit error, sleeping for a bit')
+            await asyncio.sleep(3)
         return results
 
 
 async def fetch_page_content(browser_semaphore, browser, url):
     async with browser_semaphore:
-        context = await browser.new_context()
-        page = await context.new_page()
+        context = None
         try:
+            context = await browser.new_context()
+            page = await context.new_page()
             await page.goto(url, timeout=5000)
             content = await page.content()
             return content
         finally:
-            await context.close()
-        return content
+            if context is not None:
+                await context.close()
 
 
 async def extract_query_relevant_text(args):
@@ -127,7 +135,11 @@ def find_relevant_snippets_nlp(text_elements, query_template, subject):
 def extract_text_elements(html_content):
     soup = BeautifulSoup(html_content, 'html.parser')
     text_elements = soup.find_all(['p', 'h1', 'h2', 'h3', 'li'])
-    return [element.get_text(strip=True) for element in text_elements]
+    extracted_text = [element.get_text(strip=True) for element in text_elements]
+    combined_text = ' '.join(extracted_text)
+    cleaned_text = re.sub(r'\s+', ' ', combined_text)
+    cleaned_text = re.sub(r'[^\x20-\x7E]+', '', cleaned_text)
+    return cleaned_text
 
 
 async def fetch_relevant_snippet(browser_semaphore, browser, url, query_template, subject):
@@ -171,22 +183,67 @@ def answer_question_with_context(args):
         return (0.0, None, '', '')
 
 
+def split_contexts_into_chunks(contexts, max_length, tokenizer, question):
+    chunks = []
+    current_chunk = ""
+    current_length = 0
+    question_length = len(tokenizer.encode(question, add_special_tokens=False))
+
+    for context, href in contexts:
+        context_length = len(tokenizer.encode(context, add_special_tokens=False))
+        total_length = current_length + context_length + question_length + 3  # +3 for special tokens
+
+        if total_length <= max_length:
+            if current_chunk:
+                current_chunk += " " + context
+            else:
+                current_chunk = context
+            current_length += context_length
+        else:
+            if current_chunk:
+                chunks.append((current_chunk, href))
+            current_chunk = context
+            current_length = context_length
+
+    if current_chunk:
+        chunks.append((current_chunk, href))
+
+    return chunks
+
+
 async def get_answers(cleaned_context_list, query_template, full_query):
-    answers = [
-        answer_question_with_context({
-            'context': context,
-            'query_template': query_template,
-            'full_query': full_query})
-        for context in cleaned_context_list]
-    clean_answers = [
-        answer for answer in answers if answer[1] is not None]
-    return clean_answers
+    max_length = qa_pipeline.tokenizer.model_max_length  # Typically 512 for BERT models
+
+    contexts = [(context['body'], context['href']) for context in cleaned_context_list]
+    chunks = split_contexts_into_chunks(
+        contexts, max_length, qa_pipeline.tokenizer, full_query + ' Answer in one word.')
+    answers = []
+    for chunk, href in chunks:
+        print(href)
+        result = qa_pipeline(
+            question=full_query + ' Answer in one word.',
+            context=chunk)
+
+        query_tokens = set(
+            token.lemma_ for token in spacy_tokenizer(query_template) if not token.is_stop
+        )
+
+        answer_tokens = set(
+            token.lemma_ for token in spacy_tokenizer(result['answer']) if not token.is_stop
+        )
+
+        # Check if the answer is relevant
+        if query_tokens & answer_tokens:
+            answers.append(
+                (result['score'], normalize_answer(result['answer']), chunk, href)
+            )
+    return answers
 
 
 async def answer_question(ddg_semaphore, browser_semaphore, browser, subject, args):
     subject = subject.strip()
     query = args.query_template.format(subject=subject)
-    raw_search_results = await duckduckgo_search(ddg_semaphore, query)
+    raw_search_results = await searchengine_search(ddg_semaphore, query)
     LOGGER.info(f'1/4 INTERNET SEARCH COMPLETE - {query}')
     relevant_text_list = await extract_relevant_text_from_search_results(
         browser_semaphore, browser, raw_search_results, args.query_template, subject)
@@ -197,12 +254,13 @@ async def answer_question(ddg_semaphore, browser_semaphore, browser, subject, ar
     answer_to_score = collections.defaultdict(lambda: (0, ''))
 
     for score, answer, snippet, href in answers:
-        if answer is None:
+        if answer in [None, '']:
             continue
         answer = answer.lower().strip()
+        LOGGER.debug(f'{href} -- {answer} -- {snippet}')
         current_tuple = answer_to_score[answer]
         answer_to_score[answer] = (
-            current_tuple[0] + score, current_tuple[1] + f'({href}) - ' + snippet + '\n'
+            current_tuple[0] + score, current_tuple[1] + f'*************\n({href}) - ' + snippet + '\n'
         )
 
     # Get the best answer with the highest score
@@ -259,7 +317,7 @@ async def main():
         for index, subject in enumerate(subjects):
             LOGGER.info(f'processing {subject}')
             tasks.append(answer_question(ddg_semaphore, browser_semaphore, browser, subject, args))
-            if index == 1:
+            if index == 0:
                 break
         for answer in await asyncio.gather(*tasks):
             if answer is not None:
