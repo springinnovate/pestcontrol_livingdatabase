@@ -219,7 +219,6 @@ async def get_answers(cleaned_context_list, query_template, full_query):
         contexts, max_length, qa_pipeline.tokenizer, full_query + ' Answer in one word.')
     answers = []
     for chunk, href in chunks:
-        print(href)
         result = qa_pipeline(
             question=full_query + ' Answer in one word.',
             context=chunk)
@@ -257,7 +256,6 @@ async def answer_question(ddg_semaphore, browser_semaphore, browser, subject, ar
         if answer in [None, '']:
             continue
         answer = answer.lower().strip()
-        LOGGER.debug(f'{href} -- {answer} -- {snippet}')
         current_tuple = answer_to_score[answer]
         answer_to_score[answer] = (
             current_tuple[0] + score, current_tuple[1] + f'*************\n({href}) - ' + snippet + '\n'
