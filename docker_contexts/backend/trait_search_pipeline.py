@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 from functools import partial
 import argparse
@@ -121,7 +122,8 @@ async def extract_relevant_text_from_search_results(
 async def filter_by_query_and_subject(query_tokens, subject_tokens, candidate_text):
     text_tokens = set([
         token.lemma_
-        for token in spacy_tokenizer(candidate_text) if not token.is_stop])
+        for token in spacy_tokenizer(candidate_text)
+        if not token.is_stop and token.lemma_.strip() != ''])
     if (query_tokens & text_tokens) and (subject_tokens & text_tokens):
         return candidate_text
     return None
@@ -132,11 +134,12 @@ async def find_relevant_snippets_nlp(text_elements, query_template, subject):
         query_tokens = set(
             [token.lemma_
              for token in spacy_tokenizer(query_template)
-             if not token.is_stop])
+             if not token.is_stop and token.lemma_.strip() != ''])
         subject_tokens = set(
             [token.lemma_
              for token in spacy_tokenizer(subject)
-             if not token.is_stop])
+             if not token.is_stop and token.lemma_.strip() != ''])
+
         task_list = [
             filter_by_query_and_subject(query_tokens, subject_tokens, candidate_text)
             for candidate_text in text_elements
@@ -229,22 +232,21 @@ def split_contexts_into_chunks(contexts, max_length, tokenizer, question):
 async def get_answers(cleaned_context_list, query_template, full_query):
     max_length = qa_pipeline.tokenizer.model_max_length  # Typically 512 for BERT models
     contexts = [(context['body'], context['href']) for context in cleaned_context_list]
-    LOGGER.debug('about to split into chunks')
     chunks = split_contexts_into_chunks(
         contexts, max_length, qa_pipeline.tokenizer, full_query + ' Answer in one word.')
-    LOGGER.debug(f'split into {len(chunks)}')
     answers = []
     for chunk, href in chunks:
         result = qa_pipeline(
             question=full_query + ' Answer in one word.',
             context=chunk)
-        LOGGER.debug(f'got an answer {result}')
         query_tokens = set(
             token.lemma_ for token in spacy_tokenizer(query_template) if not token.is_stop
         )
 
         answer_tokens = set(
-            token.lemma_ for token in spacy_tokenizer(result['answer']) if not token.is_stop
+            token.lemma_
+            for token in spacy_tokenizer(result['answer'])
+            if not token.is_stop
         )
 
         # Check if the answer is relevant
@@ -268,6 +270,9 @@ async def answer_question(ddg_semaphore, browser_semaphore, browser, subject, ar
     LOGGER.info(f'3/4 ANSWERS ARE ANSWERED - {query}')
     answer_to_score = collections.defaultdict(lambda: (0, ''))
 
+    base_urls = '\n'.join([
+        search_result['href'] for search_result in raw_search_results])
+
     for score, answer, snippet, href in answers:
         if answer in [None, '']:
             continue
@@ -290,15 +295,19 @@ async def answer_question(ddg_semaphore, browser_semaphore, browser, subject, ar
         return {
             'subject': subject,
             'answer': answer,
-            'score': score,
-            'snippet': snippet
+            'confidence score': score,
+            'consensus answer count': len(answers),
+            'text used to get answer': snippet,
+            'urls searched': base_urls
         }
     else:
         return {
             'subject': subject,
             'answer': '-',
-            'score': -1,
-            'snippet': ''
+            'confidence score': -1,
+            'consensus answer count': 0,
+            'text used to get answer': '',
+            'urls searched': base_urls
         }
     LOGGER.info(f'4/4 TOP ANSWER IS SAVED - {query}')
 
@@ -323,7 +332,7 @@ async def main():
         query_result_filename = f'query_result_{current_time}.csv'
 
         # Initialize CSV with headers
-        pd.DataFrame(columns=['subject', 'answer', 'score', 'snippet']).to_csv(query_result_filename, index=False)
+        pd.DataFrame(columns=['subject', 'answer', 'score', 'consensus answer count', 'text used to get answer', 'urls searched']).to_csv(query_result_filename, index=False)
 
         with args.query_subject_list as subject_list_file:
             subjects = subject_list_file.readlines()
@@ -331,6 +340,7 @@ async def main():
         # Process subjects in parallel and stream results to CSV
         tasks = []
         for index, subject in enumerate(subjects):
+            subject = subject.strip()
             LOGGER.info(f'processing {subject}')
             tasks.append(answer_question(ddg_semaphore, browser_semaphore, browser, subject, args))
             if args.max_subjects is not None and index == args.max_subjects-1:
