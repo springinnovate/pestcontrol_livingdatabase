@@ -1,4 +1,3 @@
-import os
 from datetime import datetime
 from functools import partial
 import argparse
@@ -232,86 +231,99 @@ def split_contexts_into_chunks(contexts, max_length, tokenizer, question):
 
 
 async def get_answers(cleaned_context_list, query_template, full_query):
-    max_length = qa_pipeline.tokenizer.model_max_length  # Typically 512 for BERT models
-    contexts = [(context['body'], context['href']) for context in cleaned_context_list]
-    chunks = split_contexts_into_chunks(
-        contexts, max_length, qa_pipeline.tokenizer, full_query + ' Answer in one word.')
-    answers = []
-    for chunk, href in chunks:
-        result = qa_pipeline(
-            question=full_query + ' Answer in one word.',
-            context=chunk)
-        query_tokens = set(
-            token.lemma_ for token in spacy_tokenizer(query_template) if not token.is_stop
-        )
-
-        answer_tokens = set(
-            token.lemma_
-            for token in spacy_tokenizer(result['answer'])
-            if not token.is_stop
-        )
-
-        # Check if the answer is relevant
-        if query_tokens & answer_tokens:
-            answers.append(
-                (result['score'], normalize_answer(result['answer']), chunk, href)
+    try:
+        max_length = qa_pipeline.tokenizer.model_max_length  # Typically 512 for BERT models
+        contexts = [(context['body'], context['href']) for context in cleaned_context_list]
+        chunks = split_contexts_into_chunks(
+            contexts, max_length, qa_pipeline.tokenizer, full_query + ' Answer in one word.')
+        answers = []
+        for chunk, href in chunks:
+            result = qa_pipeline(
+                question=full_query + ' Answer in one word.',
+                context=chunk)
+            query_tokens = set(
+                token.lemma_ for token in spacy_tokenizer(query_template) if not token.is_stop
             )
-    return answers
+
+            answer_tokens = set(
+                token.lemma_
+                for token in spacy_tokenizer(result['answer'])
+                if not token.is_stop
+            )
+
+            # Check if the answer is relevant
+            if query_tokens & answer_tokens:
+                answers.append(
+                    (result['score'], normalize_answer(result['answer']), chunk, href)
+                )
+        return answers
+    except Exception as e:
+        LOGGER.exception('somethinb bad happened answering questions')
+        raise
 
 
 async def answer_question(ddg_semaphore, browser_semaphore, browser, subject, args):
-    subject = subject.strip()
-    query = args.query_template.format(subject=subject)
-    raw_search_results = await searchengine_search(ddg_semaphore, query)
-    LOGGER.info(f'1/3 INITAL INTERNET SEARCH COMPLETE - {query}')
-    relevant_text_list = await extract_relevant_text_from_search_results(
-        browser_semaphore, browser, raw_search_results, args.query_template, subject)
-    LOGGER.info(f'2/3 RELEVANT TEXT EXTRACTED FROM SEARCH - {query}')
-    answers = await get_answers(
-        relevant_text_list, args.query_template, query)
-    LOGGER.info(f'3/3 ANSWERS ARE ANSWERED - {query}')
-    answer_to_score = collections.defaultdict(lambda: (0, ''))
+    try:
+        subject = subject.strip()
+        query = args.query_template.format(subject=subject)
+        raw_search_results = await searchengine_search(ddg_semaphore, query)
+        LOGGER.info(f'1/3 INITAL INTERNET SEARCH COMPLETE - {query}')
+        relevant_text_list = await extract_relevant_text_from_search_results(
+            browser_semaphore, browser, raw_search_results, args.query_template, subject)
+        LOGGER.info(f'2/3 RELEVANT TEXT EXTRACTED FROM SEARCH - {query}')
+        answers = await get_answers(
+            relevant_text_list, args.query_template, query)
+        LOGGER.info(f'3/3 ANSWERS ARE ANSWERED - {query}')
+        answer_to_score = collections.defaultdict(lambda: (0, '', 0))
 
-    base_urls = '\n'.join([
-        search_result['href'] for search_result in raw_search_results])
+        base_urls = '\n'.join([
+            search_result['href'] for search_result in raw_search_results])
 
-    for score, answer, snippet, href in answers:
-        if answer in [None, '']:
-            continue
-        answer = answer.lower().strip()
-        current_tuple = answer_to_score[answer]
-        answer_to_score[answer] = (
-            current_tuple[0] + score, current_tuple[1] + f'*************\n({href}) - ' + snippet + '\n'
-        )
+        for score, answer, snippet, href in answers:
+            print(f'ANSWER: {answer} -- SNIPPET: {snippet}'.encode('utf-8', errors='replace').decode('utf-8'))
+            if answer in [None, '']:
+                continue
+            answer = answer.lower().strip()
+            current_tuple = answer_to_score[answer]
+            answer_to_score[answer] = (
+                current_tuple[0] + score,
+                current_tuple[1] + f'*************\n({href}) - ' + snippet + '\n',
+                current_tuple[2] + 1
+            )
 
-    # Get the best answer with the highest score
-    sorted_answers = sorted(answer_to_score.items(), key=lambda x: x[1][0], reverse=True)
-    if sorted_answers:
-        answer, (score, snippet) = sorted_answers[0]
-        LOGGER.debug(
-            'ALL SCORES:\n\t' +
-            '\n\t'.join([f'{score:.2f}:{answer}'
-                         for score, answer, _, _ in
-                         sorted(answers, key=lambda x: x[0], reverse=True)]))
-        LOGGER.info(f'*** FINAL ANSWER {subject} {score:.2f}: {answer}')
-        return {
-            'subject': subject,
-            'answer': answer,
-            'confidence score': score,
-            'consensus answer count': len(answers),
-            'text used to get answer': snippet,
-            'urls searched': base_urls
-        }
-    else:
-        return {
-            'subject': subject,
-            'answer': '-',
-            'confidence score': -1,
-            'consensus answer count': 0,
-            'text used to get answer': '',
-            'urls searched': base_urls
-        }
-    LOGGER.info(f'4/4 TOP ANSWER IS SAVED - {query}')
+        # Get the best answer with the highest score
+        sorted_answers = sorted(answer_to_score.items(), key=lambda x: x[1][0], reverse=True)
+        if sorted_answers:
+            answer, (score, snippet, consensus_answer_count) = sorted_answers[0]
+            all_answers = '\n\t'.join([
+                f'{score:.2f}:{answer}'
+                for score, answer, _f, _ in
+                sorted(answers, key=lambda x: x[0], reverse=True)])
+            LOGGER.debug('ALL SCORES:\n\t' + all_answers)
+            LOGGER.info(f'*** FINAL ANSWER {subject} {score:.2f}: {answer}')
+            return {
+                'subject': subject,
+                'answer': answer,
+                'confidence score': score,
+                'consensus answer count': f'{consensus_answer_count} of {len(answers)}',
+                'text used to get answer': snippet,
+                'all answers': all_answers,
+                'urls searched': base_urls
+            }
+        else:
+            return {
+                'subject': subject,
+                'answer': '-',
+                'confidence score': -1,
+                'consensus answer count': 0,
+                'text used to get answer': '',
+                'all answers': '',
+                'urls searched': base_urls
+            }
+        LOGGER.info(f'4/4 TOP ANSWER IS SAVED - {query}')
+    except Exception as e:
+        LOGGER.exception('something bad happened')
+        raise
 
 
 def validate_query_template(value):
@@ -342,7 +354,7 @@ async def main():
         query_result_filename = f'query_result_{current_time}.csv'
 
         # Initialize CSV with headers
-        pd.DataFrame(columns=['subject', 'answer', 'score', 'consensus answer count', 'text used to get answer', 'urls searched']).to_csv(query_result_filename, index=False)
+        pd.DataFrame(columns=['subject', 'answer', 'score', 'consensus answer count', 'text used to get answer', 'all answers', 'urls searched']).to_csv(query_result_filename, index=False)
 
         with args.query_subject_list as subject_list_file:
             subjects = subject_list_file.readlines()
