@@ -253,6 +253,11 @@ def calculate_study_display_order(
     return covariate_display_order, display_table
 
 
+@app.route('/about')
+def about():
+    return render_template('about.html')
+
+
 @app.route('/initialize_searchable_covariates', methods=['POST'])
 def initialize_searchable_covariates():
     data = request.get_json()

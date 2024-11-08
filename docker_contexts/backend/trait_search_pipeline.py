@@ -183,31 +183,6 @@ def normalize_answer(answer):
     return " ".join([token.lemma_ for token in tokens if not token.is_stop])
 
 
-def answer_question_with_context(args):
-    context = args['context']
-    query_template = args['query_template']
-    full_query = args['full_query']
-    result = qa_pipeline(
-        question=full_query + ' Answer in one word.',
-        context=context['body'])
-    query_tokens = set(
-        [token.lemma_
-         for token in spacy_tokenizer(query_template)
-         if not token.is_stop])
-
-    answer_tokens = set(
-        [token.lemma_
-         for token in spacy_tokenizer(result['answer'])
-         if not token.is_stop])
-
-    # make sure something from the query is part of the answer
-    if query_tokens & answer_tokens:
-
-        return (result['score'], normalize_answer(result['answer']), context['body'], context['href'])
-    else:
-        return (0.0, None, '', '')
-
-
 def split_contexts_into_chunks(contexts, max_length, tokenizer, question):
     chunks = []
     question_length = len(encode_text(question, tokenizer))
@@ -230,16 +205,16 @@ def split_contexts_into_chunks(contexts, max_length, tokenizer, question):
     return chunks
 
 
-async def get_answers(cleaned_context_list, query_template, full_query):
+async def get_answers(cleaned_context_list, query_template, full_query, context):
     try:
         max_length = qa_pipeline.tokenizer.model_max_length  # Typically 512 for BERT models
         contexts = [(context['body'], context['href']) for context in cleaned_context_list]
         chunks = split_contexts_into_chunks(
-            contexts, max_length, qa_pipeline.tokenizer, full_query + ' Answer in one word.')
+            contexts, max_length, qa_pipeline.tokenizer, full_query + f' {context}.')
         answers = []
         for chunk, href in chunks:
             result = qa_pipeline(
-                question=full_query + ' Answer in one word.',
+                question=full_query + f' {context}',
                 context=chunk)
             query_tokens = set(
                 token.lemma_ for token in spacy_tokenizer(query_template) if not token.is_stop
@@ -272,7 +247,7 @@ async def answer_question(ddg_semaphore, browser_semaphore, browser, subject, ar
             browser_semaphore, browser, raw_search_results, args.query_template, subject)
         LOGGER.info(f'2/3 RELEVANT TEXT EXTRACTED FROM SEARCH - {query}')
         answers = await get_answers(
-            relevant_text_list, args.query_template, query)
+            relevant_text_list, args.query_template, query, args.context)
         LOGGER.info(f'3/3 ANSWERS ARE ANSWERED - {query}')
         answer_to_score = collections.defaultdict(lambda: (0, '', 0))
 
@@ -342,6 +317,9 @@ async def main():
         'query_subject_list', type=argparse.FileType('r'), help="Path to the file containing query subjects")
     parser.add_argument(
         '--max_subjects', type=int, help='limit to this many subjects for debugging reasons')
+    parser.add_argument(
+        '--context', default='',
+        help='Additional text info to include when asking a question that is not part of the raw subject.')
     args = parser.parse_args()
 
     ddg_semaphore = asyncio.Semaphore(1)
@@ -364,7 +342,8 @@ async def main():
         for index, subject in enumerate(subjects):
             subject = subject.strip()
             LOGGER.info(f'processing {subject}')
-            tasks.append(answer_question(ddg_semaphore, browser_semaphore, browser, subject, args))
+            tasks.append(answer_question(
+                ddg_semaphore, browser_semaphore, browser, subject, args))
             if args.max_subjects is not None and index == args.max_subjects-1:
                 break
         for answer in await asyncio.gather(*tasks):
