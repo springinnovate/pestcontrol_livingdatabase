@@ -345,7 +345,7 @@ def initialize_covariates(clear_cache):
 
 
 @app.route('/')
-def pcld():
+def home():
     global COVARIATE_STATE
     return render_template(
         'query_builder.html',
