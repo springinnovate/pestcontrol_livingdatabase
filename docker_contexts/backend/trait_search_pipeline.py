@@ -320,13 +320,15 @@ async def main():
     parser.add_argument(
         '--context', default='',
         help='Additional text info to include when asking a question that is not part of the raw subject.')
+    parser.add_argument(
+        '--headless_off', action='store_true')
     args = parser.parse_args()
 
     ddg_semaphore = asyncio.Semaphore(1)
     browser_semaphore = asyncio.Semaphore(MAX_TABS)
 
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=True)
+        browser = await playwright.chromium.launch(headless=not args.headless_off)
 
         current_time = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
         query_result_filename = f'query_result_{current_time}.csv'
