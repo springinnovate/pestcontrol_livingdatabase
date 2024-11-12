@@ -494,7 +494,7 @@ def build_filter(session, form):
             .join(Point.geolocations)
             .filter(Geolocation.geolocation_name == continent_select)
         ).subquery()
-        filters.append(Point.id_key.in_(geolocation_subquery))
+        filters.append(Point.id_key.in_(select(geolocation_subquery)))
         filter_text += f'continent is {continent_select}\n'
 
     if ul_lat is not None:
