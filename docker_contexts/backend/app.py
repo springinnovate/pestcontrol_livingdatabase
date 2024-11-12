@@ -349,7 +349,6 @@ def home():
     global COVARIATE_STATE
     return render_template(
         'query_builder.html',
-        status_message=f'Number of samples in db: {n_samples}',
         possible_operations=list(OPERATION_MAP),
         country_set=sorted(COVARIATE_STATE['country_set']),
         continent_set=sorted(COVARIATE_STATE['continent_set']),
