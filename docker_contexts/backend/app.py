@@ -354,7 +354,7 @@ def home():
         country_set=sorted(COVARIATE_STATE['country_set']),
         continent_set=sorted(COVARIATE_STATE['continent_set']),
         unique_covariate_values=COVARIATE_STATE['searchable_covariates'],
-        )
+    )
 
 
 @app.route('/api/n_samples', methods=['POST'])
@@ -362,7 +362,6 @@ def n_samples():
     session = SessionLocal()
     form_as_dict = form_to_dict(request.form)
     filters, filter_text = build_filter(session, form_as_dict)
-
     sample_query = (
         session.query(Sample.id_key, Study.id_key)
         .join(Sample.study)
@@ -450,17 +449,6 @@ def build_filter(session, form):
             sample_ids = select(covariate_subquery.with_entities(
                 CovariateValue.sample_id).subquery())
             filters.append(Sample.id_key.in_(sample_ids))
-
-        # covariate_filter = and_(
-        #     CovariateDefn.name == field,
-        #     OPERATION_MAP[operation](CovariateValue.value, value)
-        # )
-        # LOGGER.debug(f'covariate_fitler: {covariate_filter}')
-
-        # if covariate_type == CovariateAssociation.STUDY.value:
-        #     filters.append(Study.covariates.any(covariate_filter))
-        # elif covariate_type == CovariateAssociation.SAMPLE.value:
-        #     filters.append(Sample.covariates.any(covariate_filter))
 
     ul_lat = None
     center_point = form['centerPoint']
@@ -618,7 +606,8 @@ def process_query():
             session, sample_query.limit(MAX_SAMPLE_DISPLAY_SIZE))
 
         study_query = (
-            session.query(Study.id_key)
+            session.query(Study)
+            .options(selectinload(Study.covariates))
             .join(Study.samples)
             .join(Sample.point)
             .filter(
@@ -771,7 +760,8 @@ def _prep_download(task_id):
         ).yield_per(1000).limit(50000)
 
         study_query = (
-            session.query(Study.id_key)
+            session.query(Study)
+            .options(selectinload(Study.covariates))
             .join(Study.samples)
             .join(Sample.point)
             .filter(
