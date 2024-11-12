@@ -425,7 +425,6 @@ def build_filter(session, form):
     covariate_defn_map = dict(covariate_defns)
 
     for field, operation, value in zip(fields, operations, values):
-        LOGGER.debug(f'{field}, {operation}, {value}')
         if not field or not value:
             continue
         covariate_type = covariate_defn_map.get(field)
