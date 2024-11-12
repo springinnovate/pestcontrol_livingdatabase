@@ -374,7 +374,7 @@ def n_samples():
     sample_count = sample_query.count()
     study_query = (
         session.query(Study.id_key)
-        .join(Sample.study)
+        .join(Study.samples)
         .join(Sample.point)
         .filter(
             *filters
@@ -423,30 +423,44 @@ def build_filter(session, form):
     ).filter(
         CovariateDefn.name.in_(fields)
     ).all()
-    covariate_type_map = dict(covariate_defns)
+    covariate_defn_map = dict(covariate_defns)
 
     for field, operation, value in zip(fields, operations, values):
+        LOGGER.debug(f'{field}, {operation}, {value}')
         if not field or not value:
             continue
-
+        covariate_type = covariate_defn_map.get(field)
+        filter_text += f'{field}({covariate_type}) {operation} {value}\n'
         if field == STUDY_ID:
             filters.append(Study.name == value)
             continue
 
-        covariate_type = covariate_type_map.get(field)
-        if covariate_type is None:
-            continue  # Handle missing fields
-
-        filter_text += f'{field}({covariate_type}) {operation} {value}\n'
-        covariate_filter = and_(
+        covariate_subquery = session.query(CovariateValue)
+        covariate_subquery = covariate_subquery.join(CovariateDefn)
+        covariate_subquery = covariate_subquery.filter(
             CovariateDefn.name == field,
             OPERATION_MAP[operation](CovariateValue.value, value)
         )
 
         if covariate_type == CovariateAssociation.STUDY.value:
-            filters.append(Study.covariates.any(covariate_filter))
+            study_ids = select(covariate_subquery.with_entities(
+                CovariateValue.study_id).subquery())
+            filters.append(Study.id_key.in_(study_ids))
         elif covariate_type == CovariateAssociation.SAMPLE.value:
-            filters.append(Sample.covariates.any(covariate_filter))
+            sample_ids = select(covariate_subquery.with_entities(
+                CovariateValue.sample_id).subquery())
+            filters.append(Sample.id_key.in_(sample_ids))
+
+        # covariate_filter = and_(
+        #     CovariateDefn.name == field,
+        #     OPERATION_MAP[operation](CovariateValue.value, value)
+        # )
+        # LOGGER.debug(f'covariate_fitler: {covariate_filter}')
+
+        # if covariate_type == CovariateAssociation.STUDY.value:
+        #     filters.append(Study.covariates.any(covariate_filter))
+        # elif covariate_type == CovariateAssociation.SAMPLE.value:
+        #     filters.append(Sample.covariates.any(covariate_filter))
 
     ul_lat = None
     center_point = form['centerPoint']
@@ -604,13 +618,12 @@ def process_query():
             session, sample_query.limit(MAX_SAMPLE_DISPLAY_SIZE))
 
         study_query = (
-            session.query(Study)
-            .join(Sample.study)
+            session.query(Study.id_key)
+            .join(Study.samples)
             .join(Sample.point)
             .filter(
                 *filters
-            )
-            .options(selectinload(Study.covariates))
+            ).distinct()
         )
         unique_studies = {study for study in study_query}
 
@@ -758,13 +771,12 @@ def _prep_download(task_id):
         ).yield_per(1000).limit(50000)
 
         study_query = (
-            session.query(Study)
-            .join(Sample.study)
+            session.query(Study.id_key)
+            .join(Study.samples)
             .join(Sample.point)
             .filter(
                 *filters
-            )
-            .options(selectinload(Study.covariates))
+            ).distinct()
         )
         unique_studies = {study for study in study_query}
         study_covariate_display_order, study_table = calculate_study_display_order(
