@@ -535,26 +535,26 @@ def build_filter(session, form):
     min_observations_per_year = int(form['sampleSizeMinObservationsPerYear'])
     if min_observations_per_year > 0:
         filter_text += f'min observations per year {min_observations_per_year}\n'
-        query = (
+
+        counts_per_study_year = (
             session.query(
-                Sample.study_id,
-                CovariateValue.value,
-                func.count(Sample.study_id).label('count_per_year')
+                Sample.study_id.label('study_id'),
+                Sample.year.label('year'),
+                func.count(Sample.id_key).label('samples_per_year')
             )
-            .join(Sample.covariates)
-            .join(CovariateValue.covariate_defn)
-            .filter(CovariateDefn.name == 'year')
-            .group_by(Sample.study_id, CovariateValue.value)
+            .group_by(Sample.study_id, Sample.year)
+            .subquery()
         )
-        study_obs_per_year = {}
-        for study_id, year, samples_per_year in query:
-            if study_id not in study_obs_per_year or samples_per_year < study_obs_per_year[study_id][1]:
-                study_obs_per_year[study_id] = (year, samples_per_year)
-        valid_study_ids = [
-            study_id for study_id, (year, samples_per_year)
-            in study_obs_per_year.items()
-            if samples_per_year >= int(min_observations_per_year)]
-        filters.append(Sample.study_id.in_(valid_study_ids))
+
+        valid_study_ids_subquery = (
+            session.query(counts_per_study_year.c.study_id)
+            .group_by(counts_per_study_year.c.study_id)
+            .having(
+                func.min(counts_per_study_year.c.samples_per_year) >= min_observations_per_year
+            )
+            .subquery()
+        )
+        filters.append(Sample.study_id.in_(valid_study_ids_subquery))
 
     year_range = form['yearRange']
     if year_range:
