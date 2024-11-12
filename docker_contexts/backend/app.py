@@ -524,18 +524,13 @@ def build_filter(session, form):
     sample_size_min_years = int(form['sampleSizeMinYears'])
     if sample_size_min_years > 0:
         filter_text += f'min sample size min years {sample_size_min_years}\n'
-        unique_years_count_query = (
-            session.query(
-                Sample.study_id,
-                func.count(func.distinct(CovariateValue.value)).label('unique_years')
-            ).join(Sample.covariates)
-             .join(CovariateValue.covariate_defn)
-             .filter(CovariateDefn.name == 'year')
-             .group_by(Sample.study_id))
-        valid_study_ids = [
-            row[0] for row in unique_years_count_query.all()
-            if row[1] >= sample_size_min_years]
-        filters.append(Sample.study_id.in_(valid_study_ids))
+        valid_study_ids_subquery = (
+            session.query(Sample.study_id)
+            .group_by(Sample.study_id)
+            .having(func.count(func.distinct(Sample.year)) >= sample_size_min_years)
+            .subquery()
+        )
+        filters.append(Sample.study_id.in_(select(valid_study_ids_subquery)))
 
     min_observations_per_year = int(form['sampleSizeMinObservationsPerYear'])
     if min_observations_per_year > 0:
