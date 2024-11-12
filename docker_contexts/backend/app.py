@@ -566,15 +566,11 @@ def build_filter(session, form):
     if year_range:
         filter_text += 'years in {' + year_range + '}\n'
         year_set = extract_years(year_range)
-        year_subquery = (
-            session.query(CovariateValue.sample_id)
-            .join(CovariateValue.covariate_defn)
-            .filter(
-                and_(CovariateDefn.name == 'year',
-                     CovariateValue.value.in_(year_set))
-            ).subquery())
+        year_subquery_sample_ids = (
+            session.query(Sample.id_key)
+            .filter(Sample.year.in_(year_set)).subquery())
         filters.append(
-            Sample.id_key.in_(session.query(year_subquery.c.sample_id)))
+            Sample.id_key.in_(year_subquery_sample_ids))
     return filters, filter_text
 
 
