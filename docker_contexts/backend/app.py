@@ -162,7 +162,7 @@ def calculate_display_tables(session, query, max_sample_size):
         covariate_defns = COVARIATE_STATE['covariate_defns']
     except NameError:
         # the celery worker won't call initalize so we can do it here the first time
-        COVARIATE_STATE = initialize_covariates(False)
+        initialize_covariates(False)
         covariate_defns = COVARIATE_STATE['covariate_defns']
     sample_covariate_defns = [
         (name, always_display, hidden)
