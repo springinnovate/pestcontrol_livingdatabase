@@ -31,7 +31,7 @@ from sqlalchemy import distinct, func
 from sqlalchemy import select, text
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import selectinload
-from sqlalchemy.sql import and_, or_
+from sqlalchemy.sql import and_
 from sqlalchemy.sql.functions import GenericFunction
 from sqlalchemy.types import String
 import ee
@@ -156,18 +156,7 @@ def _collect_unique_covariate_values(covariates, unique_values_per_covariate):
 
 
 def calculate_display_tables(session, query, max_sample_size):
-    covariate_defns = session.query(
-        CovariateDefn.name,
-        CovariateDefn.always_display,
-        CovariateDefn.hidden,
-        CovariateDefn.covariate_association,
-        CovariateDefn.show_in_point_table,
-        CovariateDefn.display_order
-    ).order_by(
-        CovariateDefn.display_order,
-        func.lower(CovariateDefn.name)
-    ).all()
-
+    covariate_defns = COVARIATE_STATE['covariate_defns']
     sample_covariate_defns = [
         (name, always_display, hidden)
         for name, always_display, hidden, cov_association, show_in_point_table, _ in covariate_defns
@@ -274,7 +263,7 @@ def initialize_covariates(clear_cache):
             CovariateValue.value
         ).filter(
             CovariateDefn.queryable,
-            CovariateDefn.search_by_unique == True
+            CovariateDefn.search_by_unique is True
         )
         .join(CovariateValue)
     ).yield_per(1000)
@@ -296,7 +285,7 @@ def initialize_covariates(clear_cache):
             CovariateDefn.covariate_type
         ).filter(
             CovariateDefn.queryable,
-            CovariateDefn.search_by_unique == False,
+            CovariateDefn.search_by_unique is False,
         )
     )
     LOGGER.debug('starting search for continuous covarates')
@@ -320,6 +309,20 @@ def initialize_covariates(clear_cache):
     # add the study ids manually
     COVARIATE_STATE['searchable_covariates'][STUDY_ID] = [x[0] for x in session.query(distinct(Study.name)).all()]
 
+    # get a list of all the covariates
+    covariate_defns = session.query(
+        CovariateDefn.name,
+        CovariateDefn.always_display,
+        CovariateDefn.hidden,
+        CovariateDefn.covariate_association,
+        CovariateDefn.show_in_point_table,
+        CovariateDefn.display_order
+    ).order_by(
+        CovariateDefn.display_order,
+        func.lower(CovariateDefn.name)
+    ).all()
+    COVARIATE_STATE['covariate_defns'] = covariate_defns
+
     with open(pkcl_filepath, 'wb') as file:
         pickle.dump(COVARIATE_STATE, file)
 
@@ -327,6 +330,7 @@ def initialize_covariates(clear_cache):
 
     for key in COVARIATE_STATE['searchable_covariates']:
         COVARIATE_STATE['searchable_covariates'][key] = sorted(COVARIATE_STATE['searchable_covariates'][key])
+
     LOGGER.info('all done with unique values')
 
 
