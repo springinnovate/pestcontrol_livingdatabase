@@ -263,7 +263,7 @@ def initialize_covariates(clear_cache):
             CovariateValue.value
         ).filter(
             CovariateDefn.queryable,
-            CovariateDefn.search_by_unique is True
+            CovariateDefn.search_by_unique == True
         )
         .join(CovariateValue)
     ).yield_per(1000)
@@ -285,7 +285,7 @@ def initialize_covariates(clear_cache):
             CovariateDefn.covariate_type
         ).filter(
             CovariateDefn.queryable,
-            CovariateDefn.search_by_unique is False,
+            CovariateDefn.search_by_unique == False,
         )
     )
     LOGGER.debug('starting search for continuous covarates')
