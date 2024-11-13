@@ -108,7 +108,7 @@ def to_dict(covariate_list):
     covariate_dict = collections.defaultdict(lambda: None)
     for covariate in covariate_list:
         if isinstance(covariate, str):
-            # hard-code study-id
+            # Hard-code STUDY_ID
             covariate_dict[STUDY_ID] = covariate
         else:
             covariate_dict[covariate.covariate_defn.name] = covariate.value
@@ -132,125 +132,111 @@ def extract_years(year_string):
     return sorted(years)
 
 
-def calculate_sample_display_table(session, query_to_filter):
-    pre_covariate_display_query = (
-        session.query(
-            CovariateDefn.name,
-            CovariateDefn.always_display,
-            CovariateDefn.hidden)
-        .filter(
-            or_(CovariateDefn.covariate_association == CovariateAssociation.SAMPLE.value,
-                CovariateDefn.show_in_point_table == 1))
-        .order_by(
-            CovariateDefn.display_order,
-            func.lower(CovariateDefn.name)))
+def _collect_unique_covariate_values(covariates, unique_values_per_covariate):
+    for covariate in covariates:
+        if isinstance(covariate, str):
+            # This will be the STUDY_ID
+            unique_values_per_covariate[STUDY_ID].add(covariate)
+            continue
+        value = covariate.value
+        if value is None or (isinstance(value, float) and numpy.isnan(value)):
+            continue
+        if isinstance(value, str):
+            if value.lower() == 'null':
+                continue
+            try:
+                # Check if value can be converted to float
+                float(value)
+                unique_values_per_covariate[covariate.covariate_defn.name].add(True)
+            except ValueError:
+                unique_values_per_covariate[covariate.covariate_defn.name].add(value.lower())
+        else:
+            # Numeric value; note that it's defined
+            unique_values_per_covariate[covariate.covariate_defn.name].add(True)
 
-    unique_values_per_covariate = collections.defaultdict(set)
+
+def calculate_display_tables(session, query, max_sample_size):
+    covariate_defns = session.query(
+        CovariateDefn.name,
+        CovariateDefn.always_display,
+        CovariateDefn.hidden,
+        CovariateDefn.covariate_association,
+        CovariateDefn.show_in_point_table,
+        CovariateDefn.display_order
+    ).order_by(
+        CovariateDefn.display_order,
+        func.lower(CovariateDefn.name)
+    ).all()
+
+    sample_covariate_defns = [
+        (name, always_display, hidden)
+        for name, always_display, hidden, cov_association, show_in_point_table, _ in covariate_defns
+        if cov_association == CovariateAssociation.SAMPLE.value or show_in_point_table == 1
+    ]
+
+    study_covariate_defns = [
+        (name, always_display, hidden)
+        for name, always_display, hidden, cov_association, show_in_point_table, _ in covariate_defns
+        if cov_association == CovariateAssociation.STUDY.value or show_in_point_table == 1
+    ]
+
+    unique_sample_covariate_values = collections.defaultdict(set)
+    unique_study_covariate_values = collections.defaultdict(set)
+
     sample_covariate_list = []
-    for index, (sample, study) in enumerate(query_to_filter):
+    study_list = []
+    study_set = set()
+    limited_sample_query = query.limit(max_sample_size)
+    for sample, study in limited_sample_query:
+        if study.id_key in study_set:
+            continue
+        study_set.add(study.id_key)
+        # Collect sample covariates
         sample_covariates = sample.covariates
-        study_covariates = [
-            cov for cov in study.covariates
-            if cov.covariate_defn.show_in_point_table == 1
-        ] + [study.name]
-        all_covariates = sample_covariates + study_covariates
-        sample_covariate_list.append((sample, all_covariates))
-        for covariate in all_covariates:
-            if isinstance(covariate, str):
-                # this will be the study_id
-                unique_values_per_covariate[STUDY_ID].add(covariate)
-                continue
-            if not isinstance(covariate.value, str) and (
-                    covariate.value is None or numpy.isnan(covariate.value)):
-                continue
-            if isinstance(covariate.value, str):
-                if covariate.value == 'null':
-                    continue
-                try:
-                    # see if it could be numeric, if so just put true
-                    float(covariate.value)
-                    unique_values_per_covariate[
-                        covariate.covariate_defn.name].add(True)
-                except ValueError:
-                    unique_values_per_covariate[
-                        covariate.covariate_defn.name].add(
-                            covariate.value.lower())
-            else:
-                # it's a numeric, just note it's defined
-                unique_values_per_covariate[
-                    covariate.covariate_defn.name].add(True)
+        sample_covariate_list.append((sample, sample_covariates))
+        _collect_unique_covariate_values(sample_covariates, unique_sample_covariate_values)
 
-    covariate_display_order = [STUDY_ID]
-    for name, always_display, hidden in pre_covariate_display_query:
+        # Collect study IDs for later use
+        study_list.append(study)
+
+    study_covariate_list = []
+    for study in study_list:
+        covariates = study.covariates
+        study_covariate_list.append((study, covariates))
+        _collect_unique_covariate_values(covariates, unique_study_covariate_values)
+
+    sample_covariate_display_order = [STUDY_ID]
+    for name, always_display, hidden in sample_covariate_defns:
         if hidden:
             continue
-        if always_display or unique_values_per_covariate[name]:
-            covariate_display_order.append(name)
+        if always_display or unique_sample_covariate_values[name]:
+            sample_covariate_display_order.append(name)
 
-    display_table = []
+    # Study covariate display order
+    study_covariate_display_order = [STUDY_ID]
+    for name, always_display, hidden in study_covariate_defns:
+        if hidden:
+            continue
+        if always_display or unique_study_covariate_values[name]:
+            study_covariate_display_order.append(name)
+
+    # Build sample table
+    sample_table = []
     for sample, covariate_list in sample_covariate_list:
         covariate_dict = to_dict(covariate_list)
-        display_table.append([
-            covariate_dict[name]
-            for name in covariate_display_order])
-    return covariate_display_order, display_table
+        covariate_dict[STUDY_ID] = sample.study.name  # Include STUDY_ID
+        display_row = [covariate_dict.get(name) for name in sample_covariate_display_order]
+        sample_table.append(display_row)
 
+    # Build study table
+    study_table = []
+    for study, covariate_list in study_covariate_list:
+        covariate_dict = to_dict(covariate_list)
+        covariate_dict[STUDY_ID] = study.name  # Include STUDY_ID
+        display_row = [covariate_dict.get(name) for name in study_covariate_display_order]
+        study_table.append(display_row)
 
-def calculate_study_display_order(
-        session, query_to_filter):
-    pre_covariate_display_order = (
-        session.query(
-            CovariateDefn.name,
-            CovariateDefn.always_display,
-            CovariateDefn.hidden)
-        .filter(
-            or_(CovariateDefn.covariate_association == CovariateAssociation.STUDY.value,
-                CovariateDefn.show_in_point_table == 1))
-        .order_by(
-            CovariateDefn.display_order,
-            func.lower(CovariateDefn.name))
-    )
-
-    unique_values_per_covariate = collections.defaultdict(set)
-    for index, study in enumerate(query_to_filter):
-        for covariate in study.covariates:
-            if not isinstance(covariate.value, str) and (
-                    covariate.value is None or numpy.isnan(covariate.value)):
-                continue
-            if isinstance(covariate.value, str):
-                if covariate.value == 'null':
-                    continue
-                try:
-                    # see if it could be numeric, if so just put true
-                    float(covariate.value)
-                    unique_values_per_covariate[
-                        covariate.covariate_defn.name].add(True)
-                except ValueError:
-                    unique_values_per_covariate[
-                        covariate.covariate_defn.name].add(
-                            covariate.value.lower())
-            else:
-                # it's a numeric, just note it's defined
-                unique_values_per_covariate[
-                    covariate.covariate_defn.name].add(True)
-
-    # hard-code STUDY_ID
-    covariate_display_order = [STUDY_ID]
-    for name, always_display, hidden in pre_covariate_display_order:
-        if hidden:
-            continue
-        if always_display or unique_values_per_covariate[name]:
-            covariate_display_order.append(name)
-
-    display_table = []
-    for study in query_to_filter:
-        covariate_dict = to_dict(study.covariates)
-        # hard coding STUDY_ID which is study.name
-        covariate_dict[STUDY_ID] = study.name
-        display_table.append([
-            covariate_dict[name]
-            for name in covariate_display_order])
-    return covariate_display_order, display_table
+    return sample_covariate_display_order, sample_table, study_covariate_display_order, study_table
 
 
 @app.route('/about')
@@ -426,8 +412,8 @@ def build_filter(session, form):
     for field, operation, value in zip(fields, operations, values):
         if not field or not value:
             continue
-        covariate_type = covariate_defn_map.get(field)
-        filter_text += f'{field}({covariate_type}) {operation} {value}\n'
+        covariate_association = covariate_defn_map.get(field)
+        filter_text += f'{field}({covariate_association}) {operation} {value}\n'
         if field == STUDY_ID:
             filters.append(Study.name == value)
             continue
@@ -439,11 +425,11 @@ def build_filter(session, form):
             OPERATION_MAP[operation](CovariateValue.value, value)
         )
 
-        if covariate_type == CovariateAssociation.STUDY.value:
+        if covariate_association == CovariateAssociation.STUDY.value:
             study_ids = select(covariate_subquery.with_entities(
                 CovariateValue.study_id).subquery())
             filters.append(Study.id_key.in_(study_ids))
-        elif covariate_type == CovariateAssociation.SAMPLE.value:
+        elif covariate_association == CovariateAssociation.SAMPLE.value:
             sample_ids = select(covariate_subquery.with_entities(
                 CovariateValue.sample_id).subquery())
             filters.append(Sample.id_key.in_(sample_ids))
@@ -590,24 +576,20 @@ def process_query():
             )
             .options(selectinload(Sample.covariates))
         )
+        # study_query = (
+        #     session.query(Study)
+        #     .options(selectinload(Study.covariates))
+        #     .join(Study.samples)
+        #     .join(Sample.point)
+        #     .filter(
+        #         *filters
+        #     ).distinct()
+        # )
 
-        sample_covariate_display_order, sample_table = calculate_sample_display_table(
-            session, sample_query.limit(MAX_SAMPLE_DISPLAY_SIZE))
+        (sample_covariate_display_order, sample_table,
+         study_covariate_display_order, study_table) = calculate_display_tables(
+            session, sample_query, max_sample_size=MAX_SAMPLE_DISPLAY_SIZE)
 
-        study_query = (
-            session.query(Study)
-            .options(selectinload(Study.covariates))
-            .join(Study.samples)
-            .join(Sample.point)
-            .filter(
-                *filters
-            ).distinct()
-        )
-        unique_studies = {study for study in study_query}
-
-        # determine what covariate ids are in this query
-        study_covariate_display_order, study_table = calculate_study_display_order(
-            session, unique_studies)
 
         # add the lat/lng points and observation to the sample
         sample_covariate_display_order = [
@@ -638,7 +620,7 @@ def process_query():
             max_samples=MAX_SAMPLE_DISPLAY_SIZE,
             expected_samples=sample_query.count(),
             query_id=query_id,
-            )
+        )
     except Exception as e:
         LOGGER.exception(f'error with {e}')
         raise
@@ -736,6 +718,9 @@ def _prep_download(task_id):
         query_form_json = redis_client.get(task_id)
         if query_form_json:
             query_form = json.loads(query_form_json)
+        else:
+            LOGGER.error(f'No query form found for the {task_id}.')
+            return 'Error: No query form found.'
         filters, filter_text = build_filter(session, query_form)
 
         sample_query = (
@@ -748,20 +733,10 @@ def _prep_download(task_id):
             .options(selectinload(Sample.covariates))
         ).yield_per(1000).limit(50000)
 
-        study_query = (
-            session.query(Study)
-            .options(selectinload(Study.covariates))
-            .join(Study.samples)
-            .join(Sample.point)
-            .filter(
-                *filters
-            ).distinct()
-        )
-        unique_studies = {study for study in study_query}
-        study_covariate_display_order, study_table = calculate_study_display_order(
-            session, unique_studies)
-        sample_covariate_display_order, sample_table = calculate_sample_display_table(
-            session, sample_query)
+        (sample_covariate_display_order, sample_table,
+         study_covariate_display_order, study_table) = calculate_display_tables(
+            session, sample_query, sample_query, max_sample_size=50000)
+
         sample_covariate_display_order = [
             OBSERVATION, LATITUDE, LONGITUDE] + sample_covariate_display_order
 
