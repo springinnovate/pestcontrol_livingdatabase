@@ -188,16 +188,15 @@ def calculate_display_tables(session, query, max_sample_size):
     study_set = set()
     limited_sample_query = query.limit(max_sample_size)
     for sample, study in limited_sample_query:
-        if study.id_key in study_set:
-            continue
-        study_set.add(study.id_key)
         # Collect sample covariates
         sample_covariates = sample.covariates
         sample_covariate_list.append((sample, sample_covariates))
         _collect_unique_covariate_values(sample_covariates, unique_sample_covariate_values)
 
         # Collect study IDs for later use
-        study_list.append(study)
+        if study.id_key not in study_set:
+            study_set.add(study.id_key)
+            study_list.append(study)
 
     study_covariate_list = []
     for study in study_list:
@@ -227,6 +226,7 @@ def calculate_display_tables(session, query, max_sample_size):
         covariate_dict[STUDY_ID] = sample.study.name  # Include STUDY_ID
         display_row = [covariate_dict.get(name) for name in sample_covariate_display_order]
         sample_table.append(display_row)
+    LOGGER.debug(f'sample table: {len(sample_table)}')
 
     # Build study table
     study_table = []
