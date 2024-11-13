@@ -9,7 +9,7 @@ from sqlalchemy import create_engine
 from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 
-DATABASE_URI = 'sqlite:///instance/living_database.db'
+DATABASE_URI = 'sqlite:////usr/local/data/live_database/living_database.db'
 #DATABASE_URI = os.getenv('DATABASE_URL', 'postgresql://postgres:password@db:5432/mydatabase')
 
 engine = create_engine(DATABASE_URI, echo=False)

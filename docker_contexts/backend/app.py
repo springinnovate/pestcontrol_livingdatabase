@@ -63,7 +63,7 @@ celery = make_celery(app)
 redis_client = redis.Redis(host='redis', port=6379, db=0)
 
 
-INSTANCE_DIR = './instance'
+INSTANCE_DIR = '/usr/local/data/'
 QUERY_RESULTS_DIR = os.path.join(INSTANCE_DIR, 'results_to_download')
 os.makedirs(QUERY_RESULTS_DIR, exist_ok=True)
 MAX_SAMPLE_DISPLAY_SIZE = 1000
@@ -216,7 +216,6 @@ def calculate_display_tables(session, query, max_sample_size):
         covariate_dict[STUDY_ID] = sample.study.name  # Include STUDY_ID
         display_row = [covariate_dict.get(name) for name in sample_covariate_display_order]
         sample_table.append(display_row)
-    LOGGER.debug(f'sample table: {len(sample_table)}')
 
     # Build study table
     study_table = []
@@ -401,7 +400,6 @@ def n_samples():
     session = SessionLocal()
     form_as_dict = form_to_dict(request.form)
     filters, filter_text = build_filter(session, form_as_dict)
-    LOGGER.debug(f'these are the filters: {filters}')
     sample_query = (
         session.query(Sample.id_key, Study.id_key)
         .join(Sample.study)
@@ -411,7 +409,6 @@ def n_samples():
         )
     )
     sample_count = sample_query.count()
-    print(f'sample {time.time()-start_time:.2f}s')
     study_query = (
         session.query(Study.id_key)
         .join(Study.samples)
@@ -421,14 +418,12 @@ def n_samples():
         ).distinct()
     )
     study_count = study_query.count()
-    print(f'study {time.time()-start_time:.2f}s')
     session.close()
-
-    print(f'took {time.time()-start_time:.2f}s')
+    print(filter_text)
     return jsonify({
         'sample_count': sample_count,
         'study_count': study_count,
-        'filter_text': filter_text
+        'filter_text': filter_text + f'in {time.time()-start_time:.2f}s'
     })
 
 
@@ -609,14 +604,6 @@ def build_filter(session, form):
         filters.append(
             Sample.id_key.in_(year_subquery_sample_ids))
     return filters, filter_text
-
-
-def explain_query(session, query):
-    compiled_query = query.statement.compile(session.bind, compile_kwargs={"literal_binds": True})
-    explain_query = f"EXPLAIN QUERY PLAN {compiled_query}"
-    result = session.execute(text(explain_query)).fetchall()
-    for row in result:
-        print(row)
 
 
 @app.route('/api/process_query', methods=['POST'])
