@@ -725,7 +725,7 @@ def _prep_download(task_id):
 
         (sample_covariate_display_order, sample_table,
          study_covariate_display_order, study_table) = calculate_display_tables(
-            session, sample_query, sample_query, max_sample_size=50000)
+            session, sample_query, max_sample_size=50000)
 
         sample_covariate_display_order = [
             OBSERVATION, LATITUDE, LONGITUDE] + sample_covariate_display_order
