@@ -157,6 +157,7 @@ def _collect_unique_covariate_values(covariates, unique_values_per_covariate):
 
 
 def calculate_display_tables(session, query, max_sample_size):
+    global COVARIATE_STATE
     covariate_defns = COVARIATE_STATE['covariate_defns']
     sample_covariate_defns = [
         (name, always_display, hidden)
