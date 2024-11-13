@@ -158,7 +158,12 @@ def _collect_unique_covariate_values(covariates, unique_values_per_covariate):
 
 def calculate_display_tables(session, query, max_sample_size):
     global COVARIATE_STATE
-    covariate_defns = COVARIATE_STATE['covariate_defns']
+    try:
+        covariate_defns = COVARIATE_STATE['covariate_defns']
+    except NameError:
+        # the celery worker won't call initalize so we can do it here the first time
+        COVARIATE_STATE = initialize_covariates(False)
+        covariate_defns = COVARIATE_STATE['covariate_defns']
     sample_covariate_defns = [
         (name, always_display, hidden)
         for name, always_display, hidden, cov_association, show_in_point_table, _ in covariate_defns
