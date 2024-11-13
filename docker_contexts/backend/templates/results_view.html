@@ -73,7 +73,13 @@
     {% if study_table|length > 0 %}
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <div class="container mt-5">
-        <h1 class="mt-5">Results showing only the first {{ max_samples }}  of {{ expected_samples }} samples</h1>
+        <h1 class="mt-5">
+            {% if expected_samples > max_samples %}
+                Results showing only the first {{ max_samples }} of {{ expected_samples }} samples
+            {% else %}
+                Results -- {{ expected_samples }} samples
+            {% endif %}
+        </h1>
         <button class="btn btn-primary mb-3" id="fullSetDownload">Download full set</button><br/>
         <a href="https://ecoshard-202922.projects.earthengine.app/view/pcld-remote-sensed-data-catalog" target="_blank" rel="noopener noreferrer">Explore remote-sensed datasets that will be added to the platform</a>
     </div>
@@ -228,9 +234,13 @@
             var checkInterval = null;
 
             $('#fullSetDownload').click(function() {
-                if ($(this).text() === 'Download full set') {
+                const button = $(this);
+                if (button.text() === 'Download full set') {
+                    // Disable the button to prevent multiple clicks
+                    button.prop('disabled', true);
+
                     // Start the task
-                    $(this).text('Processing, this can take a few minutes for very large queries...');
+                    button.text('Processing, this can take a few minutes for very large queries...');
                     $.ajax({
                         url: '/prep_download',
                         type: 'GET',
@@ -243,9 +253,12 @@
                         },
                         error: function() {
                             alert('Failed to start task');
+                            // Re-enable the button on failure
+                            button.prop('disabled', false);
+                            button.text('Download full set');
                         }
                     });
-                } else if ($(this).text() === 'Download File') {
+                } else if (button.text() === 'Download File') {
                     window.location.href = `/download_file/{{ query_id }}`;
                 }
             });
