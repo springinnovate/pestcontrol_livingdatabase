@@ -1,3 +1,4 @@
+import time
 from datetime import datetime
 from io import StringIO, BytesIO
 import collections
@@ -345,12 +346,28 @@ def home():
         unique_covariate_values=COVARIATE_STATE['searchable_covariates'],
     )
 
-
-@app.route('/api/n_samples', methods=['POST'])
-def n_samples():
+@app.route('/test')
+def test():
     session = SessionLocal()
-    form_as_dict = form_to_dict(request.form)
-    filters, filter_text = build_filter(session, form_as_dict)
+
+    filters, filter_text = build_filter(session, {
+        'covariate': ['Response_variable'],
+        'operation': ['='],
+        'value': ['abundance'],
+        'centerPoint': None,
+        'upperLeft': None,
+        'upperLeft': None,
+        'lowerRight': None,
+        'countrySelect': None,
+        'continentSelect': None,
+        'minSitesPerStudy': 0,
+        'sampleSizeMinYears': 0,
+        'sampleSizeMinObservationsPerYear': 0,
+        'yearRange': None,
+        })
+    print(f'these are the filters: {filters}')
+    print(filter_text)
+    start_time = time.time()
     sample_query = (
         session.query(Sample.id_key, Study.id_key)
         .join(Sample.study)
@@ -360,6 +377,7 @@ def n_samples():
         )
     )
     sample_count = sample_query.count()
+    print(f'sample {time.time()-start_time:.2f}s')
     study_query = (
         session.query(Study.id_key)
         .join(Study.samples)
@@ -369,8 +387,44 @@ def n_samples():
         ).distinct()
     )
     study_count = study_query.count()
+    print(f'study {time.time()-start_time:.2f}s')
     session.close()
 
+    print(sample_count)
+    print(study_count)
+    return (sample_count, study_count)
+
+
+@app.route('/api/n_samples', methods=['POST'])
+def n_samples():
+    start_time = time.time()
+    session = SessionLocal()
+    form_as_dict = form_to_dict(request.form)
+    filters, filter_text = build_filter(session, form_as_dict)
+    LOGGER.debug(f'these are the filters: {filters}')
+    sample_query = (
+        session.query(Sample.id_key, Study.id_key)
+        .join(Sample.study)
+        .join(Sample.point)
+        .filter(
+            *filters
+        )
+    )
+    sample_count = sample_query.count()
+    print(f'sample {time.time()-start_time:.2f}s')
+    study_query = (
+        session.query(Study.id_key)
+        .join(Study.samples)
+        .join(Sample.point)
+        .filter(
+            *filters
+        ).distinct()
+    )
+    study_count = study_query.count()
+    print(f'study {time.time()-start_time:.2f}s')
+    session.close()
+
+    print(f'took {time.time()-start_time:.2f}s')
     return jsonify({
         'sample_count': sample_count,
         'study_count': study_count,
@@ -932,4 +986,4 @@ if os.getenv('INIT_COVARIATES') == 'True':
     initialize_covariates(False)
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=False)

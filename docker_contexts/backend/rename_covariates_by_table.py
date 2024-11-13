@@ -11,7 +11,9 @@ from sqlalchemy import select, update
 def load_corrections_from_csv(file_path):
     df = pd.read_csv(file_path)
     corrections = list(zip(df['Misspelled'], df['Correct spelling']))
-    return corrections
+    single_word_corrections = [
+        (x.split(' ')[0], y.split(' ')[0]) for x, y in corrections]
+    return single_word_corrections
 
 
 def update_covariate_values(session, corrections):
@@ -20,6 +22,7 @@ def update_covariate_values(session, corrections):
             update(CovariateValue)
             .where(
                 CovariateValue.value == misspelled,
+                CovariateValue.covariate_defn.has(CovariateDefn.name == 'Genus')
             )
             .values(value=correct)
         )
