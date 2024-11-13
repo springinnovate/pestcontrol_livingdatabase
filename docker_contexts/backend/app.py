@@ -749,6 +749,18 @@ def download_file(task_id):
 
 
 @celery.task
+def delete_file(zipfile_path):
+    try:
+        if os.path.exists(zipfile_path):
+            os.remove(zipfile_path)
+            LOGGER.info(f"Deleted file: {zipfile_path}")
+        else:
+            LOGGER.warning(f"File not found for deletion: {zipfile_path}")
+    except Exception as e:
+        LOGGER.error(f"Error deleting file {zipfile_path}: {e}")
+
+
+@celery.task
 def _prep_download(task_id):
     try:
         session = SessionLocal()
@@ -811,6 +823,8 @@ def _prep_download(task_id):
             zf.writestr(f'study_data_{task_id}.csv', study_table_io.getvalue())
 
         LOGGER.debug(f'{zipfile_path} is created')
+        # delete it after an hour
+        delete_file.apply_async(args=[zipfile_path], countdown=3600)
         return f"File {zipfile_path} has been created."
     except Exception:
         LOGGER.exception('error on _prep_download')
