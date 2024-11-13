@@ -53,7 +53,7 @@ services:
       # Bind mount for application code (development)
       - ./docker_contexts/backend:/usr/local/pcld_api
       # Named volume for SQLite database (performance)
-      - pcld_data:/usr/local/pcld_api/data
+      - pcld_data:/usr/local/data
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
