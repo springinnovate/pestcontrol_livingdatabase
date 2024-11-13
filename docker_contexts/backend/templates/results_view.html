@@ -270,7 +270,7 @@
                     success: function(data) {
                         if (data.status === 'Task completed') {
                             $('#fullSetDownload').text('Download File');
-                            button.prop('disabled', false);
+                            $('#fullSetDownload').prop('disabled', false);
                             clearInterval(checkInterval);
                         } else if (data.status === 'Task is pending') {
                             // Optionally handle updates in UI for pending state
