@@ -576,20 +576,10 @@ def process_query():
             )
             .options(selectinload(Sample.covariates))
         )
-        # study_query = (
-        #     session.query(Study)
-        #     .options(selectinload(Study.covariates))
-        #     .join(Study.samples)
-        #     .join(Sample.point)
-        #     .filter(
-        #         *filters
-        #     ).distinct()
-        # )
 
         (sample_covariate_display_order, sample_table,
          study_covariate_display_order, study_table) = calculate_display_tables(
             session, sample_query, max_sample_size=MAX_SAMPLE_DISPLAY_SIZE)
-
 
         # add the lat/lng points and observation to the sample
         sample_covariate_display_order = [
@@ -731,7 +721,7 @@ def _prep_download(task_id):
                 *filters
             )
             .options(selectinload(Sample.covariates))
-        ).yield_per(1000).limit(50000)
+        ).yield_per(1000)
 
         (sample_covariate_display_order, sample_table,
          study_covariate_display_order, study_table) = calculate_display_tables(
