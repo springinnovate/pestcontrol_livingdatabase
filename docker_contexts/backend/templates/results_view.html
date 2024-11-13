@@ -249,7 +249,7 @@
                         },
                         success: function(data) {
                             taskId = data.task_id;
-                            checkInterval = setInterval(checkTaskStatus, 500);
+                            checkInterval = setInterval(checkTaskStatus, 1000);
                         },
                         error: function() {
                             alert('Failed to start task');
