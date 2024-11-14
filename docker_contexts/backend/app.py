@@ -139,6 +139,8 @@ def _collect_unique_covariate_values(covariates, unique_values_per_covariate):
             # This will be the STUDY_ID
             unique_values_per_covariate[STUDY_ID].add(covariate)
             continue
+        if covariate is None:
+            continue
         LOGGER.debug(covariate)
         value = covariate.value
         if value is None or (isinstance(value, float) and numpy.isnan(value)):
