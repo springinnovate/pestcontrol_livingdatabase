@@ -225,7 +225,7 @@ $(document).ready(function() {
                         // Rebuild row with new columns
                         var newRowHtml = '';
                         studyColumns.forEach(function (col) {
-                            var cellValue = rowData[col] || '';
+                            var cellValue = rowData[col] !== undefined && rowData[col] !== null ? rowData[col] : '';
                             newRowHtml += '<td data-col-name="' + col + '">' + cellValue + '</td>';
                         });
                         row.html(newRowHtml);
@@ -236,7 +236,7 @@ $(document).ready(function() {
                 data.sample_data_rows.forEach(function(rowData) {
                     var rowHtml = '<tr>';
                     sampleColumns.forEach(function(col) {
-                        var cellValue = rowData[col] || '';
+                        var cellValue = rowData[col] !== undefined && rowData[col] !== null ? rowData[col] : '';
                         rowHtml += '<td data-col-name="' + col + '">' + cellValue + '</td>';
                     });
                     rowHtml += '</tr>';
