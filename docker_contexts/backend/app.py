@@ -108,6 +108,8 @@ def nl2br(value):
 def to_dict(covariate_list):
     covariate_dict = collections.defaultdict(lambda: None)
     for covariate in covariate_list:
+        if covariate is None:
+            continue
         if isinstance(covariate, str):
             # Hard-code STUDY_ID
             covariate_dict[STUDY_ID] = covariate
