@@ -140,6 +140,13 @@ $(document).ready(function() {
 
     var runningBounds = null;
 
+    var sampleIcon = L.divIcon({
+        className: 'sample-icon', // Custom class for styling
+        html: 'x', // The symbol
+        iconSize: [12, 12], // Size of the icon
+        iconAnchor: [6, 6] // Center the icon
+    });
+
     function fetchData() {
         $.ajax({
             url: '/get_data',
@@ -254,9 +261,10 @@ $(document).ready(function() {
                     }
                     data.points.forEach(function(point) {
                         var latLng = [point.lat, point.lng];
-                        L.marker(latLng).addTo(map)
-                            .bindPopup(
-                                'Latitude: ' + point.lat + '<br>Longitude: ' + point.lng);
+                        L.marker(latLng, { icon: sampleIcon }).addTo(map)
+                        .bindPopup(
+                            '(' + point.lat + ', ' + point.lng + ')'
+                        );
                         runningBounds.extend(latLng);
                     });
                     map.fitBounds(runningBounds);
