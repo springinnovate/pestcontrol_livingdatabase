@@ -359,6 +359,15 @@ def n_samples():
     start_time = time.time()
     session = SessionLocal()
     form_as_dict = form_to_dict(request.form)
+
+    query_id = generate_hash_key(form_as_dict)
+    redis_key = f"sample_count:{query_id}"
+    LOGGER.debug(f'sample key: {redis_key}')
+    cached_count = redis_client.get(redis_key)
+    LOGGER.debug(f'cached count: {cached_count}')
+    if cached_count is not None:
+        return cached_count
+
     filters, filter_text = build_filter(session, form_as_dict)
     sample_query = (
         session.query(Sample.id_key, Study.id_key)
@@ -378,13 +387,19 @@ def n_samples():
         ).distinct()
     )
     study_count = study_query.count()
+
+    redis_client.set(query_id, json.dumps(form_as_dict))
+
     session.close()
     LOGGER.info(f'n_samples query: {filter_text}')
-    return jsonify({
+
+    cached_count = {
         'sample_count': sample_count,
         'study_count': study_count,
         'filter_text': filter_text + f'in {time.time()-start_time:.2f}s'
-    })
+    }
+    redis_client.set(redis_key, json.dumps(cached_count), ex=3600)
+    return jsonify(cached_count)
 
 
 def form_to_dict(form):
@@ -577,71 +592,23 @@ def process_query():
         query_id = generate_hash_key(form_as_dict)
         redis_client.set(query_id, json.dumps(form_as_dict))
 
+        redis_key = f"sample_count:{query_id}"
+        LOGGER.debug(f'sample key: {redis_key}')
+        cached_count = redis_client.get(redis_key)
+        if cached_count is not None:
+            cached_count = json.loads(cached_count)
+
         session.close()
 
         return render_template(
             'results_view.html',
+            n_samples=cached_count['sample_count'],
             query_id=query_id,
             compiled_query=f'<pre>Filter as text: {filter_text}</pre>',
         )
     except Exception as e:
         LOGGER.exception(f'error with {e}')
         raise
-
-
-# def process_query():
-#     try:
-#         session = SessionLocal()
-#         form_as_dict = form_to_dict(request.form)
-#         filters, filter_text = build_filter(session, form_as_dict)
-#         LOGGER.info(f'processing query for: {filter_text}')
-#         sample_query = (
-#             session.query(Sample, Study)
-#             .join(Sample.study)
-#             .join(Sample.point)
-#             .filter(
-#                 *filters
-#             )
-#             .options(selectinload(Sample.covariates))
-#         )
-
-#         (sample_covariate_display_order, sample_table,
-#          study_covariate_display_order, study_table) = calculate_display_tables(
-#             session, sample_query, max_sample_size=MAX_SAMPLE_DISPLAY_SIZE)
-
-#         # add the lat/lng points and observation to the sample
-#         sample_covariate_display_order = [
-#             OBSERVATION, LATITUDE, LONGITUDE] + sample_covariate_display_order
-#         for (sample_row, _), display_row in zip(sample_query.limit(MAX_SAMPLE_DISPLAY_SIZE), sample_table):
-#             display_row[:] = [
-#                 sample_row.observation,
-#                 sample_row.point.latitude,
-#                 sample_row.point.longitude] + display_row
-
-#         unique_points = {sample[0].point for sample in sample_query.limit(MAX_SAMPLE_DISPLAY_SIZE)}
-#         points = [
-#             {"lat": p.latitude, "lng": p.longitude}
-#             for p in unique_points]
-
-#         session.close()
-#         query_id = generate_hash_key(form_as_dict)
-#         redis_client.set(query_id, json.dumps(form_as_dict))
-
-#         return render_template(
-#             'results_view.html',
-#             study_headers=study_covariate_display_order,
-#             study_table=study_table,
-#             sample_headers=sample_covariate_display_order,
-#             sample_table=sample_table,
-#             points=points,
-#             compiled_query=f'<pre>Filter as text: {filter_text}</pre>',
-#             max_samples=MAX_SAMPLE_DISPLAY_SIZE,
-#             expected_samples=sample_query.count(),
-#             query_id=query_id,
-#         )
-#     except Exception as e:
-#         LOGGER.exception(f'error with {e}')
-#         raise
 
 
 @app.route('/get_data')
