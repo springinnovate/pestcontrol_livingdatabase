@@ -102,7 +102,7 @@
     </div>
 
     <div class="container mt-5">
-        <h2>Samples Subset</h2>
+        <h2 id="sampleTableHeader">Sample Table (0 rows)</h2>
         <table id="sampleTable" class="table table-bordered">
             <thead>
                 <tr>
@@ -115,21 +115,19 @@
         </table>
     </div>
 
-    <!-- ... existing tooltip and notification divs ... -->
-
     <div class="container mt-5">
         <h3>Compiled Query for Debugging</h3>
         <p>{{ compiled_query | safe }}</p>
     </div>
 
-    <!-- Include your custom JavaScript code -->
     <script type="text/javascript">
 $(document).ready(function() {
     var queryId = "{{ query_id }}";
-    var sampleColumns = []; // Columns in order
+    var sampleColumns = [];
     var studyColumns = [];
     var offset = 0;
-    var limit = 100; // Adjust as needed
+    var limit = 100;
+    var sampleRowCount = 0;
 
     var sampleTable = $('#sampleTable');
     var studyTable = $('#studyTable');
@@ -145,6 +143,9 @@ $(document).ready(function() {
     $('#sampleTable').prepend(loadMoreButton);
     $('#sampleTable').append(loadMoreButtonBottom);
 
+    function updateSampleTableHeader() {
+        $('#sampleTableHeader').text('Sample Table (' + sampleRowCount + ' rows)');
+    }
 
     var sampleIcon = L.divIcon({
         className: 'sample-icon',
@@ -202,7 +203,6 @@ $(document).ready(function() {
                     });
                 }
 
-                // Update study columns v2
                 studyColumns = data.study_columns;
                 var studyColumnsChanged = studyColumns.some(
                     (col, idx) => previousStudyColumns[idx] !== col
@@ -247,6 +247,8 @@ $(document).ready(function() {
                     rowHtml += '</tr>';
                     $('#sampleTable tbody').append(rowHtml);
                 });
+                sampleRowCount += data.sample_data_rows.length;
+                updateSampleTableHeader();
 
                 data.study_data_rows.forEach(function(rowData) {
                     var rowHtml = '<tr>';
@@ -272,6 +274,7 @@ $(document).ready(function() {
                     });
                     map.fitBounds(runningBounds);
                 }
+                offset += limit;
                 if (!data.has_more) {
                     $('#loadMore').remove();
                 }
