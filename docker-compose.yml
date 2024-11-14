@@ -4,9 +4,9 @@ services:
     hostname: backend_api
     build: docker_contexts/backend
     volumes:
-      # Bind mount for application code (development)
+      # Application code and local install of database
       - ./docker_contexts/backend:/usr/local/pcld_api
-      # Named volume for SQLite database (performance)
+      # Volume that sqlite database is copied to and that .pkl file is sampled from
       - pcld_data:/usr/local/data
     logging:
       driver: local
@@ -42,6 +42,9 @@ services:
       - "5000:5000"
     profiles:
       - development
+    depends_on:
+      - redis
+      - celery_worker
 
   celery_worker:
     container_name: celery_worker
@@ -65,7 +68,6 @@ services:
           memory: 1G
     command: celery -A app.celery worker --loglevel=info --concurrency=4 --max-tasks-per-child=10
     depends_on:
-      - backend
       - redis
 
   redis:
