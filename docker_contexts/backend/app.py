@@ -143,7 +143,6 @@ def _collect_unique_covariate_values(covariates, unique_values_per_covariate):
             continue
         if covariate is None:
             continue
-        LOGGER.debug(covariate)
         value = covariate.value
         if value is None or (isinstance(value, float) and numpy.isnan(value)):
             continue
