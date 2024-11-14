@@ -140,6 +140,12 @@ $(document).ready(function() {
 
     var runningBounds = null;
 
+    var loadMoreButton = $('<button id="loadMore" class="btn btn-primary">Load ' + limit + ' more</button>');
+    var loadMoreButtonBottom = loadMoreButton.clone();
+    $('#sampleTable').prepend(loadMoreButton);
+    $('#sampleTable').append(loadMoreButtonBottom);
+
+
     var sampleIcon = L.divIcon({
         className: 'sample-icon',
         html: 'X',
@@ -232,7 +238,6 @@ $(document).ready(function() {
                     });
                 }
 
-                // Add sample data rows
                 data.sample_data_rows.forEach(function(rowData) {
                     var rowHtml = '<tr>';
                     sampleColumns.forEach(function(col) {
@@ -243,7 +248,6 @@ $(document).ready(function() {
                     $('#sampleTable tbody').append(rowHtml);
                 });
 
-                // Add study data rows
                 data.study_data_rows.forEach(function(rowData) {
                     var rowHtml = '<tr>';
                     studyColumns.forEach(function(col) {
@@ -254,7 +258,6 @@ $(document).ready(function() {
                     $('#studyTable tbody').append(rowHtml);
                 });
 
-                // Update map with new points
                 if (data.points.length > 0) {
                     if (runningBounds === null) {
                         runningBounds = L.latLngBounds();
@@ -269,12 +272,8 @@ $(document).ready(function() {
                     });
                     map.fitBounds(runningBounds);
                 }
-                // Check if there is more data
-                if (data.has_more) {
-                    offset += limit;
-                    fetchData();
-                } else {
-                    // All data fetched
+                if (!data.has_more) {
+                    $('#loadMore').remove();
                 }
             },
             error: function() {
@@ -282,6 +281,9 @@ $(document).ready(function() {
             }
         });
     }
+    $('#sampleTable').on('click', '#loadMore', function () {
+        fetchData();
+    });
 
     // Start fetching data
     fetchData();
