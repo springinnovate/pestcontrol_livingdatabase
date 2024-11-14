@@ -573,53 +573,217 @@ def process_query():
         form_as_dict = form_to_dict(request.form)
         filters, filter_text = build_filter(session, form_as_dict)
         LOGGER.info(f'processing query for: {filter_text}')
-        sample_query = (
-            session.query(Sample, Study)
-            .join(Sample.study)
-            .join(Sample.point)
-            .filter(
-                *filters
-            )
-            .options(selectinload(Sample.covariates))
-        )
 
-        (sample_covariate_display_order, sample_table,
-         study_covariate_display_order, study_table) = calculate_display_tables(
-            session, sample_query, max_sample_size=MAX_SAMPLE_DISPLAY_SIZE)
-
-        # add the lat/lng points and observation to the sample
-        sample_covariate_display_order = [
-            OBSERVATION, LATITUDE, LONGITUDE] + sample_covariate_display_order
-        for (sample_row, _), display_row in zip(sample_query.limit(MAX_SAMPLE_DISPLAY_SIZE), sample_table):
-            display_row[:] = [
-                sample_row.observation,
-                sample_row.point.latitude,
-                sample_row.point.longitude] + display_row
-
-        unique_points = {sample[0].point for sample in sample_query.limit(MAX_SAMPLE_DISPLAY_SIZE)}
-        points = [
-            {"lat": p.latitude, "lng": p.longitude}
-            for p in unique_points]
-
-        session.close()
         query_id = generate_hash_key(form_as_dict)
         redis_client.set(query_id, json.dumps(form_as_dict))
 
+        session.close()
+
         return render_template(
             'results_view.html',
-            study_headers=study_covariate_display_order,
-            study_table=study_table,
-            sample_headers=sample_covariate_display_order,
-            sample_table=sample_table,
-            points=points,
-            compiled_query=f'<pre>Filter as text: {filter_text}</pre>',
-            max_samples=MAX_SAMPLE_DISPLAY_SIZE,
-            expected_samples=sample_query.count(),
             query_id=query_id,
+            compiled_query=f'<pre>Filter as text: {filter_text}</pre>',
         )
     except Exception as e:
         LOGGER.exception(f'error with {e}')
         raise
+
+
+# def process_query():
+#     try:
+#         session = SessionLocal()
+#         form_as_dict = form_to_dict(request.form)
+#         filters, filter_text = build_filter(session, form_as_dict)
+#         LOGGER.info(f'processing query for: {filter_text}')
+#         sample_query = (
+#             session.query(Sample, Study)
+#             .join(Sample.study)
+#             .join(Sample.point)
+#             .filter(
+#                 *filters
+#             )
+#             .options(selectinload(Sample.covariates))
+#         )
+
+#         (sample_covariate_display_order, sample_table,
+#          study_covariate_display_order, study_table) = calculate_display_tables(
+#             session, sample_query, max_sample_size=MAX_SAMPLE_DISPLAY_SIZE)
+
+#         # add the lat/lng points and observation to the sample
+#         sample_covariate_display_order = [
+#             OBSERVATION, LATITUDE, LONGITUDE] + sample_covariate_display_order
+#         for (sample_row, _), display_row in zip(sample_query.limit(MAX_SAMPLE_DISPLAY_SIZE), sample_table):
+#             display_row[:] = [
+#                 sample_row.observation,
+#                 sample_row.point.latitude,
+#                 sample_row.point.longitude] + display_row
+
+#         unique_points = {sample[0].point for sample in sample_query.limit(MAX_SAMPLE_DISPLAY_SIZE)}
+#         points = [
+#             {"lat": p.latitude, "lng": p.longitude}
+#             for p in unique_points]
+
+#         session.close()
+#         query_id = generate_hash_key(form_as_dict)
+#         redis_client.set(query_id, json.dumps(form_as_dict))
+
+#         return render_template(
+#             'results_view.html',
+#             study_headers=study_covariate_display_order,
+#             study_table=study_table,
+#             sample_headers=sample_covariate_display_order,
+#             sample_table=sample_table,
+#             points=points,
+#             compiled_query=f'<pre>Filter as text: {filter_text}</pre>',
+#             max_samples=MAX_SAMPLE_DISPLAY_SIZE,
+#             expected_samples=sample_query.count(),
+#             query_id=query_id,
+#         )
+#     except Exception as e:
+#         LOGGER.exception(f'error with {e}')
+#         raise
+
+
+@app.route('/get_data')
+def get_data():
+    query_id = request.args.get('query_id')
+    offset = int(request.args.get('offset', 0))
+    limit = int(request.args.get('limit', 100))
+
+    # Retrieve query parameters from Redis
+    form_as_dict = json.loads(redis_client.get(query_id))
+
+    # Reconstruct the query
+    session = SessionLocal()
+    filters, filter_text = build_filter(session, form_as_dict)
+    LOGGER.info(f'processing query for: {filter_text} offset {offset}')
+    sample_query = (
+        session.query(Sample, Study)
+        .join(Sample.study)
+        .join(Sample.point)
+        .filter(
+            *filters
+        )
+        .options(selectinload(Sample.covariates))
+    )
+
+    # Process data from offset to offset+limit
+    limited_sample_query = sample_query.offset(offset).limit(limit)
+    samples_chunk = limited_sample_query.all()
+    if not samples_chunk:
+        return jsonify({'has_more': False})
+
+    # Initialize data structures
+    sample_data_rows = []
+    study_data_rows = []
+    points = []
+    study_set = set()
+
+    # Retrieve columns sent so far from Redis
+    sent_columns_key = f"{query_id}_sent_columns"
+    sent_columns = redis_client.get(sent_columns_key)
+    if sent_columns:
+        sent_sample_columns, sent_study_columns = json.loads(sent_columns)
+        sent_sample_columns = {name: order for name, order in sent_sample_columns}
+        sent_study_columns = {name: order for name, order in sent_study_columns}
+    else:
+        sent_sample_columns = {}
+        sent_study_columns = {}
+
+    study_set_key = f"{query_id}_study_set"
+    if offset > 0:
+        study_set = set(json.loads(redis_client.get(study_set_key) or "[]"))
+    else:
+        study_set = set()
+
+    fixed_sample_columns = [
+        ('row_number', -4),
+        ('study_id', -3),
+        ('observation', -2),
+        ('latitude', -1),
+        ('longitude', 0),
+    ]
+    for name, order in fixed_sample_columns:
+        if name not in sent_sample_columns:
+            sent_sample_columns[name] = order
+
+    fixed_study_columns = [
+        ('row_number', -1),
+        ('study_id', 1),
+    ]
+    for name, order in fixed_study_columns:
+        if name not in sent_study_columns:
+            sent_study_columns[name] = order
+
+    for sample, study in samples_chunk:
+        # Collect sample covariates
+        sample_covariates = sample.covariates
+        for cov in sample_covariates:
+            if cov is None:
+                continue
+            cov_name = cov.covariate_defn.name
+            if cov_name not in sent_sample_columns:
+                display_order = cov.covariate_defn.display_order
+                sent_sample_columns[cov_name] = display_order
+        # Build sample data row
+        sample_row = {
+            'row_number': offset + len(sample_data_rows) + 1,
+            'observation': sample.observation,
+            'latitude': sample.point.latitude,
+            'longitude': sample.point.longitude,
+            'study_id': sample.study.name
+        }
+        sample_row.update({
+            cov.covariate_defn.name: cov.value
+            for cov in sample_covariates if cov is not None})
+        sample_data_rows.append(sample_row)
+
+        # Collect point data
+        points.append({'lat': sample.point.latitude, 'lng': sample.point.longitude})
+
+        # Collect study data
+        if study.id_key not in study_set:
+            study_set.add(study.id_key)
+            covariates = study.covariates
+            for cov in covariates:
+                cov_name = cov.covariate_defn.name
+                if cov_name not in sent_study_columns:
+                    display_order = cov.covariate_defn.display_order
+                    sent_study_columns[cov_name] = display_order
+            # Build study data row
+            study_row = {
+                'row_number': len(study_data_rows) + 1,
+                'study_id': study.name
+            }
+            study_row.update({cov.covariate_defn.name: cov.value for cov in covariates})
+            study_data_rows.append(study_row)
+
+    # Update the columns sent so far
+    sorted_sample_columns = sorted(sent_sample_columns.items(), key=lambda x: x[1])
+    sorted_study_columns = sorted(sent_study_columns.items(), key=lambda x: x[1])
+
+    # Store back in Redis
+    redis_client.set(sent_columns_key, json.dumps([sorted_sample_columns, sorted_study_columns]))
+    redis_client.set(study_set_key, json.dumps(list(study_set)))
+
+    sample_column_names = [name for name, order in sorted_sample_columns]
+    study_column_names = [name for name, order in sorted_study_columns]
+
+    # Check if there's more data
+    total_samples = sample_query.count()
+    has_more = (offset + limit) < total_samples
+
+    # Return the data
+    response_data = {
+        'sample_columns': sample_column_names,
+        'study_columns': study_column_names,
+        'sample_data_rows': sample_data_rows,
+        'study_data_rows': study_data_rows,
+        'points': points,
+        'has_more': has_more
+    }
+
+    return jsonify(response_data)
 
 
 @app.route('/admin/covariate', methods=['GET', 'POST'])
