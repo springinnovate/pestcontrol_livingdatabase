@@ -282,8 +282,6 @@ def initialize_covariates(clear_cache):
     for index, row in enumerate(searchable_unique_covariates):
         if index % 100000 == 0:
             LOGGER.info(f'on searchable descrete covariates index {index}')
-        if isinstance(COVARIATE_STATE['searchable_covariates'][row.name], list):
-            print(f'{row.name} is a list???')
         COVARIATE_STATE['searchable_covariates'][row.name].add(row.value)
 
     for key, value in COVARIATE_STATE['searchable_covariates'].items():
@@ -355,54 +353,6 @@ def home():
         unique_covariate_values=COVARIATE_STATE['searchable_covariates'],
     )
 
-@app.route('/test')
-def test():
-    session = SessionLocal()
-
-    filters, filter_text = build_filter(session, {
-        'covariate': ['Response_variable'],
-        'operation': ['='],
-        'value': ['abundance'],
-        'centerPoint': None,
-        'upperLeft': None,
-        'upperLeft': None,
-        'lowerRight': None,
-        'countrySelect': None,
-        'continentSelect': None,
-        'minSitesPerStudy': 0,
-        'sampleSizeMinYears': 0,
-        'sampleSizeMinObservationsPerYear': 0,
-        'yearRange': None,
-        })
-    print(f'these are the filters: {filters}')
-    print(filter_text)
-    start_time = time.time()
-    sample_query = (
-        session.query(Sample.id_key, Study.id_key)
-        .join(Sample.study)
-        .join(Sample.point)
-        .filter(
-            *filters
-        )
-    )
-    sample_count = sample_query.count()
-    print(f'sample {time.time()-start_time:.2f}s')
-    study_query = (
-        session.query(Study.id_key)
-        .join(Study.samples)
-        .join(Sample.point)
-        .filter(
-            *filters
-        ).distinct()
-    )
-    study_count = study_query.count()
-    print(f'study {time.time()-start_time:.2f}s')
-    session.close()
-
-    print(sample_count)
-    print(study_count)
-    return (sample_count, study_count)
-
 
 @app.route('/api/n_samples', methods=['POST'])
 def n_samples():
@@ -429,7 +379,7 @@ def n_samples():
     )
     study_count = study_query.count()
     session.close()
-    print(filter_text)
+    LOGGER.info(f'n_samples query: {filter_text}')
     return jsonify({
         'sample_count': sample_count,
         'study_count': study_count,
@@ -622,6 +572,7 @@ def process_query():
         session = SessionLocal()
         form_as_dict = form_to_dict(request.form)
         filters, filter_text = build_filter(session, form_as_dict)
+        LOGGER.info(f'processing query for: {filter_text}')
         sample_query = (
             session.query(Sample, Study)
             .join(Sample.study)
@@ -908,7 +859,6 @@ def data_extractor():
         csv_output = StringIO()
         point_table.to_csv(csv_output, index=False)
         csv_output.seek(0)
-        print(csv_output.getvalue())
         return send_file(
             BytesIO(('\ufeff' + csv_output.getvalue()).encode('utf-8')),
             mimetype='text/csv',
@@ -921,11 +871,11 @@ def data_extractor():
         'ECMWF/ERA5/MONTHLY:mean_2m_air_temperature',
         'ECMWF/ERA5/MONTHLY:minimum_2m_air_temperature',
         'ECMWF/ERA5/MONTHLY:total_precipitation',
-        'MODIS/006/MCD12Q2:EVI_Amplitude_1',
-        'MODIS/006/MCD12Q2:EVI_Area_1',
-        'MODIS/006/MCD12Q2:Dormancy_1',
-        'MODIS/006/MCD12Q2:Greenup_1',
-        'MODIS/006/MCD12Q2:Peak_1',
+        # 'MODIS/006/MCD12Q2:EVI_Amplitude_1',
+        # 'MODIS/006/MCD12Q2:EVI_Area_1',
+        # 'MODIS/006/MCD12Q2:Dormancy_1',
+        # 'MODIS/006/MCD12Q2:Greenup_1',
+        # 'MODIS/006/MCD12Q2:Peak_1',
         'CSP/ERGo/1_0/Global/SRTM_topoDiversity:constant'
     ]
     aggregation_functions = [
