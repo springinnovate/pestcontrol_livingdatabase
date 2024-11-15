@@ -1,6 +1,6 @@
 import time
 from datetime import datetime
-from io import StringIO, BytesIO
+from io import StringIO, BytesIO, TextIOWrapper
 import collections
 import configparser
 import csv
@@ -362,9 +362,7 @@ def n_samples():
 
     query_id = generate_hash_key(form_as_dict)
     redis_key = f"sample_count:{query_id}"
-    LOGGER.debug(f'sample key: {redis_key}')
     cached_count = redis_client.get(redis_key)
-    LOGGER.debug(f'cached count: {cached_count}')
     if cached_count is not None:
         return cached_count
 
@@ -806,32 +804,42 @@ def update_covariate():
     return get_covariates()
 
 
-@app.route('/prep_download')
-def prep_download():
-    query_id = request.args.get('query_id', default=None, type=str)
-    task = _prep_download.delay(query_id)
-    return jsonify({'task_id': task.id}), 202
+@app.route('/start_download', methods=['POST'])
+def start_download():
+    query_id = request.form.get('query_id')
+    task = _prep_download.apply_async(args=[query_id])
+    LOGGER.debug(f'starting prep download task on {task}')
+    return jsonify({'task_id': task.id, 'query_id': query_id}), 202
 
 
 @app.route('/check_task/<task_id>')
 def check_task(task_id):
     task = _prep_download.AsyncResult(task_id)
-    LOGGER.debug(f'status for {task_id} is {task.state}')
     if task.state == 'PENDING':
-        return jsonify({'status': 'Task is pending'}), 202
+        return jsonify({'status': 'PENDING'}), 202
     elif task.state == 'FAILURE':
-        return jsonify({'status': 'Task failed', 'error': str(task.info)}), 500
+        return jsonify({'status': 'FAILURE', 'error': str(task.info)}), 500
     elif task.state == 'SUCCESS':
-        return jsonify({'status': 'Task completed', 'result_url': url_for('download_file', task_id=task_id)}), 200
-    elif task.state == 'STARTED':
-        return jsonify({'status': 'Task is started'}), 202
+        current = task.info.get('current', 0)
+        query_id = task.result.get('query_id')
+        result_url = url_for('download_file', query_id=query_id)
+        return jsonify({'status': 'SUCCESS', 'current': current, 'result_url': result_url}), 200
+    elif task.state == 'PROGRESS':
+        current = task.info.get('current', 0)
+        total = task.info.get('total', 1)
+        return jsonify({'status': 'PROGRESS', 'current': current, 'total': total}), 202
+    else:
+        # For 'STARTED' or any other states
+        return jsonify({'status': task.state}), 202
 
 
-@app.route('/download_file/<task_id>')
-def download_file(task_id):
-    # Implement logic to send the file to the client
-    file_path = os.path.join(QUERY_RESULTS_DIR, f'{task_id}.zip')
-    return send_file(file_path, as_attachment=True)
+@app.route('/download/<query_id>')
+def download_file(query_id):
+    zipfile_path = os.path.join(QUERY_RESULTS_DIR, f'{query_id}.zip')
+    if os.path.exists(zipfile_path):
+        return send_file(zipfile_path, as_attachment=True)
+    else:
+        return 'File not found', 404
 
 
 @celery.task
@@ -846,72 +854,124 @@ def delete_file(zipfile_path):
         LOGGER.error(f"Error deleting file {zipfile_path}: {e}")
 
 
-@celery.task
-def _prep_download(task_id):
+@celery.task(bind=True)
+def _prep_download(self, query_id):
     try:
         session = SessionLocal()
-        LOGGER.info(f'starting prep download with this query id: {task_id}')
-        zipfile_path = os.path.join(QUERY_RESULTS_DIR, f'{task_id}.zip')
-        if os.path.exists(zipfile_path):
-            return f"File {zipfile_path} already existed."
-        query_form_json = redis_client.get(task_id)
+        LOGGER.info(f'starting prep download with this query id: {query_id}')
+        redis_key = f"sample_count:{query_id}"
+        cached_count = redis_client.get(redis_key)
+        if cached_count is not None:
+            total_samples = json.loads(cached_count)['sample_count']
+        else:
+            total_samples = '-'
+
+        zipfile_path = os.path.join(QUERY_RESULTS_DIR, f'{query_id}.zip')
+        # if os.path.exists(zipfile_path):
+        #     return f"File {zipfile_path} already existed."
+        query_form_json = redis_client.get(query_id)
         if query_form_json:
             query_form = json.loads(query_form_json)
         else:
-            LOGGER.error(f'No query form found for the {task_id}.')
+            LOGGER.error(f'No query form found for the {query_id}.')
             return 'Error: No query form found.'
         filters, filter_text = build_filter(session, query_form)
 
-        sample_query = (
-            session.query(Sample, Study)
+        # Collect all covariate names for samples
+        sample_covariate_names = set(
+            name for (name,) in session.query(CovariateDefn.name)
+            .join(CovariateValue, CovariateDefn.id_key == CovariateValue.covariate_defn_id)
+            .filter(CovariateValue.sample_id != None)
+            .join(Sample, CovariateValue.sample_id == Sample.id_key)
             .join(Sample.study)
-            .join(Sample.point)
-            .filter(
-                *filters
-            )
-            .options(selectinload(Sample.covariates))
-        ).yield_per(1000)
+            .filter(*filters)
+            .distinct()
+        )
 
-        (sample_covariate_display_order, sample_table,
-         study_covariate_display_order, study_table) = calculate_display_tables(
-            session, sample_query, max_sample_size=50000)
+        # Collect all covariate names for studies
+        study_covariate_names = set(
+            name for (name,) in session.query(CovariateDefn.name)
+            .join(CovariateValue, CovariateDefn.id_key == CovariateValue.covariate_defn_id)
+            .filter(CovariateValue.study_id != None)
+            .distinct()
+        )
 
-        sample_covariate_display_order = [
-            OBSERVATION, LATITUDE, LONGITUDE] + sample_covariate_display_order
-
+        # Create the ZIP file
+        current_sample_number = 0
         with zipfile.ZipFile(zipfile_path, mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
-            sample_table_io = StringIO()
+            # Process and write sample data
+            sample_csv_filename = f'site_data_{query_id}.csv'
+            with zf.open(sample_csv_filename, 'w') as sample_csv_file:
+                sample_writer = csv.writer(
+                    TextIOWrapper(sample_csv_file, encoding='utf-8'))
+                # Write header
+                sample_columns = [
+                    'observation', 'latitude', 'longitude', 'study_id']
+                sample_columns.extend(sorted(sample_covariate_names))
+                sample_writer.writerow(sample_columns)
 
-            writer = csv.writer(sample_table_io)
-            writer.writerow(sample_covariate_display_order)
+                # Prepare the sample query
+                sample_query = (
+                    session.query(Sample, Study)
+                    .join(Sample.study)
+                    .join(Sample.point)
+                    .filter(*filters)
+                    .options(selectinload(Sample.covariates))
+                ).yield_per(100)
 
-            for sample_row, row in zip(sample_query, sample_table):
-                row = [
-                    str(sample_row[0].observation),
-                    str(sample_row[0].point.latitude),
-                    str(sample_row[0].point.longitude)] + row
-                clean_row = [x if x is not None else 'None' for x in row]
-                writer.writerow(clean_row)
+                # Write data rows
+                for sample in sample_query:
+                    current_sample_number += 1
+                    self.update_state(
+                        state='PROGRESS',
+                        meta={
+                            'current': current_sample_number,
+                            'total': total_samples,
+                            'query_id': query_id})
+                    sample_row, study = sample
+                    row_data = {
+                        'observation': sample_row.observation,
+                        'latitude': sample_row.point.latitude,
+                        'longitude': sample_row.point.longitude,
+                        'study_id': study.name,
+                    }
+                    for cov in sample_row.covariates:
+                        if cov is None:
+                            continue
+                        cov_name = cov.covariate_defn.name
+                        row_data[cov_name] = cov.value
+                    row = [row_data.get(col, '') for col in sample_columns]
+                    sample_writer.writerow(row)
 
-            sample_table_io.seek(0)
-            zf.writestr(f'site_data_{task_id}.csv', sample_table_io.getvalue())
+            # Process and write study data
+            study_csv_filename = f'study_data_{query_id}.csv'
+            with zf.open(study_csv_filename, 'w') as study_csv_file:
+                study_writer = csv.writer(TextIOWrapper(study_csv_file, encoding='utf-8'))
+                # Write header
+                study_columns = ['study_id']
+                study_columns.extend(sorted(study_covariate_names))
+                study_writer.writerow(study_columns)
 
-            study_table_io = StringIO()
-            study_table_io.write(','.join(study_covariate_display_order))
-            study_table_io.write('\n')
-            for row in study_table:
-                clean_row = [_wrap_in_quotes_if_needed(x) if x is not None else 'None' for x in row]
-                study_table_io.write(','.join(clean_row))
-                study_table_io.write('\n')
-
-            study_table_io.seek(0)  # Move to the start of the StringIO object
-            # Add the CSV content to the ZIP file
-            zf.writestr(f'study_data_{task_id}.csv', study_table_io.getvalue())
+                # Get unique study IDs
+                study_ids = set()
+                for sample in sample_query:
+                    sample_row, study = sample
+                    study_ids.add(study.id_key)
+                # Fetch and write study data
+                for study in session.query(Study).filter(Study.id_key.in_(study_ids)).options(selectinload(Study.covariates)):
+                    row_data = {
+                        'study_id': study.name,
+                    }
+                    for cov in study.covariates:
+                        cov_name = cov.covariate_defn.name
+                        row_data[cov_name] = cov.value
+                    row = [row_data.get(col, '') for col in study_columns]
+                    study_writer.writerow(row)
 
         LOGGER.debug(f'{zipfile_path} is created')
         # delete it after an hour
         delete_file.apply_async(args=[zipfile_path], countdown=3600)
-        return f"File {zipfile_path} has been created."
+        return {'query_id': query_id}
     except Exception:
         LOGGER.exception('error on _prep_download')
     finally:

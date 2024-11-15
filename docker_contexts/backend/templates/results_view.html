@@ -76,6 +76,7 @@
             Results
         </h1>
         <button class="btn btn-primary mb-3" id="fullSetDownload">Download full set</button><br/>
+        <div id="downloadStatus"></div>
         <a href="https://ecoshard-202922.projects.earthengine.app/view/pcld-remote-sensed-data-catalog" target="_blank" rel="noopener noreferrer">Explore remote-sensed datasets that will be added to the platform</a>
     </div>
 
@@ -121,6 +122,68 @@
     </div>
 
     <script type="text/javascript">
+$(document).ready(function() {
+    $('#fullSetDownload').on('click', function() {
+        // Start the download preparation task
+        $.ajax({
+            url: '/start_download',  // Endpoint to start the download task
+            type: 'POST',
+            data: { query_id: '{{ query_id }}' },
+            success: function(response) {
+                var taskId = response.task_id;
+                $('#fullSetDownload').prop('disabled', true);
+                checkDownloadTaskStatus(taskId);
+            },
+            error: function() {
+                alert('Error starting download task');
+            }
+        });
+    });
+    function checkDownloadTaskStatus(taskId, queryId) {
+        $.ajax({
+            url: '/check_task/' + taskId,
+            success: function(data) {
+                if (data.status === 'PROGRESS') {
+                    var current = data.current;
+                    var total = data.total;
+                    $('#fullSetDownload').text('Processing sample ' + current + ' of ' + total);
+                    // Poll again after a delay
+                    setTimeout(function() {
+                        checkDownloadTaskStatus(taskId);
+                    }, 1000);
+                } else if (data.status === 'SUCCESS') {
+                    var current = data.current;
+                    var total = data.total;
+                    $('#fullSetDownload')
+                        .off('click')  // Remove the existing click handler
+                        .prop('disabled', false)
+                        .removeClass('btn-primary')
+                        .addClass('btn-danger')
+                        .text('Click here to download all {{ n_samples }} rows')
+                        .on('click', function() {
+                            window.location.href = data.result_url;
+                        });
+                } else if (data.status === 'FAILURE') {
+                    $('#fullSetDownload')
+                        .removeClass('btn-primary')
+                        .addClass('btn-danger')
+                        .text('Task failed: ' + data.error);
+                } else {
+                    // Task is pending or started, continue polling
+                    $('#fullSetDownload').text('Preparing download...');
+                    setTimeout(function() {
+                        checkDownloadTaskStatus(taskId);
+                    }, 1000);
+                }
+            },
+            error: function() {
+                // Handle error
+                $('#fullSetDownload').text('Error preparing download...');
+            }
+        });
+    }
+});
+
 $(document).ready(function() {
     var queryId = "{{ query_id }}";
     var sampleColumns = [];
