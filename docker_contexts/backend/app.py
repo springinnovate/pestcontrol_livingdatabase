@@ -97,7 +97,7 @@ OPERATION_MAP = {
 def generate_hash_key(data_dict):
     json_data = json.dumps(data_dict, sort_keys=True)
     hash_object = hashlib.sha256(json_data.encode())
-    hash_key = hash_object.hexdigest()
+    hash_key = hash_object.hexdigest()[:8]
     return hash_key
 
 
@@ -593,14 +593,17 @@ def process_query():
         redis_key = f"sample_count:{query_id}"
         LOGGER.debug(f'sample key: {redis_key}')
         cached_count = redis_client.get(redis_key)
+        n_samples = 0
         if cached_count is not None:
             cached_count = json.loads(cached_count)
+            if 'sample_count' in cached_count:
+                n_samples = cached_count['sample_count']
 
         session.close()
 
         return render_template(
             'results_view.html',
-            n_samples=cached_count['sample_count'],
+            n_samples=n_samples,
             query_id=query_id,
             compiled_query=f'<pre>Filter as text: {filter_text}</pre>',
         )
@@ -854,8 +857,15 @@ def delete_file(zipfile_path):
         LOGGER.error(f"Error deleting file {zipfile_path}: {e}")
 
 
+import os
+import csv
+import zipfile
+from io import TextIOWrapper
+from sqlalchemy.orm import selectinload
+
 @celery.task(bind=True)
 def _prep_download(self, query_id):
+    temp_files = []
     try:
         session = SessionLocal()
         LOGGER.info(f'starting prep download with this query id: {query_id}')
@@ -867,14 +877,13 @@ def _prep_download(self, query_id):
             total_samples = '-'
 
         zipfile_path = os.path.join(QUERY_RESULTS_DIR, f'{query_id}.zip')
-        # if os.path.exists(zipfile_path):
-        #     return f"File {zipfile_path} already existed."
         query_form_json = redis_client.get(query_id)
         if query_form_json:
             query_form = json.loads(query_form_json)
         else:
             LOGGER.error(f'No query form found for the {query_id}.')
             return 'Error: No query form found.'
+
         filters, filter_text = build_filter(session, query_form)
 
         # Collect all covariate names for samples
@@ -896,86 +905,107 @@ def _prep_download(self, query_id):
             .distinct()
         )
 
-        # Create the ZIP file
+        # Create temporary CSV file paths
         current_sample_number = 0
+        sample_csv_filename = f'site_data_{query_id}.csv'
+        sample_csv_path = os.path.join(QUERY_RESULTS_DIR, sample_csv_filename)
+        temp_files.append(sample_csv_path)
+
+        study_csv_filename = f'study_data_{query_id}.csv'
+        study_csv_path = os.path.join(QUERY_RESULTS_DIR, study_csv_filename)
+        temp_files.append(study_csv_path)
+
+        study_ids = set()
+
+        # Write sample data to CSV file on disk
+        with open(sample_csv_path, 'w', encoding='utf-8', newline='') as sample_csv_file:
+            sample_writer = csv.writer(sample_csv_file)
+            # Write header
+            sample_columns = ['observation', 'latitude', 'longitude', 'study_id']
+            sample_columns.extend(sorted(sample_covariate_names))
+            sample_writer.writerow(sample_columns)
+
+            # Prepare the sample query
+            sample_query = (
+                session.query(Sample, Study)
+                .join(Sample.study)
+                .join(Sample.point)
+                .filter(*filters)
+                .options(selectinload(Sample.covariates))
+            ).yield_per(100)
+
+            # Write data rows
+            for sample in sample_query:
+                current_sample_number += 1
+                self.update_state(
+                    state='PROGRESS',
+                    meta={
+                        'current': current_sample_number,
+                        'total': total_samples,
+                        'query_id': query_id
+                    }
+                )
+                sample_row, study = sample
+                row_data = {
+                    'observation': sample_row.observation,
+                    'latitude': sample_row.point.latitude,
+                    'longitude': sample_row.point.longitude,
+                    'study_id': study.name,
+                }
+                study_ids.add(study.id_key)
+                for cov in sample_row.covariates:
+                    if cov is None:
+                        continue
+                    cov_name = cov.covariate_defn.name
+                    row_data[cov_name] = cov.value
+                row = [row_data.get(col, '') for col in sample_columns]
+                sample_writer.writerow(row)
+
+        # Write study data to CSV file on disk
+        LOGGER.info(f'study ids: {study_ids}')
+        with open(study_csv_path, 'w', encoding='utf-8', newline='') as study_csv_file:
+            study_writer = csv.writer(study_csv_file)
+            # Write header
+            study_columns = ['study_id']
+            study_columns.extend(sorted(study_covariate_names))
+            study_writer.writerow(study_columns)
+
+            for study in session.query(Study).filter(Study.id_key.in_(study_ids)).options(selectinload(Study.covariates)):
+                row_data = {'study_id': study.name}
+                LOGGER.info(f'row data to start: {row_data}')
+                for cov in study.covariates:
+                    cov_name = cov.covariate_defn.name
+                    row_data[cov_name] = cov.value
+                    LOGGER.info(f'{cov_name}: {cov.value}')
+                row = [row_data.get(col, '') for col in study_columns]
+                LOGGER.info(f'writing this row: {row}')
+                study_writer.writerow(row)
+
+        # Create ZIP file and add the CSV files
         with zipfile.ZipFile(zipfile_path, mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
-            # Process and write sample data
-            sample_csv_filename = f'site_data_{query_id}.csv'
-            with zf.open(sample_csv_filename, 'w') as sample_csv_file:
-                sample_writer = csv.writer(
-                    TextIOWrapper(sample_csv_file, encoding='utf-8'))
-                # Write header
-                sample_columns = [
-                    'observation', 'latitude', 'longitude', 'study_id']
-                sample_columns.extend(sorted(sample_covariate_names))
-                sample_writer.writerow(sample_columns)
-
-                # Prepare the sample query
-                sample_query = (
-                    session.query(Sample, Study)
-                    .join(Sample.study)
-                    .join(Sample.point)
-                    .filter(*filters)
-                    .options(selectinload(Sample.covariates))
-                ).yield_per(100)
-
-                # Write data rows
-                for sample in sample_query:
-                    current_sample_number += 1
-                    self.update_state(
-                        state='PROGRESS',
-                        meta={
-                            'current': current_sample_number,
-                            'total': total_samples,
-                            'query_id': query_id})
-                    sample_row, study = sample
-                    row_data = {
-                        'observation': sample_row.observation,
-                        'latitude': sample_row.point.latitude,
-                        'longitude': sample_row.point.longitude,
-                        'study_id': study.name,
-                    }
-                    for cov in sample_row.covariates:
-                        if cov is None:
-                            continue
-                        cov_name = cov.covariate_defn.name
-                        row_data[cov_name] = cov.value
-                    row = [row_data.get(col, '') for col in sample_columns]
-                    sample_writer.writerow(row)
-
-            # Process and write study data
-            study_csv_filename = f'study_data_{query_id}.csv'
-            with zf.open(study_csv_filename, 'w') as study_csv_file:
-                study_writer = csv.writer(TextIOWrapper(study_csv_file, encoding='utf-8'))
-                # Write header
-                study_columns = ['study_id']
-                study_columns.extend(sorted(study_covariate_names))
-                study_writer.writerow(study_columns)
-
-                # Get unique study IDs
-                study_ids = set()
-                for sample in sample_query:
-                    sample_row, study = sample
-                    study_ids.add(study.id_key)
-                # Fetch and write study data
-                for study in session.query(Study).filter(Study.id_key.in_(study_ids)).options(selectinload(Study.covariates)):
-                    row_data = {
-                        'study_id': study.name,
-                    }
-                    for cov in study.covariates:
-                        cov_name = cov.covariate_defn.name
-                        row_data[cov_name] = cov.value
-                    row = [row_data.get(col, '') for col in study_columns]
-                    study_writer.writerow(row)
+            zf.write(sample_csv_path, arcname=sample_csv_filename)
+            zf.write(study_csv_path, arcname=study_csv_filename)
 
         LOGGER.debug(f'{zipfile_path} is created')
-        # delete it after an hour
+
+        # Schedule deletion of the ZIP file after an hour
         delete_file.apply_async(args=[zipfile_path], countdown=3600)
+
         return {'query_id': query_id}
+
     except Exception:
-        LOGGER.exception('error on _prep_download')
+        LOGGER.exception('Error in _prep_download')
+        raise  # Reraise the exception to be handled elsewhere
+
     finally:
         session.close()
+        # Delete temporary CSV files
+        for temp_file in temp_files:
+            if os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                except Exception:
+                    LOGGER.exception(f'Error deleting temporary file: {temp_file}')
 
 
 def _wrap_in_quotes_if_needed(value):
