@@ -32,7 +32,7 @@ from sqlalchemy import distinct, func
 from sqlalchemy import select, text
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import selectinload
-from sqlalchemy.sql import and_
+from sqlalchemy.sql import and_, exists
 from sqlalchemy.sql.functions import GenericFunction
 from sqlalchemy.types import String
 import ee
@@ -403,10 +403,22 @@ def n_samples():
 def form_to_dict(form):
     centerPointBuffer = form.get('centerPointBuffer')
 
+    # Get the list of covariates and their counts
+    covariates = form.getlist('covariate')
+    value_counts = [int(count) for count in form.getlist('valueCounts')]
+    values_flat = form.getlist('values')
+
+    # Group values per covariate
+    values_grouped = []
+    idx = 0
+    for count in value_counts:
+        group = values_flat[idx:idx+count]
+        values_grouped.append(group)
+        idx += count
+
     return {
-        'covariate': form.getlist('covariate'),
-        'operation': form.getlist('operation'),
-        'value': form.getlist('value'),
+        'covariate': covariates,
+        'values': values_grouped,
         'centerPoint': form.get('centerPoint'),
         'centerPointBuffer': None if not centerPointBuffer else centerPointBuffer,
         'upperLeft': form.get('upperLeft'),
@@ -421,44 +433,42 @@ def form_to_dict(form):
 
 
 def build_filter(session, form):
+    LOGGER.debug(form)
     fields = form['covariate']
-    operations = form['operation']
-    values = form['value']
+    values_list = form['values']
     filters = []
     filter_text = ''
 
     # Fetch all covariate_defns at once
     covariate_defns = session.query(
-        CovariateDefn.name, CovariateDefn.covariate_association
+        CovariateDefn.name, CovariateDefn.id_key, CovariateDefn.covariate_association
     ).filter(
         CovariateDefn.name.in_(fields)
     ).all()
-    covariate_defn_map = dict(covariate_defns)
+    covariate_defn_map = {name: (id_key, association) for name, id_key, association in covariate_defns}
 
-    for field, operation, value in zip(fields, operations, values):
-        if not field or not value:
+    for field, values in zip(fields, values_list):
+        if not field or not values:
             continue
-        covariate_association = covariate_defn_map.get(field)
-        filter_text += f'{field}({covariate_association}) {operation} {value}\n'
+        covariate_defn_id, covariate_association = covariate_defn_map.get(field, (None, None))
+        #covariate_association = covariate_defn_map.get(field)
+        filter_text += f'{field}({covariate_association}) = ' + '|'.join(values) + '\n'
         if field == STUDY_ID:
-            filters.append(Study.name == value)
+            filters.append(Study.name.in_(values))
             continue
 
         covariate_subquery = session.query(CovariateValue)
-        covariate_subquery = covariate_subquery.join(CovariateDefn)
         covariate_subquery = covariate_subquery.filter(
-            CovariateDefn.name == field,
-            OPERATION_MAP[operation](CovariateValue.value, value)
+            CovariateValue.covariate_defn_id == covariate_defn_id,
+            CovariateValue.value.in_(values)
         )
 
         if covariate_association == CovariateAssociation.STUDY.value:
-            study_ids = select(covariate_subquery.with_entities(
-                CovariateValue.study_id).subquery())
-            filters.append(Study.id_key.in_(study_ids))
+            study_ids_subq = covariate_subquery.with_entities(CovariateValue.study_id).subquery()
+            filters.append(Study.id_key.in_(study_ids_subq))
         elif covariate_association == CovariateAssociation.SAMPLE.value:
-            sample_ids = select(covariate_subquery.with_entities(
-                CovariateValue.sample_id).subquery())
-            filters.append(Sample.id_key.in_(sample_ids))
+            sample_ids_subq = covariate_subquery.with_entities(CovariateValue.sample_id).subquery()
+            filters.append(Sample.id_key.in_(sample_ids_subq))
 
     ul_lat = None
     center_point = form['centerPoint']
@@ -766,7 +776,6 @@ def view_covariate():
     return render_template(
         'covariate_view.html',
         covariate_association_states=[str(x).split('.')[1] for x in CovariateAssociation],)
-
 
 @app.route('/api/get_covariates', methods=['GET'])
 def get_covariates():
