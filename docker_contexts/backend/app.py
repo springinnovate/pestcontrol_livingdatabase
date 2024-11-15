@@ -451,7 +451,6 @@ def build_filter(session, form):
         if not field or not values:
             continue
         covariate_defn_id, covariate_association = covariate_defn_map.get(field, (None, None))
-        #covariate_association = covariate_defn_map.get(field)
         filter_text += f'{field}({covariate_association}) = ' + '|'.join(values) + '\n'
         if field == STUDY_ID:
             filters.append(Study.name.in_(values))
@@ -993,6 +992,9 @@ def _prep_download(self, query_id):
 
         batch_rows = []
         for study in session.query(Study).filter(Study.id_key.in_(study_ids)).options(selectinload(Study.covariates)):
+            row_data = {
+                'study_id': study.name,
+            }
             for cov in study.covariates:
                 cov_name = cov.covariate_defn.name
                 row_data[cov_name] = cov.value
