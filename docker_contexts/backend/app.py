@@ -908,7 +908,7 @@ def _prep_download(self, query_id):
         )
 
         # Create temporary CSV file paths
-        sample_csv_filename = f'site_data_{query_id}.csv'
+        sample_csv_filename = f'sample_data_{query_id}.csv'
         sample_csv_path = os.path.join(QUERY_RESULTS_DIR, sample_csv_filename)
         temp_files.append(sample_csv_path)
 
