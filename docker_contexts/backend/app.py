@@ -857,12 +857,6 @@ def delete_file(zipfile_path):
         LOGGER.error(f"Error deleting file {zipfile_path}: {e}")
 
 
-import os
-import csv
-import zipfile
-from io import TextIOWrapper
-from sqlalchemy.orm import selectinload
-
 @celery.task(bind=True)
 def _prep_download(self, query_id):
     temp_files = []
@@ -906,7 +900,6 @@ def _prep_download(self, query_id):
         )
 
         # Create temporary CSV file paths
-        current_sample_number = 0
         sample_csv_filename = f'site_data_{query_id}.csv'
         sample_csv_path = os.path.join(QUERY_RESULTS_DIR, sample_csv_filename)
         temp_files.append(sample_csv_path)
@@ -917,69 +910,94 @@ def _prep_download(self, query_id):
 
         study_ids = set()
 
-        # Write sample data to CSV file on disk
-        with open(sample_csv_path, 'w', encoding='utf-8', newline='') as sample_csv_file:
-            sample_writer = csv.writer(sample_csv_file)
-            # Write header
-            sample_columns = ['observation', 'latitude', 'longitude', 'study_id']
-            sample_columns.extend(sorted(sample_covariate_names))
-            sample_writer.writerow(sample_columns)
+        sample_columns = ['observation', 'latitude', 'longitude', 'study_id']
+        sample_columns.extend(sorted(sample_covariate_names))
 
-            # Prepare the sample query
-            sample_query = (
-                session.query(Sample, Study)
-                .join(Sample.study)
-                .join(Sample.point)
-                .filter(*filters)
-                .options(selectinload(Sample.covariates))
-            ).yield_per(100)
+        # Prepare the sample query
+        batch_size = 1000  # Adjust batch size based on available memory
+        sample_query = (
+            session.query(Sample, Study)
+            .join(Sample.study)
+            .join(Sample.point)
+            .filter(*filters)
+            .options(selectinload(Sample.covariates))
+        ).yield_per(batch_size)
 
-            # Write data rows
-            for sample in sample_query:
-                current_sample_number += 1
+        batch_rows = []
+
+        first_batch = True
+        for index, sample in enumerate(sample_query):
+            if index % batch_size == 0:
                 self.update_state(
                     state='PROGRESS',
                     meta={
-                        'current': current_sample_number,
+                        'current': index,
                         'total': total_samples,
                         'query_id': query_id
                     }
                 )
-                sample_row, study = sample
-                row_data = {
-                    'observation': sample_row.observation,
-                    'latitude': sample_row.point.latitude,
-                    'longitude': sample_row.point.longitude,
-                    'study_id': study.name,
-                }
-                study_ids.add(study.id_key)
-                for cov in sample_row.covariates:
-                    if cov is None:
-                        continue
-                    cov_name = cov.covariate_defn.name
-                    row_data[cov_name] = cov.value
-                row = [row_data.get(col, '') for col in sample_columns]
-                sample_writer.writerow(row)
+
+            sample_row, study = sample
+            study_ids.add(study.id_key)
+            row_data = {
+                'observation': sample_row.observation,
+                'latitude': sample_row.point.latitude,
+                'longitude': sample_row.point.longitude,
+                'study_id': study.name,
+            }
+            for cov in sample_row.covariates:
+                if cov is None:
+                    continue
+                cov_name = cov.covariate_defn.name
+                row_data[cov_name] = cov.value
+
+            batch_rows.append(row_data)
+
+            # Write the batch when the batch size is reached
+            if len(batch_rows) >= batch_size:
+                df = pd.DataFrame(batch_rows, columns=sample_columns)
+                df.fillna("None", inplace=True)
+                df.to_csv(
+                    sample_csv_path,
+                    mode='a',  # Append mode
+                    header=first_batch,  # Write header only for the first batch
+                    index=False
+                )
+                first_batch = False  # Only write header for the first batch
+                batch_rows = []  # Clear the batch
+
+        # Write any remaining rows
+        if batch_rows:
+            df = pd.DataFrame(batch_rows, columns=sample_columns)
+            df.fillna("None", inplace=True)
+            df.to_csv(
+                sample_csv_path,
+                mode='a',
+                header=first_batch,
+                index=False
+            )
 
         # Write study data to CSV file on disk
         LOGGER.info(f'study ids: {study_ids}')
-        with open(study_csv_path, 'w', encoding='utf-8', newline='') as study_csv_file:
-            study_writer = csv.writer(study_csv_file)
-            # Write header
-            study_columns = ['study_id']
-            study_columns.extend(sorted(study_covariate_names))
-            study_writer.writerow(study_columns)
+        study_columns = ['study_id']
+        study_columns.extend(sorted(study_covariate_names))
 
-            for study in session.query(Study).filter(Study.id_key.in_(study_ids)).options(selectinload(Study.covariates)):
-                row_data = {'study_id': study.name}
-                LOGGER.info(f'row data to start: {row_data}')
-                for cov in study.covariates:
-                    cov_name = cov.covariate_defn.name
-                    row_data[cov_name] = cov.value
-                    LOGGER.info(f'{cov_name}: {cov.value}')
-                row = [row_data.get(col, '') for col in study_columns]
-                LOGGER.info(f'writing this row: {row}')
-                study_writer.writerow(row)
+        batch_rows = []
+        for study in session.query(Study).filter(Study.id_key.in_(study_ids)).options(selectinload(Study.covariates)):
+            for cov in study.covariates:
+                cov_name = cov.covariate_defn.name
+                row_data[cov_name] = cov.value
+                LOGGER.info(f'{cov_name}: {cov.value}')
+            row = [row_data.get(col, '') for col in study_columns]
+            batch_rows.append(row)
+        df = pd.DataFrame(batch_rows, columns=study_columns)
+        df.fillna("None", inplace=True)
+        df.to_csv(
+            study_csv_path,
+            mode='a',
+            header=True,
+            index=False
+        )
 
         # Create ZIP file and add the CSV files
         with zipfile.ZipFile(zipfile_path, mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
