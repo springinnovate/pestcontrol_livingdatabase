@@ -889,24 +889,27 @@ def _prep_download(self, query_id):
         filters, filter_text = build_filter(session, query_form)
 
         # Collect all covariate names for samples
-        sample_covariate_names = set(
+        sample_covariate_names = list(
             name for (name,) in session.query(CovariateDefn.name)
             .join(CovariateValue, CovariateDefn.id_key == CovariateValue.covariate_defn_id)
             .filter(CovariateValue.sample_id != None)
             .join(Sample, CovariateValue.sample_id == Sample.id_key)
             .join(Sample.study)
             .filter(*filters)
+            .group_by(CovariateDefn.name)
             .order_by(
                 CovariateDefn.display_order,
                 func.lower(CovariateDefn.name))
             .distinct()
         )
+        LOGGER.info(f'covarate name order: {sample_covariate_names}')
 
         # Collect all covariate names for studies
-        study_covariate_names = set(
+        study_covariate_names = list(
             name for (name,) in session.query(CovariateDefn.name)
             .join(CovariateValue, CovariateDefn.id_key == CovariateValue.covariate_defn_id)
             .filter(CovariateValue.study_id != None)
+            .group_by(CovariateDefn.name)
             .order_by(
                 CovariateDefn.display_order,
                 func.lower(CovariateDefn.name))
