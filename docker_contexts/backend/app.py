@@ -896,6 +896,9 @@ def _prep_download(self, query_id):
             .join(Sample, CovariateValue.sample_id == Sample.id_key)
             .join(Sample.study)
             .filter(*filters)
+            .order_by(
+                CovariateDefn.display_order,
+                func.lower(CovariateDefn.name))
             .distinct()
         )
 
@@ -904,6 +907,9 @@ def _prep_download(self, query_id):
             name for (name,) in session.query(CovariateDefn.name)
             .join(CovariateValue, CovariateDefn.id_key == CovariateValue.covariate_defn_id)
             .filter(CovariateValue.study_id != None)
+            .order_by(
+                CovariateDefn.display_order,
+                func.lower(CovariateDefn.name))
             .distinct()
         )
 
