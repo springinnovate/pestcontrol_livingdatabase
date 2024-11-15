@@ -79,7 +79,7 @@
     </div>
 
     <div class="container mt-5">
-        <h2>Sample Locations</h2>
+        <h2 id="mapHeader">Sample Locations</h2>
         <div id="map"></div>
     </div>
 
@@ -157,7 +157,7 @@ $(document).ready(function() {
                         .prop('disabled', false)
                         .removeClass('btn-primary')
                         .addClass('btn-danger')
-                        .text('Click here to download all {{ n_samples }} rows')
+                        .text('Click here to download all {{ n_samples }} samples')
                         .on('click', function() {
                             window.location.href = data.result_url;
                         });
@@ -206,6 +206,7 @@ $(document).ready(function() {
 
     function updateSampleTableHeader() {
         $('#sampleTableHeader').text('Sample Table (' + sampleRowCount + ' rows) of {{ n_samples }}');
+        $('#mapHeader').text('Sample Locations (' + sampleRowCount + ') of {{ n_samples }}');
     }
 
     var sampleIcon = L.divIcon({
