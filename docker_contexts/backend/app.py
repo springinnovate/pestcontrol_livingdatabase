@@ -902,7 +902,6 @@ def _prep_download(self, query_id):
                 func.lower(CovariateDefn.name))
             .distinct()
         )
-        LOGGER.info(f'covarate name order: {sample_covariate_names}')
 
         # Collect all covariate names for studies
         study_covariate_names = list(
@@ -995,9 +994,8 @@ def _prep_download(self, query_id):
             )
 
         # Write study data to CSV file on disk
-        LOGGER.info(f'study ids: {study_ids}')
         study_columns = ['study_id']
-        study_columns.extend(sorted(study_covariate_names))
+        study_columns.extend(study_covariate_names)
 
         batch_rows = []
         for study in session.query(Study).filter(Study.id_key.in_(study_ids)).options(selectinload(Study.covariates)):
@@ -1007,7 +1005,6 @@ def _prep_download(self, query_id):
             for cov in study.covariates:
                 cov_name = cov.covariate_defn.name
                 row_data[cov_name] = cov.value
-                LOGGER.info(f'{cov_name}: {cov.value}')
             row = [row_data.get(col, '') for col in study_columns]
             batch_rows.append(row)
         df = pd.DataFrame(batch_rows, columns=study_columns)
