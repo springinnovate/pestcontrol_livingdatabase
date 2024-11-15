@@ -924,8 +924,8 @@ def _prep_download(self, query_id):
 
         study_ids = set()
 
-        sample_columns = ['observation', 'latitude', 'longitude', 'study_id']
-        sample_columns.extend(sorted(sample_covariate_names))
+        sample_columns = ['study_id', 'observation', 'latitude', 'longitude', ]
+        sample_columns.extend(sample_covariate_names)
 
         # Prepare the sample query
         batch_size = 1000  # Adjust batch size based on available memory
