@@ -1,5 +1,6 @@
+import time
 from datetime import datetime
-from io import StringIO, BytesIO
+from io import StringIO, BytesIO, TextIOWrapper
 import collections
 import configparser
 import csv
@@ -31,7 +32,7 @@ from sqlalchemy import distinct, func
 from sqlalchemy import select, text
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import selectinload
-from sqlalchemy.sql import and_, or_
+from sqlalchemy.sql import and_, exists
 from sqlalchemy.sql.functions import GenericFunction
 from sqlalchemy.types import String
 import ee
@@ -62,7 +63,7 @@ celery = make_celery(app)
 redis_client = redis.Redis(host='redis', port=6379, db=0)
 
 
-INSTANCE_DIR = './instance'
+INSTANCE_DIR = '/usr/local/data/'
 QUERY_RESULTS_DIR = os.path.join(INSTANCE_DIR, 'results_to_download')
 os.makedirs(QUERY_RESULTS_DIR, exist_ok=True)
 MAX_SAMPLE_DISPLAY_SIZE = 1000
@@ -96,7 +97,7 @@ OPERATION_MAP = {
 def generate_hash_key(data_dict):
     json_data = json.dumps(data_dict, sort_keys=True)
     hash_object = hashlib.sha256(json_data.encode())
-    hash_key = hash_object.hexdigest()
+    hash_key = hash_object.hexdigest()[:8]
     return hash_key
 
 
@@ -107,8 +108,10 @@ def nl2br(value):
 def to_dict(covariate_list):
     covariate_dict = collections.defaultdict(lambda: None)
     for covariate in covariate_list:
+        if covariate is None:
+            continue
         if isinstance(covariate, str):
-            # hard-code study-id
+            # Hard-code STUDY_ID
             covariate_dict[STUDY_ID] = covariate
         else:
             covariate_dict[covariate.covariate_defn.name] = covariate.value
@@ -132,125 +135,107 @@ def extract_years(year_string):
     return sorted(years)
 
 
-def calculate_sample_display_table(session, query_to_filter):
-    pre_covariate_display_query = (
-        session.query(
-            CovariateDefn.name,
-            CovariateDefn.always_display,
-            CovariateDefn.hidden)
-        .filter(
-            or_(CovariateDefn.covariate_association == CovariateAssociation.SAMPLE.value,
-                CovariateDefn.show_in_point_table == 1))
-        .order_by(
-            CovariateDefn.display_order,
-            func.lower(CovariateDefn.name)))
+def _collect_unique_covariate_values(covariates, unique_values_per_covariate):
+    for covariate in covariates:
+        if isinstance(covariate, str):
+            # This will be the STUDY_ID
+            unique_values_per_covariate[STUDY_ID].add(covariate)
+            continue
+        if covariate is None:
+            continue
+        value = covariate.value
+        if value is None or (isinstance(value, float) and numpy.isnan(value)):
+            continue
+        if isinstance(value, str):
+            if value.lower() == 'null':
+                continue
+            try:
+                # Check if value can be converted to float
+                float(value)
+                unique_values_per_covariate[covariate.covariate_defn.name].add(True)
+            except ValueError:
+                unique_values_per_covariate[covariate.covariate_defn.name].add(value.lower())
+        else:
+            # Numeric value; note that it's defined
+            unique_values_per_covariate[covariate.covariate_defn.name].add(True)
 
-    unique_values_per_covariate = collections.defaultdict(set)
+
+def calculate_display_tables(session, query, max_sample_size):
+    global COVARIATE_STATE
+    try:
+        covariate_defns = COVARIATE_STATE['covariate_defns']
+    except NameError:
+        # the celery worker won't call initalize so we can do it here the first time
+        initialize_covariates(False)
+        covariate_defns = COVARIATE_STATE['covariate_defns']
+    sample_covariate_defns = [
+        (name, always_display, hidden)
+        for name, always_display, hidden, cov_association, show_in_point_table, _ in covariate_defns
+        if cov_association == CovariateAssociation.SAMPLE.value or show_in_point_table == 1
+    ]
+
+    study_covariate_defns = [
+        (name, always_display, hidden)
+        for name, always_display, hidden, cov_association, show_in_point_table, _ in covariate_defns
+        if cov_association == CovariateAssociation.STUDY.value or show_in_point_table == 1
+    ]
+
+    unique_sample_covariate_values = collections.defaultdict(set)
+    unique_study_covariate_values = collections.defaultdict(set)
+
     sample_covariate_list = []
-    for index, (sample, study) in enumerate(query_to_filter):
+    study_list = []
+    study_set = set()
+    limited_sample_query = query.limit(max_sample_size)
+    for sample, study in limited_sample_query:
+        # Collect sample covariates
         sample_covariates = sample.covariates
-        study_covariates = [
-            cov for cov in study.covariates
-            if cov.covariate_defn.show_in_point_table == 1
-        ] + [study.name]
-        all_covariates = sample_covariates + study_covariates
-        sample_covariate_list.append((sample, all_covariates))
-        for covariate in all_covariates:
-            if isinstance(covariate, str):
-                # this will be the study_id
-                unique_values_per_covariate[STUDY_ID].add(covariate)
-                continue
-            if not isinstance(covariate.value, str) and (
-                    covariate.value is None or numpy.isnan(covariate.value)):
-                continue
-            if isinstance(covariate.value, str):
-                if covariate.value == 'null':
-                    continue
-                try:
-                    # see if it could be numeric, if so just put true
-                    float(covariate.value)
-                    unique_values_per_covariate[
-                        covariate.covariate_defn.name].add(True)
-                except ValueError:
-                    unique_values_per_covariate[
-                        covariate.covariate_defn.name].add(
-                            covariate.value.lower())
-            else:
-                # it's a numeric, just note it's defined
-                unique_values_per_covariate[
-                    covariate.covariate_defn.name].add(True)
+        sample_covariate_list.append((sample, sample_covariates))
+        _collect_unique_covariate_values(sample_covariates, unique_sample_covariate_values)
 
-    covariate_display_order = [STUDY_ID]
-    for name, always_display, hidden in pre_covariate_display_query:
+        # Collect study IDs for later use
+        if study.id_key not in study_set:
+            study_set.add(study.id_key)
+            study_list.append(study)
+
+    study_covariate_list = []
+    for study in study_list:
+        covariates = study.covariates
+        study_covariate_list.append((study, covariates))
+        _collect_unique_covariate_values(covariates, unique_study_covariate_values)
+
+    sample_covariate_display_order = [STUDY_ID]
+    for name, always_display, hidden in sample_covariate_defns:
         if hidden:
             continue
-        if always_display or unique_values_per_covariate[name]:
-            covariate_display_order.append(name)
+        if always_display or unique_sample_covariate_values[name]:
+            sample_covariate_display_order.append(name)
 
-    display_table = []
+    # Study covariate display order
+    study_covariate_display_order = [STUDY_ID]
+    for name, always_display, hidden in study_covariate_defns:
+        if hidden:
+            continue
+        if always_display or unique_study_covariate_values[name]:
+            study_covariate_display_order.append(name)
+
+    # Build sample table
+    sample_table = []
     for sample, covariate_list in sample_covariate_list:
         covariate_dict = to_dict(covariate_list)
-        display_table.append([
-            covariate_dict[name]
-            for name in covariate_display_order])
-    return covariate_display_order, display_table
+        covariate_dict[STUDY_ID] = sample.study.name  # Include STUDY_ID
+        display_row = [covariate_dict.get(name) for name in sample_covariate_display_order]
+        sample_table.append(display_row)
 
+    # Build study table
+    study_table = []
+    for study, covariate_list in study_covariate_list:
+        covariate_dict = to_dict(covariate_list)
+        covariate_dict[STUDY_ID] = study.name  # Include STUDY_ID
+        display_row = [covariate_dict.get(name) for name in study_covariate_display_order]
+        study_table.append(display_row)
 
-def calculate_study_display_order(
-        session, query_to_filter):
-    pre_covariate_display_order = (
-        session.query(
-            CovariateDefn.name,
-            CovariateDefn.always_display,
-            CovariateDefn.hidden)
-        .filter(
-            or_(CovariateDefn.covariate_association == CovariateAssociation.STUDY.value,
-                CovariateDefn.show_in_point_table == 1))
-        .order_by(
-            CovariateDefn.display_order,
-            func.lower(CovariateDefn.name))
-    )
-
-    unique_values_per_covariate = collections.defaultdict(set)
-    for index, study in enumerate(query_to_filter):
-        for covariate in study.covariates:
-            if not isinstance(covariate.value, str) and (
-                    covariate.value is None or numpy.isnan(covariate.value)):
-                continue
-            if isinstance(covariate.value, str):
-                if covariate.value == 'null':
-                    continue
-                try:
-                    # see if it could be numeric, if so just put true
-                    float(covariate.value)
-                    unique_values_per_covariate[
-                        covariate.covariate_defn.name].add(True)
-                except ValueError:
-                    unique_values_per_covariate[
-                        covariate.covariate_defn.name].add(
-                            covariate.value.lower())
-            else:
-                # it's a numeric, just note it's defined
-                unique_values_per_covariate[
-                    covariate.covariate_defn.name].add(True)
-
-    # hard-code STUDY_ID
-    covariate_display_order = [STUDY_ID]
-    for name, always_display, hidden in pre_covariate_display_order:
-        if hidden:
-            continue
-        if always_display or unique_values_per_covariate[name]:
-            covariate_display_order.append(name)
-
-    display_table = []
-    for study in query_to_filter:
-        covariate_dict = to_dict(study.covariates)
-        # hard coding STUDY_ID which is study.name
-        covariate_dict[STUDY_ID] = study.name
-        display_table.append([
-            covariate_dict[name]
-            for name in covariate_display_order])
-    return covariate_display_order, display_table
+    return sample_covariate_display_order, sample_table, study_covariate_display_order, study_table
 
 
 @app.route('/about')
@@ -297,8 +282,6 @@ def initialize_covariates(clear_cache):
     for index, row in enumerate(searchable_unique_covariates):
         if index % 100000 == 0:
             LOGGER.info(f'on searchable descrete covariates index {index}')
-        if isinstance(COVARIATE_STATE['searchable_covariates'][row.name], list):
-            print(f'{row.name} is a list???')
         COVARIATE_STATE['searchable_covariates'][row.name].add(row.value)
 
     for key, value in COVARIATE_STATE['searchable_covariates'].items():
@@ -334,6 +317,20 @@ def initialize_covariates(clear_cache):
     # add the study ids manually
     COVARIATE_STATE['searchable_covariates'][STUDY_ID] = [x[0] for x in session.query(distinct(Study.name)).all()]
 
+    # get a list of all the covariates
+    covariate_defns = session.query(
+        CovariateDefn.name,
+        CovariateDefn.always_display,
+        CovariateDefn.hidden,
+        CovariateDefn.covariate_association,
+        CovariateDefn.show_in_point_table,
+        CovariateDefn.display_order
+    ).order_by(
+        CovariateDefn.display_order,
+        func.lower(CovariateDefn.name)
+    ).all()
+    COVARIATE_STATE['covariate_defns'] = covariate_defns
+
     with open(pkcl_filepath, 'wb') as file:
         pickle.dump(COVARIATE_STATE, file)
 
@@ -341,6 +338,7 @@ def initialize_covariates(clear_cache):
 
     for key in COVARIATE_STATE['searchable_covariates']:
         COVARIATE_STATE['searchable_covariates'][key] = sorted(COVARIATE_STATE['searchable_covariates'][key])
+
     LOGGER.info('all done with unique values')
 
 
@@ -349,20 +347,26 @@ def home():
     global COVARIATE_STATE
     return render_template(
         'query_builder.html',
-        status_message=f'Number of samples in db: {n_samples}',
         possible_operations=list(OPERATION_MAP),
         country_set=sorted(COVARIATE_STATE['country_set']),
         continent_set=sorted(COVARIATE_STATE['continent_set']),
         unique_covariate_values=COVARIATE_STATE['searchable_covariates'],
-        )
+    )
 
 
 @app.route('/api/n_samples', methods=['POST'])
 def n_samples():
+    start_time = time.time()
     session = SessionLocal()
     form_as_dict = form_to_dict(request.form)
-    filters, filter_text = build_filter(session, form_as_dict)
 
+    query_id = generate_hash_key(form_as_dict)
+    redis_key = f"sample_count:{query_id}"
+    cached_count = redis_client.get(redis_key)
+    if cached_count is not None:
+        return cached_count
+
+    filters, filter_text = build_filter(session, form_as_dict)
     sample_query = (
         session.query(Sample.id_key, Study.id_key)
         .join(Sample.study)
@@ -374,29 +378,47 @@ def n_samples():
     sample_count = sample_query.count()
     study_query = (
         session.query(Study.id_key)
-        .join(Sample.study)
+        .join(Study.samples)
         .join(Sample.point)
         .filter(
             *filters
         ).distinct()
     )
     study_count = study_query.count()
-    session.close()
 
-    return jsonify({
+    redis_client.set(query_id, json.dumps(form_as_dict))
+
+    session.close()
+    LOGGER.info(f'n_samples query: {filter_text}')
+
+    cached_count = {
         'sample_count': sample_count,
         'study_count': study_count,
-        'filter_text': filter_text
-    })
+        'filter_text': filter_text + f'in {time.time()-start_time:.2f}s'
+    }
+    redis_client.set(redis_key, json.dumps(cached_count), ex=3600)
+    return jsonify(cached_count)
 
 
 def form_to_dict(form):
     centerPointBuffer = form.get('centerPointBuffer')
 
+    # Get the list of covariates and their counts
+    covariates = form.getlist('covariate')
+    value_counts = [int(count) for count in form.getlist('valueCounts')]
+    values_flat = form.getlist('values')
+
+    # Group values per covariate
+    values_grouped = []
+    idx = 0
+    for count in value_counts:
+        group = values_flat[idx:idx+count]
+        values_grouped.append(group)
+        idx += count
+
     return {
-        'covariate': form.getlist('covariate'),
-        'operation': form.getlist('operation'),
-        'value': form.getlist('value'),
+        'covariate': covariates,
+        'values': values_grouped,
         'centerPoint': form.get('centerPoint'),
         'centerPointBuffer': None if not centerPointBuffer else centerPointBuffer,
         'upperLeft': form.get('upperLeft'),
@@ -411,42 +433,41 @@ def form_to_dict(form):
 
 
 def build_filter(session, form):
+    LOGGER.debug(form)
     fields = form['covariate']
-    operations = form['operation']
-    values = form['value']
+    values_list = form['values']
     filters = []
     filter_text = ''
 
     # Fetch all covariate_defns at once
     covariate_defns = session.query(
-        CovariateDefn.name, CovariateDefn.covariate_association
+        CovariateDefn.name, CovariateDefn.id_key, CovariateDefn.covariate_association
     ).filter(
         CovariateDefn.name.in_(fields)
     ).all()
-    covariate_type_map = dict(covariate_defns)
+    covariate_defn_map = {name: (id_key, association) for name, id_key, association in covariate_defns}
 
-    for field, operation, value in zip(fields, operations, values):
-        if not field or not value:
+    for field, values in zip(fields, values_list):
+        if not field or not values:
             continue
-
+        covariate_defn_id, covariate_association = covariate_defn_map.get(field, (None, None))
+        filter_text += f'{field}({covariate_association}) = ' + '|'.join(values) + '\n'
         if field == STUDY_ID:
-            filters.append(Study.name == value)
+            filters.append(Study.name.in_(values))
             continue
 
-        covariate_type = covariate_type_map.get(field)
-        if covariate_type is None:
-            continue  # Handle missing fields
-
-        filter_text += f'{field}({covariate_type}) {operation} {value}\n'
-        covariate_filter = and_(
-            CovariateDefn.name == field,
-            OPERATION_MAP[operation](CovariateValue.value, value)
+        covariate_subquery = session.query(CovariateValue)
+        covariate_subquery = covariate_subquery.filter(
+            CovariateValue.covariate_defn_id == covariate_defn_id,
+            CovariateValue.value.in_(values)
         )
 
-        if covariate_type == CovariateAssociation.STUDY.value:
-            filters.append(Study.covariates.any(covariate_filter))
-        elif covariate_type == CovariateAssociation.SAMPLE.value:
-            filters.append(Sample.covariates.any(covariate_filter))
+        if covariate_association == CovariateAssociation.STUDY.value:
+            study_ids_subq = covariate_subquery.with_entities(CovariateValue.study_id).subquery()
+            filters.append(Study.id_key.in_(study_ids_subq))
+        elif covariate_association == CovariateAssociation.SAMPLE.value:
+            sample_ids_subq = covariate_subquery.with_entities(CovariateValue.sample_id).subquery()
+            filters.append(Sample.id_key.in_(sample_ids_subq))
 
     ul_lat = None
     center_point = form['centerPoint']
@@ -493,7 +514,7 @@ def build_filter(session, form):
             .join(Point.geolocations)
             .filter(Geolocation.geolocation_name == continent_select)
         ).subquery()
-        filters.append(Point.id_key.in_(geolocation_subquery))
+        filters.append(Point.id_key.in_(select(geolocation_subquery)))
         filter_text += f'continent is {continent_select}\n'
 
     if ul_lat is not None:
@@ -523,65 +544,48 @@ def build_filter(session, form):
     sample_size_min_years = int(form['sampleSizeMinYears'])
     if sample_size_min_years > 0:
         filter_text += f'min sample size min years {sample_size_min_years}\n'
-        unique_years_count_query = (
-            session.query(
-                Sample.study_id,
-                func.count(func.distinct(CovariateValue.value)).label('unique_years')
-            ).join(Sample.covariates)
-             .join(CovariateValue.covariate_defn)
-             .filter(CovariateDefn.name == 'year')
-             .group_by(Sample.study_id))
-        valid_study_ids = [
-            row[0] for row in unique_years_count_query.all()
-            if row[1] >= sample_size_min_years]
-        filters.append(Sample.study_id.in_(valid_study_ids))
+        valid_study_ids_subquery = (
+            session.query(Sample.study_id)
+            .group_by(Sample.study_id)
+            .having(func.count(func.distinct(Sample.year)) >= sample_size_min_years)
+            .subquery()
+        )
+        filters.append(Sample.study_id.in_(select(valid_study_ids_subquery)))
 
     min_observations_per_year = int(form['sampleSizeMinObservationsPerYear'])
     if min_observations_per_year > 0:
         filter_text += f'min observations per year {min_observations_per_year}\n'
-        query = (
+
+        counts_per_study_year = (
             session.query(
-                Sample.study_id,
-                CovariateValue.value,
-                func.count(Sample.study_id).label('count_per_year')
+                Sample.study_id.label('study_id'),
+                Sample.year.label('year'),
+                func.count(Sample.id_key).label('samples_per_year')
             )
-            .join(Sample.covariates)
-            .join(CovariateValue.covariate_defn)
-            .filter(CovariateDefn.name == 'year')
-            .group_by(Sample.study_id, CovariateValue.value)
+            .group_by(Sample.study_id, Sample.year)
+            .subquery()
         )
-        study_obs_per_year = {}
-        for study_id, year, samples_per_year in query:
-            if study_id not in study_obs_per_year or samples_per_year < study_obs_per_year[study_id][1]:
-                study_obs_per_year[study_id] = (year, samples_per_year)
-        valid_study_ids = [
-            study_id for study_id, (year, samples_per_year)
-            in study_obs_per_year.items()
-            if samples_per_year >= int(min_observations_per_year)]
-        filters.append(Sample.study_id.in_(valid_study_ids))
+
+        valid_study_ids_subquery = (
+            session.query(counts_per_study_year.c.study_id)
+            .group_by(counts_per_study_year.c.study_id)
+            .having(
+                func.min(counts_per_study_year.c.samples_per_year) >= min_observations_per_year
+            )
+            .subquery()
+        )
+        filters.append(Sample.study_id.in_(valid_study_ids_subquery))
 
     year_range = form['yearRange']
     if year_range:
         filter_text += 'years in {' + year_range + '}\n'
         year_set = extract_years(year_range)
-        year_subquery = (
-            session.query(CovariateValue.sample_id)
-            .join(CovariateValue.covariate_defn)
-            .filter(
-                and_(CovariateDefn.name == 'year',
-                     CovariateValue.value.in_(year_set))
-            ).subquery())
+        year_subquery_sample_ids = (
+            session.query(Sample.id_key)
+            .filter(Sample.year.in_(year_set)).subquery())
         filters.append(
-            Sample.id_key.in_(session.query(year_subquery.c.sample_id)))
+            Sample.id_key.in_(year_subquery_sample_ids))
     return filters, filter_text
-
-
-def explain_query(session, query):
-    compiled_query = query.statement.compile(session.bind, compile_kwargs={"literal_binds": True})
-    explain_query = f"EXPLAIN QUERY PLAN {compiled_query}"
-    result = session.execute(text(explain_query)).fetchall()
-    for row in result:
-        print(row)
 
 
 @app.route('/api/process_query', methods=['POST'])
@@ -590,67 +594,173 @@ def process_query():
         session = SessionLocal()
         form_as_dict = form_to_dict(request.form)
         filters, filter_text = build_filter(session, form_as_dict)
-        sample_query = (
-            session.query(Sample, Study)
-            .join(Sample.study)
-            .join(Sample.point)
-            .filter(
-                *filters
-            )
-            .options(selectinload(Sample.covariates))
-        )
+        LOGGER.info(f'processing query for: {filter_text}')
 
-        sample_covariate_display_order, sample_table = calculate_sample_display_table(
-            session, sample_query.limit(MAX_SAMPLE_DISPLAY_SIZE))
-
-        study_query = (
-            session.query(Study)
-            .join(Sample.study)
-            .join(Sample.point)
-            .filter(
-                *filters
-            )
-            .options(selectinload(Study.covariates))
-        )
-        unique_studies = {study for study in study_query}
-
-        # determine what covariate ids are in this query
-        study_covariate_display_order, study_table = calculate_study_display_order(
-            session, unique_studies)
-
-        # add the lat/lng points and observation to the sample
-        sample_covariate_display_order = [
-            OBSERVATION, LATITUDE, LONGITUDE] + sample_covariate_display_order
-        for (sample_row, _), display_row in zip(sample_query.limit(MAX_SAMPLE_DISPLAY_SIZE), sample_table):
-            display_row[:] = [
-                sample_row.observation,
-                sample_row.point.latitude,
-                sample_row.point.longitude] + display_row
-
-        unique_points = {sample[0].point for sample in sample_query.limit(MAX_SAMPLE_DISPLAY_SIZE)}
-        points = [
-            {"lat": p.latitude, "lng": p.longitude}
-            for p in unique_points]
-
-        session.close()
         query_id = generate_hash_key(form_as_dict)
         redis_client.set(query_id, json.dumps(form_as_dict))
 
+        redis_key = f"sample_count:{query_id}"
+        LOGGER.debug(f'sample key: {redis_key}')
+        cached_count = redis_client.get(redis_key)
+        n_samples = 0
+        if cached_count is not None:
+            cached_count = json.loads(cached_count)
+            if 'sample_count' in cached_count:
+                n_samples = cached_count['sample_count']
+
+        session.close()
+
         return render_template(
             'results_view.html',
-            study_headers=study_covariate_display_order,
-            study_table=study_table,
-            sample_headers=sample_covariate_display_order,
-            sample_table=sample_table,
-            points=points,
-            compiled_query=f'<pre>Filter as text: {filter_text}</pre>',
-            max_samples=MAX_SAMPLE_DISPLAY_SIZE,
-            expected_samples=sample_query.count(),
+            n_samples=n_samples,
             query_id=query_id,
-            )
+            compiled_query=f'<pre>Filter as text: {filter_text}</pre>',
+        )
     except Exception as e:
         LOGGER.exception(f'error with {e}')
         raise
+
+
+@app.route('/get_data')
+def get_data():
+    query_id = request.args.get('query_id')
+    offset = int(request.args.get('offset', 0))
+    limit = int(request.args.get('limit', 100))
+
+    # Retrieve query parameters from Redis
+    form_as_dict = json.loads(redis_client.get(query_id))
+
+    # Reconstruct the query
+    session = SessionLocal()
+    filters, filter_text = build_filter(session, form_as_dict)
+    LOGGER.info(f'processing query for: {filter_text} offset {offset}')
+    sample_query = (
+        session.query(Sample, Study)
+        .join(Sample.study)
+        .join(Sample.point)
+        .filter(
+            *filters
+        )
+        .options(selectinload(Sample.covariates))
+    )
+
+    # Process data from offset to offset+limit
+    limited_sample_query = sample_query.offset(offset).limit(limit)
+    samples_chunk = limited_sample_query.all()
+    if not samples_chunk:
+        return jsonify({'has_more': False})
+
+    # Initialize data structures
+    sample_data_rows = []
+    study_data_rows = []
+    points = []
+    study_set = set()
+
+    # Retrieve columns sent so far from Redis
+    sent_columns_key = f"{query_id}_sent_columns"
+    sent_columns = redis_client.get(sent_columns_key)
+    if sent_columns:
+        sent_sample_columns, sent_study_columns = json.loads(sent_columns)
+        sent_sample_columns = {name: order for name, order in sent_sample_columns}
+        sent_study_columns = {name: order for name, order in sent_study_columns}
+    else:
+        sent_sample_columns = {}
+        sent_study_columns = {}
+
+    study_set_key = f"{query_id}_study_set"
+    if offset > 0:
+        study_set = set(json.loads(redis_client.get(study_set_key) or "[]"))
+    else:
+        study_set = set()
+
+    fixed_sample_columns = [
+        ('row_number', -4),
+        ('study_id', -3),
+        ('observation', -2),
+        ('latitude', -1),
+        ('longitude', 0),
+    ]
+    for name, order in fixed_sample_columns:
+        if name not in sent_sample_columns:
+            sent_sample_columns[name] = order
+
+    fixed_study_columns = [
+        ('row_number', -1),
+        ('study_id', 1),
+    ]
+    for name, order in fixed_study_columns:
+        if name not in sent_study_columns:
+            sent_study_columns[name] = order
+
+    for sample, study in samples_chunk:
+        # Collect sample covariates
+        sample_covariates = sample.covariates
+        for cov in sample_covariates:
+            if cov is None:
+                continue
+            cov_name = cov.covariate_defn.name
+            if cov_name not in sent_sample_columns:
+                display_order = cov.covariate_defn.display_order
+                sent_sample_columns[cov_name] = display_order
+        # Build sample data row
+        sample_row = {
+            'row_number': offset + len(sample_data_rows) + 1,
+            'observation': sample.observation,
+            'latitude': sample.point.latitude,
+            'longitude': sample.point.longitude,
+            'study_id': sample.study.name
+        }
+        sample_row.update({
+            cov.covariate_defn.name: cov.value
+            for cov in sample_covariates if cov is not None})
+        sample_data_rows.append(sample_row)
+
+        # Collect point data
+        points.append({'lat': sample.point.latitude, 'lng': sample.point.longitude})
+
+        # Collect study data
+        if study.id_key not in study_set:
+            study_set.add(study.id_key)
+            covariates = study.covariates
+            for cov in covariates:
+                cov_name = cov.covariate_defn.name
+                if cov_name not in sent_study_columns:
+                    display_order = cov.covariate_defn.display_order
+                    sent_study_columns[cov_name] = display_order
+            # Build study data row
+            study_row = {
+                'row_number': len(study_data_rows) + 1,
+                'study_id': study.name
+            }
+            study_row.update({cov.covariate_defn.name: cov.value for cov in covariates})
+            study_data_rows.append(study_row)
+
+    # Update the columns sent so far
+    sorted_sample_columns = sorted(sent_sample_columns.items(), key=lambda x: x[1])
+    sorted_study_columns = sorted(sent_study_columns.items(), key=lambda x: x[1])
+
+    # Store back in Redis
+    redis_client.set(sent_columns_key, json.dumps([sorted_sample_columns, sorted_study_columns]))
+    redis_client.set(study_set_key, json.dumps(list(study_set)))
+
+    sample_column_names = [name for name, order in sorted_sample_columns]
+    study_column_names = [name for name, order in sorted_study_columns]
+
+    # Check if there's more data
+    total_samples = sample_query.count()
+    has_more = (offset + limit) < total_samples
+
+    # Return the data
+    response_data = {
+        'sample_columns': sample_column_names,
+        'study_columns': study_column_names,
+        'sample_data_rows': sample_data_rows,
+        'study_data_rows': study_data_rows,
+        'points': points,
+        'has_more': has_more
+    }
+
+    return jsonify(response_data)
 
 
 @app.route('/admin/covariate', methods=['GET', 'POST'])
@@ -665,7 +775,6 @@ def view_covariate():
     return render_template(
         'covariate_view.html',
         covariate_association_states=[str(x).split('.')[1] for x in CovariateAssociation],)
-
 
 @app.route('/api/get_covariates', methods=['GET'])
 def get_covariates():
@@ -706,109 +815,232 @@ def update_covariate():
     return get_covariates()
 
 
-@app.route('/prep_download')
-def prep_download():
-    query_id = request.args.get('query_id', default=None, type=str)
-    task = _prep_download.delay(query_id)
-    return jsonify({'task_id': task.id}), 202
+@app.route('/start_download', methods=['POST'])
+def start_download():
+    query_id = request.form.get('query_id')
+    task = _prep_download.apply_async(args=[query_id])
+    LOGGER.debug(f'starting prep download task on {task}')
+    return jsonify({'task_id': task.id, 'query_id': query_id}), 202
 
 
 @app.route('/check_task/<task_id>')
 def check_task(task_id):
     task = _prep_download.AsyncResult(task_id)
-    LOGGER.debug(f'status for {task_id} is {task.state}')
     if task.state == 'PENDING':
-        return jsonify({'status': 'Task is pending'}), 202
+        return jsonify({'status': 'PENDING'}), 202
     elif task.state == 'FAILURE':
-        return jsonify({'status': 'Task failed', 'error': str(task.info)}), 500
+        return jsonify({'status': 'FAILURE', 'error': str(task.info)}), 500
     elif task.state == 'SUCCESS':
-        return jsonify({'status': 'Task completed', 'result_url': url_for('download_file', task_id=task_id)}), 200
-    elif task.state == 'STARTED':
-        return jsonify({'status': 'Task is started'}), 202
+        current = task.info.get('current', 0)
+        query_id = task.result.get('query_id')
+        result_url = url_for('download_file', query_id=query_id)
+        return jsonify({'status': 'SUCCESS', 'current': current, 'result_url': result_url}), 200
+    elif task.state == 'PROGRESS':
+        current = task.info.get('current', 0)
+        total = task.info.get('total', 1)
+        return jsonify({'status': 'PROGRESS', 'current': current, 'total': total}), 202
+    else:
+        # For 'STARTED' or any other states
+        return jsonify({'status': task.state}), 202
 
 
-@app.route('/download_file/<task_id>')
-def download_file(task_id):
-    # Implement logic to send the file to the client
-    file_path = os.path.join(QUERY_RESULTS_DIR, f'{task_id}.zip')
-    return send_file(file_path, as_attachment=True)
+@app.route('/download/<query_id>')
+def download_file(query_id):
+    zipfile_path = os.path.join(QUERY_RESULTS_DIR, f'{query_id}.zip')
+    if os.path.exists(zipfile_path):
+        return send_file(zipfile_path, as_attachment=True)
+    else:
+        return 'File not found', 404
 
 
 @celery.task
-def _prep_download(task_id):
+def delete_file(zipfile_path):
+    try:
+        if os.path.exists(zipfile_path):
+            os.remove(zipfile_path)
+            LOGGER.info(f"Deleted file: {zipfile_path}")
+        else:
+            LOGGER.warning(f"File not found for deletion: {zipfile_path}")
+    except Exception as e:
+        LOGGER.error(f"Error deleting file {zipfile_path}: {e}")
+
+
+@celery.task(bind=True)
+def _prep_download(self, query_id):
+    temp_files = []
     try:
         session = SessionLocal()
-        LOGGER.info(f'starting prep download with this query id: {task_id}')
-        zipfile_path = os.path.join(QUERY_RESULTS_DIR, f'{task_id}.zip')
-        if os.path.exists(zipfile_path):
-            return f"File {zipfile_path} already existed."
-        query_form_json = redis_client.get(task_id)
+        LOGGER.info(f'starting prep download with this query id: {query_id}')
+        redis_key = f"sample_count:{query_id}"
+        cached_count = redis_client.get(redis_key)
+        if cached_count is not None:
+            total_samples = json.loads(cached_count)['sample_count']
+        else:
+            total_samples = '-'
+
+        zipfile_path = os.path.join(QUERY_RESULTS_DIR, f'{query_id}.zip')
+        query_form_json = redis_client.get(query_id)
         if query_form_json:
             query_form = json.loads(query_form_json)
+        else:
+            LOGGER.error(f'No query form found for the {query_id}.')
+            return 'Error: No query form found.'
+
         filters, filter_text = build_filter(session, query_form)
 
+        # Collect all covariate names for samples
+        sample_covariate_names = list(
+            name for (name,) in session.query(CovariateDefn.name)
+            .join(CovariateValue, CovariateDefn.id_key == CovariateValue.covariate_defn_id)
+            .filter(CovariateValue.sample_id != None)
+            .join(Sample, CovariateValue.sample_id == Sample.id_key)
+            .join(Sample.study)
+            .filter(*filters)
+            .group_by(CovariateDefn.name)
+            .order_by(
+                CovariateDefn.display_order,
+                func.lower(CovariateDefn.name))
+            .distinct()
+        )
+
+        # Collect all covariate names for studies
+        study_covariate_names = list(
+            name for (name,) in session.query(CovariateDefn.name)
+            .join(CovariateValue, CovariateDefn.id_key == CovariateValue.covariate_defn_id)
+            .filter(CovariateValue.study_id != None)
+            .group_by(CovariateDefn.name)
+            .order_by(
+                CovariateDefn.display_order,
+                func.lower(CovariateDefn.name))
+            .distinct()
+        )
+
+        # Create temporary CSV file paths
+        sample_csv_filename = f'sample_data_{query_id}.csv'
+        sample_csv_path = os.path.join(QUERY_RESULTS_DIR, sample_csv_filename)
+        temp_files.append(sample_csv_path)
+
+        study_csv_filename = f'study_data_{query_id}.csv'
+        study_csv_path = os.path.join(QUERY_RESULTS_DIR, study_csv_filename)
+        temp_files.append(study_csv_path)
+
+        study_ids = set()
+
+        sample_columns = ['study_id', 'observation', 'latitude', 'longitude', ]
+        sample_columns.extend(sample_covariate_names)
+
+        # Prepare the sample query
+        batch_size = 1000  # Adjust batch size based on available memory
         sample_query = (
             session.query(Sample, Study)
             .join(Sample.study)
             .join(Sample.point)
-            .filter(
-                *filters
-            )
+            .filter(*filters)
             .options(selectinload(Sample.covariates))
-        ).yield_per(1000).limit(50000)
+        ).yield_per(batch_size)
 
-        study_query = (
-            session.query(Study)
-            .join(Sample.study)
-            .join(Sample.point)
-            .filter(
-                *filters
+        batch_rows = []
+
+        first_batch = True
+        for index, sample in enumerate(sample_query):
+            if index % batch_size == 0:
+                self.update_state(
+                    state='PROGRESS',
+                    meta={
+                        'current': index,
+                        'total': total_samples,
+                        'query_id': query_id
+                    }
+                )
+
+            sample_row, study = sample
+            study_ids.add(study.id_key)
+            row_data = {
+                'observation': sample_row.observation,
+                'latitude': sample_row.point.latitude,
+                'longitude': sample_row.point.longitude,
+                'study_id': study.name,
+            }
+            for cov in sample_row.covariates:
+                if cov is None:
+                    continue
+                cov_name = cov.covariate_defn.name
+                row_data[cov_name] = cov.value
+
+            batch_rows.append(row_data)
+
+            # Write the batch when the batch size is reached
+            if len(batch_rows) >= batch_size:
+                df = pd.DataFrame(batch_rows, columns=sample_columns)
+                df.fillna("None", inplace=True)
+                df.to_csv(
+                    sample_csv_path,
+                    mode='a',  # Append mode
+                    header=first_batch,  # Write header only for the first batch
+                    index=False
+                )
+                first_batch = False  # Only write header for the first batch
+                batch_rows = []  # Clear the batch
+
+        # Write any remaining rows
+        if batch_rows:
+            df = pd.DataFrame(batch_rows, columns=sample_columns)
+            df.fillna("None", inplace=True)
+            df.to_csv(
+                sample_csv_path,
+                mode='a',
+                header=first_batch,
+                index=False
             )
-            .options(selectinload(Study.covariates))
+
+        # Write study data to CSV file on disk
+        study_columns = ['study_id']
+        study_columns.extend(study_covariate_names)
+
+        batch_rows = []
+        for study in session.query(Study).filter(Study.id_key.in_(study_ids)).options(selectinload(Study.covariates)):
+            row_data = {
+                'study_id': study.name,
+            }
+            for cov in study.covariates:
+                cov_name = cov.covariate_defn.name
+                row_data[cov_name] = cov.value
+            row = [row_data.get(col, '') for col in study_columns]
+            batch_rows.append(row)
+        df = pd.DataFrame(batch_rows, columns=study_columns)
+        df.fillna("None", inplace=True)
+        df.to_csv(
+            study_csv_path,
+            mode='a',
+            header=True,
+            index=False
         )
-        unique_studies = {study for study in study_query}
-        study_covariate_display_order, study_table = calculate_study_display_order(
-            session, unique_studies)
-        sample_covariate_display_order, sample_table = calculate_sample_display_table(
-            session, sample_query)
-        sample_covariate_display_order = [
-            OBSERVATION, LATITUDE, LONGITUDE] + sample_covariate_display_order
 
+        # Create ZIP file and add the CSV files
         with zipfile.ZipFile(zipfile_path, mode='w', compression=zipfile.ZIP_DEFLATED) as zf:
-            sample_table_io = StringIO()
-
-            writer = csv.writer(sample_table_io)
-            writer.writerow(sample_covariate_display_order)
-
-            for sample_row, row in zip(sample_query, sample_table):
-                row = [
-                    str(sample_row[0].observation),
-                    str(sample_row[0].point.latitude),
-                    str(sample_row[0].point.longitude)] + row
-                clean_row = [x if x is not None else 'None' for x in row]
-                writer.writerow(clean_row)
-
-            sample_table_io.seek(0)
-            zf.writestr(f'site_data_{task_id}.csv', sample_table_io.getvalue())
-
-            study_table_io = StringIO()
-            study_table_io.write(','.join(study_covariate_display_order))
-            study_table_io.write('\n')
-            for row in study_table:
-                clean_row = [_wrap_in_quotes_if_needed(x) if x is not None else 'None' for x in row]
-                study_table_io.write(','.join(clean_row))
-                study_table_io.write('\n')
-
-            study_table_io.seek(0)  # Move to the start of the StringIO object
-            # Add the CSV content to the ZIP file
-            zf.writestr(f'study_data_{task_id}.csv', study_table_io.getvalue())
+            zf.write(sample_csv_path, arcname=sample_csv_filename)
+            zf.write(study_csv_path, arcname=study_csv_filename)
 
         LOGGER.debug(f'{zipfile_path} is created')
-        return f"File {zipfile_path} has been created."
+
+        # Schedule deletion of the ZIP file after an hour
+        delete_file.apply_async(args=[zipfile_path], countdown=3600)
+
+        return {'query_id': query_id}
+
     except Exception:
-        LOGGER.exception('error on _prep_download')
+        LOGGER.exception('Error in _prep_download')
+        raise  # Reraise the exception to be handled elsewhere
+
     finally:
         session.close()
+        # Delete temporary CSV files
+        for temp_file in temp_files:
+            if os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                except Exception:
+                    LOGGER.exception(f'Error deleting temporary file: {temp_file}')
 
 
 def _wrap_in_quotes_if_needed(value):
@@ -883,7 +1115,6 @@ def data_extractor():
         csv_output = StringIO()
         point_table.to_csv(csv_output, index=False)
         csv_output.seek(0)
-        print(csv_output.getvalue())
         return send_file(
             BytesIO(('\ufeff' + csv_output.getvalue()).encode('utf-8')),
             mimetype='text/csv',
@@ -896,11 +1127,11 @@ def data_extractor():
         'ECMWF/ERA5/MONTHLY:mean_2m_air_temperature',
         'ECMWF/ERA5/MONTHLY:minimum_2m_air_temperature',
         'ECMWF/ERA5/MONTHLY:total_precipitation',
-        'MODIS/006/MCD12Q2:EVI_Amplitude_1',
-        'MODIS/006/MCD12Q2:EVI_Area_1',
-        'MODIS/006/MCD12Q2:Dormancy_1',
-        'MODIS/006/MCD12Q2:Greenup_1',
-        'MODIS/006/MCD12Q2:Peak_1',
+        # 'MODIS/006/MCD12Q2:EVI_Amplitude_1',
+        # 'MODIS/006/MCD12Q2:EVI_Area_1',
+        # 'MODIS/006/MCD12Q2:Dormancy_1',
+        # 'MODIS/006/MCD12Q2:Greenup_1',
+        # 'MODIS/006/MCD12Q2:Peak_1',
         'CSP/ERGo/1_0/Global/SRTM_topoDiversity:constant'
     ]
     aggregation_functions = [
@@ -972,4 +1203,4 @@ if os.getenv('INIT_COVARIATES') == 'True':
     initialize_covariates(False)
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=False)

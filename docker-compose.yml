@@ -4,7 +4,10 @@ services:
     hostname: backend_api
     build: docker_contexts/backend
     volumes:
+      # Application code and local install of database
       - ./docker_contexts/backend:/usr/local/pcld_api
+      # Volume that sqlite database is copied to and that .pkl file is sampled from
+      - pcld_data:/usr/local/data
     logging:
       driver: local
       options:
@@ -19,9 +22,8 @@ services:
           memory: 1G
           cpus: '2'
     tty: true
-    entrypoint: [
-      "waitress-serve", "--host=0.0.0.0", "--port=5000", "app:app"
-    ]
+    entrypoint: >
+      sh -c "rsync -av /usr/local/pcld_api/live_database/ /usr/local/data/live_database/ && waitress-serve --host=0.0.0.0 --port=5000 app:app"
     expose:
       - "5000"
     depends_on:
@@ -40,13 +42,19 @@ services:
       - "5000:5000"
     profiles:
       - development
+    depends_on:
+      - redis
+      - celery_worker
 
   celery_worker:
     container_name: celery_worker
     hostname: celery_worker
     build: docker_contexts/backend
     volumes:
+      # Bind mount for application code (development)
       - ./docker_contexts/backend:/usr/local/pcld_api
+      # Named volume for SQLite database (performance)
+      - pcld_data:/usr/local/data
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
@@ -60,7 +68,6 @@ services:
           memory: 1G
     command: celery -A app.celery worker --loglevel=info --concurrency=4 --max-tasks-per-child=10
     depends_on:
-      - backend
       - redis
 
   redis:
@@ -79,3 +86,6 @@ services:
       - "443:443"
     depends_on:
       - backend
+
+volumes:
+  pcld_data:

@@ -6,6 +6,9 @@
 <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.1.3/css/bootstrap.min.css" rel="stylesheet">
 <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.5.0/font/bootstrap-icons.min.css" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.1.3/js/bootstrap.bundle.min.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 
 <style>
 #queryForm {
@@ -124,6 +127,16 @@
     text-align: left;
     max-width: 200px;
 }
+
+.select2-container .select2-dropdown {
+    max-height: 200px !important; /* Adjust the height as needed */
+    overflow-y: auto;
+}
+
+.select2-container {
+    width: 100% !important;
+}
+
 </style>
 <title>Pest Control "Living Database"</title>
 </head>
@@ -155,10 +168,9 @@
         Number of Studies: <span id="studyCount">Loading...</span><br/>
         <pre id="filterText"></pre>
         <ul>
-            <li><a href="https://storage.googleapis.com/ecoshard-root/pestcontrol/pcld_dump.zip">FULL - database dump (300k+ CSV rows)</a></li>
             <li><a href="{{ url_for('data_extractor') }}">EXTRACT - Earth observation data</a></li>
             <li><a href="https://ecoshard-202922.projects.earthengine.app/view/pcld-remote-sensed-data-catalog" target="_blank" rel="noopener noreferrer">VISUALIZE - Remote-sensed datasets that will be added to the platform.</a></li>
-            <li><a href="https://storage.googleapis.com/ecoshard-root/pestcontrol/PestControlDataTemplates_2024_10_09.zip">ADD DATA - Templates for adding data to the platform</a><br/>Please submit completed templates to <pre>rich@springinnovate.org</pre></li>
+            <li><a href="https://storage.googleapis.com/ecoshard-root/pestcontrol/PestControlDataTemplates_2024_11_14.zip">ADD DATA - Templates for adding data to the platform</a><br/>Please submit completed templates to <pre>rich@springinnovate.org</pre></li>
         </ul>
     </div>
     <form id="queryForm" action="/api/process_query" method="post">
@@ -168,29 +180,22 @@
                 The database is currently under development and is being used in workshops and demos led by our team. A full release, including tutorials and user guidance, is planned for December 2024. If you'd like to be notified about the release, please email rich@springinnovate.org, and we'll keep you updated.
             </div>
             <div class="querySection">
-                <div class="section-title" onclick="toggleVisibility('columnQuery')">Query by variables
+                <div class="section-title" onclick="toggleVisibility('columnQuery')">Filter by variables
                     <i class="bi bi-info-circle" data-bs-toggle="tooltip" data-bs-placement="right" title="In addition to these basic variables shared across all studies in the database, we allow contributor-defined variables, or covariates. You can see the current list of all variables and their descriptions in the link below. For additional notes on contributor-defined covariates of a given study, see study metadata."></i>
                 </div>
                 <div class="collapsible-content" id="columnQuery">
                 <p><a href="{{ url_for('view_covariate') }}" class="btn btn-link" target="_blank">Full descriptions of variables included in database</a></p>
                 <div id="queryRows">
                     <div class="queryRow">
-                        <label for="fieldSelect">Choose a covariate variable:</label>
-                        <select name="covariate" id="covariateSelect" onchange="updateValueOptions(this)">
+                        <label for="covariateSelect">Choose a covariate variable:</label>
+                        <select name="covariate" class="covariateSelect" onchange="updateValueOptions(this)">
                             <option value="" selected>Select covariate</option>
                             {% for covariate in unique_covariate_values %}
                                 <option value="{{ covariate }}">{{ covariate }}</option>
                             {% endfor %}
                         </select>
-                        <select name="operation">
-                            {% for op in possible_operations %}
-                                <option value="{{ op }}">{{ op }}</option>
-                            {% endfor %}
-                        </select>
                         <div class="valueSelectContainer">
-                            <select name="value" class="valueSelect">
-                                <option value="" selected>Select value</option>
-                            </select>
+                            <!-- The value select element will be inserted here -->
                         </div>
                         <button type="button" class="btn btn-secondary" onclick="removeRow(this)">Remove</button>
                     </div>
@@ -199,7 +204,7 @@
             </div>
             </div>
             <div class="querySection">
-                <div class="section-title" onclick="toggleVisibility('spaceQuery')">Query by space
+                <div class="section-title" onclick="toggleVisibility('spaceQuery')">Filter by space
                     <i class="bi bi-info-circle" data-bs-toggle="tooltip" data-bs-placement="right" title="Filter the dataset geospatially, by a central point (lat, long), corner coordinates (lat, long of one corner of a bounding box; lat, long of another corner of a bounding box), or by country or continent."></i>
                 </div>
                 <div class="collapsible-content" id="spaceQuery">
@@ -249,7 +254,7 @@
                 </div>
             </div>
             <div class="querySection">
-                <div class="section-title" onclick="toggleVisibility('timeQuery')">Query by year
+                <div class="section-title" onclick="toggleVisibility('timeQuery')">Filter by year
                     <i class="bi bi-info-circle" data-bs-toggle="tooltip" data-bs-placement="right" title="Filter the dataset by years during which samples were collected, either as any one year when data were sampled or a range of years."></i>
 
                 </div>
@@ -260,7 +265,7 @@
                 </div>
             </div>
             <div class="querySection">
-                <div class="section-title" onclick="toggleVisibility('sampleSizeQuery')">Query by minimum sample size
+                <div class="section-title" onclick="toggleVisibility('sampleSizeQuery')">Filter by minimum sample size
                     <i class="bi bi-info-circle" data-bs-toggle="tooltip" data-bs-placement="right" title="Filter the dataset by setting a minimum sample size of the studies you want included; either by the number of sites (unique locations) in a study, the number of years sampled, or by the total number of observations in the study."></i>
                 </div>
                     <div class="collapsible-content" id="sampleSizeQuery">
@@ -284,7 +289,6 @@
         </div>
     </form>
 </div>
-<div id="loadingOverlay">Processing, sometimes this takes a couple of minutes...</div>
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
@@ -293,10 +297,6 @@ document.addEventListener('DOMContentLoaded', function () {
     })
 });
 
-function showLoadingOverlay() {
-    const loadingOverlay = document.getElementById('loadingOverlay');
-    loadingOverlay.style.display = 'block';
-}
 function addRow() {
     const queryRows = document.getElementById("queryRows");
     const newRow = queryRows.firstElementChild.cloneNode(true);
@@ -409,62 +409,72 @@ const fieldValues = {
 
 };
 
+
 function updateValueOptions(fieldSelect) {
     const queryRow = fieldSelect.closest('.queryRow');
     const valueSelectContainer = queryRow.querySelector('.valueSelectContainer');
     const selectedField = fieldSelect.value;
-
-    // Clear previous options
     valueSelectContainer.innerHTML = '';
+
+    const existingValueCountInput = queryRow.querySelector('input[name="valueCounts"]');
+    if (existingValueCountInput) {
+        existingValueCountInput.remove();
+    }
 
     // Populate new options
     if (selectedField in fieldValues) {
         const values = fieldValues[selectedField];
+        const valueSelect = document.createElement('select');
+        valueSelect.name = 'values';
+        valueSelect.classList.add('valueSelect');
+        valueSelect.multiple = true;
 
-        if (Array.isArray(values)) {
-            // Create a dropdown
-            const valueSelect = document.createElement('select');
-            valueSelect.name = 'value';
-            valueSelect.classList.add('valueSelect');
-            valueSelect.innerHTML = '<option value="" selected>Select value</option>';
+        // Populate options
+        values.forEach(value => {
+            const option = document.createElement('option');
+            option.value = value;
+            option.text = value;
+            valueSelect.appendChild(option);
+        });
 
-            values.forEach(value => {
-                const option = document.createElement('option');
-                option.value = value;
-                option.text = value;
-                valueSelect.appendChild(option);
-            });
-            valueSelectContainer.appendChild(valueSelect);
-        } else if (values == 'INTEGER') {
-            // Create an integer input box
-            const valueInput = document.createElement('input');
-            valueInput.type = 'number';
-            valueInput.name = 'value';
-            valueInput.classList.add('valueInput');
-            valueInput.step = '1';
-            valueInput.value = 0;
-            valueSelectContainer.appendChild(valueInput);
-        } else if (values == 'FLOAT') {
-            // Create a float input box with any step size
-            const valueInput = document.createElement('input');
-            valueInput.type = 'number';
-            valueInput.name = 'value';
-            valueInput.classList.add('valueInput');
-            valueInput.step = 'any';
-            valueInput.value = 0.0;
-            valueSelectContainer.appendChild(valueInput);
-        } else if (values == 'STRING') {
-            // Create a text input box for string values
-            const valueInput = document.createElement('input');
-            valueInput.type = 'text';
-            valueInput.name = 'value';
-            valueInput.classList.add('valueInput');
-            valueInput.value = 'enter a value';
-            valueSelectContainer.appendChild(valueInput);
-        }
-        valueSelectContainer.addEventListener('change', function() {
+        valueSelectContainer.appendChild(valueSelect);
+
+        // Initialize Select2
+        $(valueSelect).select2({
+            placeholder: 'Select values',
+            allowClear: true,
+            width: '100%',
+        });
+
+        // Attach change event listener
+        $(valueSelect).on('change', function() {
+            updateValueCount(queryRow);
             fetchSampleCounts();
         });
+        const valueCountInput = document.createElement('input');
+        valueCountInput.type = 'hidden';
+        valueCountInput.name = 'valueCounts';
+        valueCountInput.value = 0;  // Will be updated
+        queryRow.appendChild(valueCountInput);
+
+        // Update the value count initially
+        updateValueCount(queryRow);
+    }
+    fetchSampleCounts();
+}
+
+function updateValueCount(queryRow, count = null) {
+    const valueSelect = queryRow.querySelector('.valueSelect');
+    const valueInput = queryRow.querySelector('.valueInput');
+    const valueCountInput = queryRow.querySelector('input[name="valueCounts"]');
+
+    if (valueSelect) {
+        // For multi-selects
+        const selectedValues = $(valueSelect).val();
+        valueCountInput.value = selectedValues ? selectedValues.length : 0;
+    } else if (valueInput) {
+        // For single inputs
+        valueCountInput.value = count !== null ? count : (valueInput.value ? 1 : 0);
     }
 }
 
@@ -499,9 +509,6 @@ function adjustSampleCountPosition() {
 document.addEventListener('DOMContentLoaded', function() {
     // Get the form and all its input elements
     var form = document.getElementById('queryForm');
-    form.addEventListener('submit', function() {
-        showLoadingOverlay();
-    });
 
     var inputs = form.querySelectorAll('input, select');
 
@@ -522,6 +529,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
 });
 
+$(document).ready(function() {
+    $('.valueSelect').select2({
+        placeholder: 'Select values',
+        allowClear: true,
+        width: '100%',
+    });
+});
 
 </script>
 </body>

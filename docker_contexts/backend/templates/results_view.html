@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css">
     <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css">
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <style>
         #map {
             height: 600px;
@@ -70,210 +70,286 @@
     </div>
   </div>
 </nav>
-    {% if study_table|length > 0 %}
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     <div class="container mt-5">
-        <h1 class="mt-5">Results showing only the first {{ max_samples }}  of {{ expected_samples }} samples</h1>
+        <h2 id="mapHeader">LOADING RESULTS....</h2>
         <button class="btn btn-primary mb-3" id="fullSetDownload">Download full set</button><br/>
-        <a href="https://ecoshard-202922.projects.earthengine.app/view/pcld-remote-sensed-data-catalog" target="_blank" rel="noopener noreferrer">Explore remote-sensed datasets that will be added to the platform</a>
-    </div>
-
-    <div class="container mt-5">
-        <h2>Sample Locations</h2>
         <div id="map"></div>
     </div>
+
+    <!-- Include necessary scripts for Leaflet and jQuery -->
     <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
-    <script>
-        document.addEventListener('DOMContentLoaded', (event) => {
-            var map = L.map('map')
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-            }).addTo(map);
 
-            function copyCoordsToClipboard(text) {
-                navigator.clipboard.writeText(text).then(function() {
-                    const copyNotification = $('#copy-notification');
-                    copyNotification.text('coordinates ('+text+') copied to clipboard').fadeIn(200).delay(1000).fadeOut(200);
-                });
-            }
-
-            // Add click event listener to the map
-            map.on('click', function(e) {
-                var latlng = e.latlng;
-                var coordinates = latlng.lat + ', ' + latlng.lng;
-                copyCoordsToClipboard(coordinates);
-            });
-
-            var points = {{ points | tojson }};
-            var latLngs = [];
-            points.forEach(function(point) {
-                var latLng = [point.lat, point.lng];
-                latLngs.push(latLng);
-                L.marker(latLng).addTo(map)
-                    .bindPopup('Latitude: ' + point.lat + '<br>Longitude: ' + point.lng);
-            });
-            if (latLngs.length > 0) {
-                var bounds = L.latLngBounds(latLngs);
-                map.fitBounds(bounds);
-            } else {
-                // Default view centered on the USA if no points are available
-                map.setView([37.7749, -122.4194], 5);
-            }
-        });
-    </script>
     <div class="container mt-5">
-        <h2>Relevant studies ({{ study_table | length }})</h2>
-        <table class="table table-bordered">
+        <h2>Relevant Studies</h2>
+        <table id="studyTable" class="table table-bordered">
             <thead>
                 <tr>
-                    <th>Row</th>
-                    {% for study_header in study_headers %}<th>{{ study_header }}</th>{% endfor %}
+                    <!-- Headers will be added dynamically -->
                 </tr>
             </thead>
             <tbody>
-                {% for study_vals in study_table %}
-                <tr>
-                    <td>{{ loop.index }}</td>
-                    {% for i in range(study_vals|length) %}
-                        <td data-col-name="{{ study_headers[i] }}">{{ study_vals[i] }}</td>
-                    {% endfor %}
-                </tr>
-                {% endfor %}
+                <!-- Data rows will be added dynamically -->
             </tbody>
         </table>
     </div>
+
     <div class="container mt-5">
-        <h2>Samples subset</h2>
-        <table class="table table-bordered">
+        <h2 id="sampleTableHeader">Sample Table (0 rows)</h2>
+        <table id="sampleTable" class="table table-bordered">
             <thead>
                 <tr>
-                    <th>Row</th>
-                    {% for sample_header in sample_headers %}<th>{{ sample_header }}</th>{% endfor %}
+                    <!-- Headers will be added dynamically -->
                 </tr>
             </thead>
             <tbody>
-                {% for sample_vals in sample_table %}
-                <tr>
-                    <td>{{ loop.index }}</td>
-                    {% for i in range(sample_vals|length) %}
-                        <td data-col-name="{{ sample_headers[i] }}">{{ sample_vals[i] }}</td>
-                    {% endfor %}
-                </tr>
-                {% endfor %}
+                <!-- Data rows will be added dynamically -->
             </tbody>
         </table>
     </div>
-    <div id="tableTooltip" class="tableTooltip"></div>
-    <div id="copy-notification" class="copy-notification">
-        Cell copied to clipboard
-    </div>
-    {% else %}
+
     <div class="container mt-5">
-        <h2>No data matched the filter</h2>
-    </div>
-    {% endif %}
-    <div class="container mt-5">
-        <h3>Compiled query for debugging</h3>
+        <h3>Compiled Query for Debugging</h3>
         <p>{{ compiled_query | safe }}</p>
     </div>
+
     <script type="text/javascript">
-        $(document).ready(function() {
-            const tableTooltip = $('#tableTooltip');
-            const copyNotification = $('#copy-notification');
-
-            $('tbody tr').hover(function() {
-                $(this).css('background-color', '#f2f2f2'); // Row highlight color
-            }, function() {
-                $(this).css('background-color', ''); // Reset row highlight
-            });
-
-            $('tbody td').hover(function(event) {
-                event.stopPropagation(); // Prevent row highlight from overriding cell highlight
-                $(this).css('background-color', '#ffa'); // Cell highlight color
-
-                // Show tableTooltip
-                const colName = $(this).data('col-name');
-                tableTooltip.text(colName).show();
-            }, function() {
-                $(this).css('background-color', ''); // Reset cell highlight
-
-                // Hide tableTooltip
-                tableTooltip.hide();
-            }).mousemove(function(event) {
-                // Move tableTooltip with mouse
-                tableTooltip.css({
-                    left: event.pageX + 10 + 'px',
-                    top: event.pageY + 10 + 'px'
-                });
-            }).click(function() {
-                const cellText = $(this).text();
-                navigator.clipboard.writeText(cellText).then(function() {
-                    // Flash cell background color
-                    const cell = $(this);
-                    cell.css('background-color', '#aaf'); // Flash color
-                    setTimeout(function() {
-                        cell.css('background-color', ''); // Reset cell color
-                    }, 200);
-
-                    // Show copy notification
-                    copyNotification.text('copied "'+cellText+'" to clipboard').fadeIn(200).delay(1000).fadeOut(200);
-                }).catch(function(err) {
-                    console.error('Could not copy text: ', err);
-                });
-            });
-        });
-
-        $(document).ready(function() {
-            var taskId = null;
-            var checkInterval = null;
-
-            $('#fullSetDownload').click(function() {
-                if ($(this).text() === 'Download full set') {
-                    // Start the task
-                    $(this).text('Processing, this can take a few minutes for very large queries...');
-                    $.ajax({
-                        url: '/prep_download',
-                        type: 'GET',
-                        data: {
-                            query_id: "{{ query_id }}",
-                        },
-                        success: function(data) {
-                            taskId = data.task_id;
-                            checkInterval = setInterval(checkTaskStatus, 500);
-                        },
-                        error: function() {
-                            alert('Failed to start task');
-                        }
-                    });
-                } else if ($(this).text() === 'Download File') {
-                    window.location.href = `/download_file/{{ query_id }}`;
-                }
-            });
-
-            function checkTaskStatus() {
-                $.ajax({
-                    url: `/check_task/${taskId}`,
-                    type: 'GET',
-                    success: function(data) {
-                        if (data.status === 'Task completed') {
-                            $('#fullSetDownload').text('Download File');
-                            clearInterval(checkInterval);
-                        } else if (data.status === 'Task is pending') {
-                            // Optionally handle updates in UI for pending state
-                        } else if (data.status === 'Task failed') {
-                            $('#fullSetDownload').text('Error on server side');
-                            clearInterval(checkInterval);
-                        }
-                    },
-                    error: function() {
-                        alert('Error checking task status');
-                        clearInterval(checkInterval);
-                    }
-                });
+$(document).ready(function() {
+    $('#fullSetDownload').on('click', function() {
+        // Start the download preparation task
+        $.ajax({
+            url: '/start_download',  // Endpoint to start the download task
+            type: 'POST',
+            data: { query_id: '{{ query_id }}' },
+            success: function(response) {
+                var taskId = response.task_id;
+                $('#fullSetDownload').prop('disabled', true);
+                checkDownloadTaskStatus(taskId);
+            },
+            error: function() {
+                alert('Error starting download task');
             }
         });
+    });
+    function checkDownloadTaskStatus(taskId, queryId) {
+        $.ajax({
+            url: '/check_task/' + taskId,
+            success: function(data) {
+                if (data.status === 'PROGRESS') {
+                    var current = data.current;
+                    var total = data.total;
+                    $('#fullSetDownload').text('Processing sample ' + current + ' of ' + total);
+                    // Poll again after a delay
+                    setTimeout(function() {
+                        checkDownloadTaskStatus(taskId);
+                    }, 1000);
+                } else if (data.status === 'SUCCESS') {
+                    var current = data.current;
+                    var total = data.total;
+                    $('#fullSetDownload')
+                        .off('click')  // Remove the existing click handler
+                        .prop('disabled', false)
+                        .removeClass('btn-primary')
+                        .addClass('btn-danger')
+                        .text('Click here to download all {{ n_samples }} samples')
+                        .on('click', function() {
+                            window.location.href = data.result_url;
+                        });
+                } else if (data.status === 'FAILURE') {
+                    $('#fullSetDownload')
+                        .removeClass('btn-primary')
+                        .addClass('btn-danger')
+                        .text('Task failed: ' + data.error);
+                } else {
+                    // Task is pending or started, continue polling
+                    $('#fullSetDownload').text('Preparing download...');
+                    setTimeout(function() {
+                        checkDownloadTaskStatus(taskId);
+                    }, 1000);
+                }
+            },
+            error: function() {
+                // Handle error
+                $('#fullSetDownload').text('Error preparing download...');
+            }
+        });
+    }
+});
 
+$(document).ready(function() {
+    var queryId = "{{ query_id }}";
+    var sampleColumns = [];
+    var studyColumns = [];
+    var offset = 0;
+    var limit = 1000;
+    var sampleRowCount = 0;
 
+    var sampleTable = $('#sampleTable');
+    var studyTable = $('#studyTable');
+    var map = L.map('map').setView([0, 0], 2);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    var runningBounds = null;
+
+    var loadMoreButton = $('<button id="loadMore" class="btn btn-primary btn-load-more">Load ' + limit + ' more</button>');
+    var loadMoreButtonBottom = loadMoreButton.clone();
+    $('#sampleTableHeader').after(loadMoreButton);
+    $('#sampleTable').after(loadMoreButtonBottom);
+
+    function updateSampleTableHeader() {
+        $('#sampleTableHeader').text('Sample Table (' + sampleRowCount + ' rows) of {{ n_samples }}');
+        $('#mapHeader').text('Sample Locations (' + sampleRowCount + ') of {{ n_samples }}');
+    }
+
+    var sampleIcon = L.divIcon({
+        className: 'sample-icon',
+        html: 'X',
+        iconSize: [12, 12],
+        iconAnchor: [6, 6]
+    });
+
+    function fetchData() {
+        $('.btn-load-more').prop('disabled', true).text('Loading...');
+        $.ajax({
+            url: '/get_data',
+            type: 'GET',
+            data: {
+                query_id: queryId,
+                offset: offset,
+                limit: limit
+            },
+            success: function(data) {
+                var previousSampleColumns = [...sampleColumns];
+                var previousStudyColumns = [...studyColumns];
+
+                // Update sample columns
+                sampleColumns = data.sample_columns;
+                var columnsChanged = sampleColumns.some(
+                    (col, idx) => previousSampleColumns[idx] !== col
+                );
+
+                if (columnsChanged) {
+                    // Rebuild sample table headers
+                    var headerRow = '<tr>';
+                    sampleColumns.forEach(function (col) {
+                        headerRow += '<th>' + col + '</th>';
+                    });
+                    headerRow += '</tr>';
+                    $('#sampleTable thead').html(headerRow);
+
+                    // Update existing sample rows with new columns
+                    $('#sampleTable tbody tr').each(function () {
+                        var row = $(this);
+                        var cells = row.find('td');
+                        var rowData = {};
+
+                        // Map existing data to previous columns
+                        previousSampleColumns.forEach((col, index) => {
+                            rowData[col] = cells.eq(index).text();
+                        });
+
+                        // Rebuild row with new columns
+                        var newRowHtml = '';
+                        sampleColumns.forEach(function (col) {
+                            var cellValue = rowData[col] || '';
+                            newRowHtml += '<td data-col-name="' + col + '">' + cellValue + '</td>';
+                        });
+                        row.html(newRowHtml);
+                    });
+                }
+
+                studyColumns = data.study_columns;
+                var studyColumnsChanged = studyColumns.some(
+                    (col, idx) => previousStudyColumns[idx] !== col
+                );
+
+                if (studyColumnsChanged) {
+                    // Rebuild study table headers
+                    var headerRow = '<tr>';
+                    studyColumns.forEach(function (col) {
+                        headerRow += '<th>' + col + '</th>';
+                    });
+                    headerRow += '</tr>';
+                    $('#studyTable thead').html(headerRow);
+
+                    // Update existing study rows with new columns
+                    $('#studyTable tbody tr').each(function () {
+                        var row = $(this);
+                        var cells = row.find('td');
+                        var rowData = {};
+
+                        // Map existing data to previous columns
+                        previousStudyColumns.forEach((col, index) => {
+                            rowData[col] = cells.eq(index).text();
+                        });
+
+                        // Rebuild row with new columns
+                        var newRowHtml = '';
+                        studyColumns.forEach(function (col) {
+                            var cellValue = rowData[col] !== undefined && rowData[col] !== null ? rowData[col] : '';
+                            newRowHtml += '<td data-col-name="' + col + '">' + cellValue + '</td>';
+                        });
+                        row.html(newRowHtml);
+                    });
+                }
+
+                data.sample_data_rows.forEach(function(rowData) {
+                    var rowHtml = '<tr>';
+                    sampleColumns.forEach(function(col) {
+                        var cellValue = rowData[col] !== undefined && rowData[col] !== null ? rowData[col] : '';
+                        rowHtml += '<td data-col-name="' + col + '">' + cellValue + '</td>';
+                    });
+                    rowHtml += '</tr>';
+                    $('#sampleTable tbody').append(rowHtml);
+                });
+                sampleRowCount += data.sample_data_rows.length;
+                updateSampleTableHeader();
+
+                data.study_data_rows.forEach(function(rowData) {
+                    var rowHtml = '<tr>';
+                    studyColumns.forEach(function(col) {
+                        var cellValue = rowData[col] || '';
+                        rowHtml += '<td data-col-name="' + col + '">' + cellValue + '</td>';
+                    });
+                    rowHtml += '</tr>';
+                    $('#studyTable tbody').append(rowHtml);
+                });
+
+                if (data.points.length > 0) {
+                    if (runningBounds === null) {
+                        runningBounds = L.latLngBounds();
+                    }
+                    data.points.forEach(function(point) {
+                        var latLng = [point.lat, point.lng];
+                        L.marker(latLng, { icon: sampleIcon }).addTo(map)
+                        .bindPopup(
+                            '(' + point.lat + ', ' + point.lng + ')'
+                        );
+                        runningBounds.extend(latLng);
+                    });
+                    map.fitBounds(runningBounds);
+                }
+                offset += limit;
+                if (!data.has_more) {
+                    $('.btn-load-more').remove();
+                } else {
+                    $('.btn-load-more').prop('disabled', false).text('Load ' + limit + ' more');
+                }
+            },
+            error: function() {
+                alert('Error fetching data');
+            }
+        });
+    }
+    $(document).on('click', '.btn-load-more', function () {
+        fetchData();
+    });
+
+    // Start fetching data
+    fetchData();
+});
     </script>
 </body>
 </html>
