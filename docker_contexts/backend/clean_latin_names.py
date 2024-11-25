@@ -46,7 +46,9 @@ def main():
     """Entry point."""
     parser = argparse.ArgumentParser(
         description='check latin species name spellings and suggest alternatives if they are spelled wrong.')
-    parser.add_argument('latin_covariate_name', help='Covarate name that refers to latin species names.')
+    parser.add_argument(
+        'latin_covariate_name',
+        help='Covarate name that refers to latin species names.')
     args = parser.parse_args()
     session = SessionLocal()
 
@@ -77,7 +79,9 @@ def main():
             LOGGER.info(f'found {lower_name} in the base names set')
 
     num_cores = multiprocessing.cpu_count()
-    output_rows = Parallel(n_jobs=num_cores, batch_size='auto')(delayed(find_matches)(name) for name in unmatched_names)
+    output_rows = Parallel(
+        n_jobs=num_cores,
+        batch_size='auto')(delayed(find_matches)(name) for name in unmatched_names)
 
     output_df = pd.DataFrame(output_rows)
     current_datetime = datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
