@@ -567,7 +567,8 @@ def process_gee_dataset(
             applied_functions.add(spatiotemp_flag)
             if (spatiotemp_flag == JULIAN_FN and
                     collection_temporal_resolution == YEARS_FN):
-                raise ValueError(
+                spatiotemp_flag = YEARS_FN
+                LOGGER.warn(  # raise ValueError(
                     f'requesting {spatiotemp_flag} when underlying '
                     f'dataset is coarser at {collection_temporal_resolution} '
                     f'for {dataset_id} - {band_name}')

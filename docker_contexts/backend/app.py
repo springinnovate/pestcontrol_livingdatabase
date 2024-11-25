@@ -1056,7 +1056,11 @@ MAX_EO_POINT_SAMPLES = 5000
 
 
 def point_table_to_point_batch(csv_file):
-    point_table = pd.read_csv(csv_file)
+    point_table = pd.read_csv(csv_file, dtype={
+        YEAR: int,
+        LONGITUDE: float,
+        LATITUDE: float
+    })
     point_features_by_year = collections.defaultdict(list)
     point_unique_id_per_year = collections.defaultdict(list)
     for index, row in point_table.iterrows():
@@ -1066,6 +1070,8 @@ def point_table_to_point_batch(csv_file):
                 [row[LONGITUDE], row[LATITUDE]], 'EPSG:4326'),
                 {UNIQUE_ID: index}))
         point_unique_id_per_year[year].append(index)
+        LOGGER.debug(point_features_by_year[year][-1].getInfo())
+        LOGGER.debug(point_unique_id_per_year[year][-1])
     return point_features_by_year, point_unique_id_per_year, point_table
 
 
@@ -1127,11 +1133,11 @@ def data_extractor():
         'ECMWF/ERA5/MONTHLY:mean_2m_air_temperature',
         'ECMWF/ERA5/MONTHLY:minimum_2m_air_temperature',
         'ECMWF/ERA5/MONTHLY:total_precipitation',
-        # 'MODIS/006/MCD12Q2:EVI_Amplitude_1',
-        # 'MODIS/006/MCD12Q2:EVI_Area_1',
-        # 'MODIS/006/MCD12Q2:Dormancy_1',
-        # 'MODIS/006/MCD12Q2:Greenup_1',
-        # 'MODIS/006/MCD12Q2:Peak_1',
+        'MODIS/061/MCD12Q2:EVI_Amplitude_1',
+        'MODIS/061/MCD12Q2:EVI_Area_1',
+        'MODIS/061/MCD12Q2:Dormancy_1',
+        'MODIS/061/MCD12Q2:Greenup_1',
+        'MODIS/061/MCD12Q2:Peak_1',
         'CSP/ERGo/1_0/Global/SRTM_topoDiversity:constant'
     ]
     aggregation_functions = [
