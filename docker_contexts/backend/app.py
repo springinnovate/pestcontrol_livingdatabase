@@ -722,7 +722,11 @@ def get_data():
         if study.id_key not in study_set:
             study_set.add(study.id_key)
             covariates = study.covariates
+            LOGGER.debug(covariates)
             for cov in covariates:
+                if cov.covariate_defn is None:
+                    LOGGER.warn(f'{cov.value} has no defentition')
+                    continue
                 cov_name = cov.covariate_defn.name
                 if cov_name not in sent_study_columns:
                     display_order = cov.covariate_defn.display_order
@@ -732,7 +736,9 @@ def get_data():
                 'row_number': len(study_data_rows) + 1,
                 'study_id': study.name
             }
-            study_row.update({cov.covariate_defn.name: cov.value for cov in covariates})
+            study_row.update({
+                cov.covariate_defn.name: cov.value for cov in covariates
+                if cov.covariate_defn is not None})
             study_data_rows.append(study_row)
 
     # Update the columns sent so far
