@@ -634,12 +634,12 @@ def process_gee_dataset(
                         start_date = ee.Date.fromYMD(_year, 1, 1)
                         if args[0] > 0:
                             # day 1 should be jan 1, so do a -1
-                            start_date = start_date.advance(start_day-1, 'day')
+                            start_date = start_date.advance(start_day - 1, 'day')
                         else:
                             start_date = start_date.advance(start_day, 'day')
                         end_date = ee.Date.fromYMD(_year, 1, 1)
                         if end_day < 365:
-                            end_date = end_date.advance(end_day-1, 'day')
+                            end_date = end_date.advance(end_day - 1, 'day')
                         else:
                             end_date = end_date.advance(end_day, 'day')
 
