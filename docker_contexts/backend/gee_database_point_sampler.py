@@ -1,5 +1,5 @@
 """Sample GEE datasets given pest control CSV."""
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, date
 from threading import Lock
 import argparse
@@ -10,28 +10,14 @@ import os
 import re
 import sys
 
-from database import SessionLocal
-import ee
-import pandas
-import numpy
+from database import DATABASE_URI
+from database_model_definitions import Sample, Point, CovariateDefn, CovariateValue, CovariateType, CovariateAssociation
 from parsimonious.grammar import Grammar
 from parsimonious.nodes import NodeVisitor
-
-from database import SessionLocal
-from database_model_definitions import Study, Sample, Point, CovariateDefn, CovariateValue, CovariateType, CovariateAssociation, Geolocation
-from flask import Flask
-from flask import render_template
-from flask import request
-from flask import jsonify
-from sqlalchemy import distinct, func
-from sqlalchemy import update, insert, create_engine
-from sqlalchemy.engine import Row
-from sqlalchemy.sql import and_, or_
-from sqlalchemy.ext.compiler import compiles
-from sqlalchemy.sql.functions import GenericFunction
-from sqlalchemy.types import String
+from sqlalchemy import update, create_engine
 from sqlalchemy.orm import sessionmaker, scoped_session
-from database import DATABASE_URI
+import ee
+import pandas
 
 engine = create_engine(DATABASE_URI, echo=False, connect_args={'timeout': 30})
 Session = scoped_session(sessionmaker(bind=engine))
@@ -167,7 +153,6 @@ class SpatioTemporalFunctionProcessor(NodeVisitor):
             raise ValueError(
                 f'unexpected function: "{function_name}" '
                 f'must be one of {VALID_FUNCTIONS}')
-        #LOGGER.debug(f'execute {function_name} with {args}')
         function, stat_operation = function_name.split('_', 1)
         if self.parsed[function]:
             raise ValueError(
@@ -249,11 +234,7 @@ def process_batch(batch_features, active_collection, batch_size, op_type, local_
         return reduced_points.map(lambda feature: feature.set('system:time_start', time_start_millis))
 
     batch_results = active_collection.map(reduce_image).flatten()
-    # Check if 'output' property is present in the first feature of the batch results
-    first_feature = ee.Feature(batch_results.first())
-    #output_present = first_feature.propertyNames().contains('output').getInfo()
-    output_present = True
-    return (batch_results, output_present)
+    return batch_results
 
 
 def _scrub_key(key):
@@ -310,23 +291,6 @@ def initialize_gee():
     initalize_global_stat_functions()
 
 
-def create_clean_key(dataset_row):
-    key = '_'.join(
-        str(dataset_row[col_id]) for col_id in EXPECTED_DATATABLE_COLUMNS
-        if isinstance(dataset_row[col_id], str) or not numpy.isnan(dataset_row[col_id]))
-    if DESCRIPTION_FIELD in dataset_row:
-        description_val = dataset_row[DESCRIPTION_FIELD]
-        if description_val not in [None, '']:
-            key = f'{description_val} {key}'
-    # Define the regular expression to match all punctuation except '_'
-    punctuation_regex = r'[^\w]'
-
-    # Use re.sub() to replace matched characters with an empty string
-    key = re.sub(punctuation_regex, '_', key)
-    key = re.sub(r'__+', '_', key)
-    return key
-
-
 def process_data_table(dataset_table):
     missing_columns = set(
         EXPECTED_DATATABLE_COLUMNS).difference(set(dataset_table.columns))
@@ -337,7 +301,6 @@ def process_data_table(dataset_table):
             '\nexisting columns:' + '\n\t'.join(dataset_table.columns))
 
     for row_index, dataset_row in dataset_table.iterrows():
-        key = create_clean_key(dataset_row)
         if isinstance(dataset_row[TRANSFORM_FUNC], str) and \
                 dataset_row[TRANSFORM_FUNC].lower() not in IGNORE_FLAGS:
             transform_func_re = re.search(
@@ -359,7 +322,7 @@ def process_data_table(dataset_table):
         spatiotemporal_fn = spatiotemporal_fn.replace(' ', '')
         try:
             grammar_tree = SPATIOTEMPORAL_FN_GRAMMAR.parse(spatiotemporal_fn)
-        except:
+        except Exception:
             raise ValueError(
                 f'the function "{spatiotemporal_fn}" could not be parsed, check '
                 f'for syntax errors\n error on row {dataset_row}')
@@ -369,7 +332,7 @@ def process_data_table(dataset_table):
     try:
         dataset_table.to_csv('test.csv')
     except PermissionError:
-        LOGGER.warning(f'test.csv is open, cannot overwrite')
+        LOGGER.warning('test.csv is open, cannot overwrite')
     LOGGER.info(f'loaded {len(dataset_table)} datasets')
     return dataset_table
 
@@ -400,11 +363,11 @@ def infer_temporal_and_spatial_resolution_and_valid_years(collection):
             unique_years = set(
                 int(x) for x in ee.List(year_strings).distinct().getInfo())
             date_list = [
-                datetime.utcfromtimestamp(date/1000)
+                datetime.utcfromtimestamp(date / 1000)
                 for date in date_collection.getInfo()]
             scale = collection.first().projection().nominalScale().getInfo()
             for i in range(1, len(date_list)):
-                diff = (date_list[i] - date_list[i-1]).days
+                diff = (date_list[i] - date_list[i - 1]).days
                 if diff > 300:  # we saw at least a year's gap, so quit
                     return YEARS_FN, scale, unique_years
             INFER_RESOLUTION_MEMO_CACHE[collection] = (
@@ -416,13 +379,13 @@ def get_year_julian_range(current_year, spatiotemporal_commands):
     """Returns offset of year in [min, max+1) range"""
     # Initialize current_year as the first day of this year
     LOGGER.debug(f'about to process these spatiodemporal commands: {spatiotemporal_commands}')
-    year_range = (current_year, current_year+1)
+    year_range = (current_year, current_year + 1)
     julian_range = (1, 365)
     for spatiotemp_flag, op_type, args in spatiotemporal_commands:
         if spatiotemp_flag == YEARS_FN:
             year_range = (
-                year_range[0]+args[0],
-                year_range[1]+args[1])
+                year_range[0] + args[0],
+                year_range[1] + args[1])
         if spatiotemp_flag == JULIAN_FN:
             if len(args) == 2:
                 # start and end date
@@ -595,14 +558,14 @@ def process_gee_dataset(
                         start_date = ee.Date.fromYMD(_year, 1, 1)
                         if start_day > 0:
                             # day 1 should be jan 1, so do a -1
-                            start_date = start_date.advance(start_day-1, 'day')
+                            start_date = start_date.advance(start_day - 1, 'day')
                         else:
                             start_date = start_date.advance(start_day, 'day')
                         end_date = ee.Date.fromYMD(_year, 1, 1)
                         if end_day <= 365:
                             end_date = end_date.advance(end_day, 'day')
                         else:
-                            end_date = end_date.advance(end_day-1, 'day')
+                            end_date = end_date.advance(end_day - 1, 'day')
                         daily_collection = active_collection.filterDate(
                             start_date, end_date)
                         time_start_millis = ee.Date.fromYMD(
@@ -634,21 +597,12 @@ def process_gee_dataset(
                     while i < n_points:
                         batch = buffered_point_list.toList(batch_size, i)
                         batch_features = ee.FeatureCollection(batch)
-                        batch_results, output_present = process_batch(
+                        batch_results = process_batch(
                             batch_features, active_collection, batch_size,
                             op_type, local_scale)
-                        if output_present:
-                            # If 'output' is present, proceed with the next batch
-                            results = results.merge(batch_results)
-                            i += batch_size
-                        else:
-                            # If 'output' is missing, halve the batch size and retry
-                            if batch_size > 1:
-                                batch_size = max(1, batch_size // 2)
-                            else:
-                                raise RuntimeError(
-                                    "Minimum batch size reached with "
-                                    "missing 'output' property.")
+                        results = results.merge(batch_results)
+                        i += batch_size
+
                     active_collection = results
             elif isinstance(active_collection, ee.FeatureCollection):
                 if spatiotemp_flag == YEARS_FN:
