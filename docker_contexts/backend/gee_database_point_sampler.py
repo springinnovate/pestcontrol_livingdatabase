@@ -97,6 +97,42 @@ N_LIMIT_OPS = [
     MEAN_N_MAX_STAT,
 ]
 
+DESCRIPTION_FIELD = 'Description'
+EXPECTED_DATATABLE_COLUMNS = [
+    BAND_NAME,
+    SP_TM_AGG_FUNC,
+    TRANSFORM_FUNC,
+    DATASET_ID,
+]
+
+LAT_FIELD = 'Latitude'
+LNG_FIELD = 'Longitude'
+YEAR_FIELD = 'Year'
+
+EXPECTED_POINTTABLE_COLUMNS = [
+    LAT_FIELD,
+    LNG_FIELD,
+    YEAR_FIELD
+]
+
+
+def point_table_to_point_batch(csv_file):
+    point_table = pandas.read_csv(csv_file, dtype={
+        YEAR_FIELD: int,
+        LNG_FIELD: float,
+        LAT_FIELD: float
+    })
+    point_features_by_year = collections.defaultdict(list)
+    point_unique_id_per_year = collections.defaultdict(list)
+    for index, row in point_table.iterrows():
+        year = int(row[YEAR_FIELD])
+        point_features_by_year[year].append(
+            ee.Feature(ee.Geometry.Point(
+                [row[LNG_FIELD], row[LAT_FIELD]], 'EPSG:4326'),
+                {UNIQUE_ID: index}))
+        point_unique_id_per_year[year].append(index)
+    return point_features_by_year, point_unique_id_per_year, point_table
+
 
 def initalize_global_stat_functions():
     global VALID_FUNCTIONS
@@ -202,25 +238,6 @@ class SpatioTemporalFunctionProcessor(NodeVisitor):
 
     def generic_visit(self, node, visited_children):
         return visited_children or node
-
-
-DESCRIPTION_FIELD = 'Description'
-EXPECTED_DATATABLE_COLUMNS = [
-    BAND_NAME,
-    SP_TM_AGG_FUNC,
-    TRANSFORM_FUNC,
-    DATASET_ID,
-]
-
-LAT_FIELD = 'Latitude'
-LNG_FIELD = 'Longitude'
-YEAR_FIELD = 'Year'
-
-EXPECTED_POINTTABLE_COLUMNS = [
-    LAT_FIELD,
-    LNG_FIELD,
-    YEAR_FIELD
-]
 
 
 def process_batch(batch_features, active_collection, batch_size, op_type, local_scale):
@@ -731,9 +748,8 @@ def main():
     """Entry point."""
     parser = argparse.ArgumentParser(description='sample points on GEE data')
     parser.add_argument(
-        '--generate_templates', action='store_true', help=(
-            'Generate template tables and then quit no matter what '
-            'other arguments are passed.'))
+        '--point_table_path', required=True,
+        help=f'path to table with {LAT_FIELD}, {LNG_FIELD}, and {YEAR_FIELD} columns')
     parser.add_argument(
         '--dataset_table_path', required=True, help='path to data table')
     parser.add_argument(
@@ -746,15 +762,19 @@ def main():
         help=f'how many datasets to process in parallel, defaults to {MAX_WORKERS}')
 
     args = parser.parse_args()
-    if args.generate_templates:
-        generate_templates()
-        return
     initialize_gee()
 
     dataset_table = pandas.read_csv(
         args.dataset_table_path,
         skip_blank_lines=True,
     ).dropna(how='all')
+
+    point_table = point_table_to_point_batch(args.point_table_path)
+
+    print(point_table)
+
+    return
+
 
     if args.n_dataset_rows is None:
         dataset_row_range = range(0, len(dataset_table))

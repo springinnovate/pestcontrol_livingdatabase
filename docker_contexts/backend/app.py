@@ -1061,26 +1061,6 @@ def _wrap_in_quotes_if_needed(value):
 MAX_EO_POINT_SAMPLES = 5000
 
 
-def point_table_to_point_batch(csv_file):
-    point_table = pd.read_csv(csv_file, dtype={
-        YEAR: int,
-        LONGITUDE: float,
-        LATITUDE: float
-    })
-    point_features_by_year = collections.defaultdict(list)
-    point_unique_id_per_year = collections.defaultdict(list)
-    for index, row in point_table.iterrows():
-        year = int(row[YEAR])
-        point_features_by_year[year].append(
-            ee.Feature(ee.Geometry.Point(
-                [row[LONGITUDE], row[LATITUDE]], 'EPSG:4326'),
-                {UNIQUE_ID: index}))
-        point_unique_id_per_year[year].append(index)
-        LOGGER.debug(point_features_by_year[year][-1].getInfo())
-        LOGGER.debug(point_unique_id_per_year[year][-1])
-    return point_features_by_year, point_unique_id_per_year, point_table
-
-
 def parse_spatiotemporal_fn(spatiotemporal_fn):
     spatiotemporal_fn = spatiotemporal_fn.replace(' ', '')
     grammar_tree = SPATIOTEMPORAL_FN_GRAMMAR.parse(spatiotemporal_fn)
@@ -1093,7 +1073,8 @@ def parse_spatiotemporal_fn(spatiotemporal_fn):
 def data_extractor():
     if request.method == 'POST':
         csv_file = request.files.get('csv_file')
-        point_features_by_year, point_unique_id_per_year, point_table = point_table_to_point_batch(csv_file)
+        point_features_by_year, point_unique_id_per_year, point_table = (
+            gee_database_point_sampler.point_table_to_point_batch(csv_file))
         dataset_id, band_name = request.form.get('data_source').split(':')
 
         num_years_avg = int(request.form.get('num_years_avg'))
