@@ -320,6 +320,7 @@ def process_data_table(
         dataset_table_path,
         nrows=n_rows)
     dataset_table[SP_TM_AGG_OP] = None
+    dataset_table[PIXEL_FN_OP] = None
     missing_columns = set(
         EXPECTED_DATATABLE_COLUMNS).difference(set(dataset_table.columns))
     if missing_columns:
@@ -828,16 +829,17 @@ def main():
         args.dataset_table_path,
         n_rows=args.n_dataset_rows)
     print(dataset_table)
-    return
 
 
-    point_id_value_list = process_gee_dataset(
-        dataset_id,
-        band_name,
-        point_features_by_year,
-        point_unique_id_per_year,
-        None,
-        sp_tm_agg_op)
+    for row_index, dataset_row in dataset_table.iterrows():
+        point_id_value_list = process_gee_dataset(
+            dataset_row[DATASET_ID],
+            dataset_row[BAND_NAME],
+            point_features_by_year,
+            point_unique_id_per_year,
+            None,
+            dataset_row[SP_TM_AGG_OP])
+        LOGGER.debug(point_id_value_list)
 
     return
 
