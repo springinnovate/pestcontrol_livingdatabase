@@ -116,12 +116,17 @@ EXPECTED_POINTTABLE_COLUMNS = [
 ]
 
 
-def point_table_to_point_batch(csv_file):
-    point_table = pandas.read_csv(csv_file, dtype={
-        YEAR_FIELD: int,
-        LNG_FIELD: float,
-        LAT_FIELD: float
-    })
+def point_table_to_point_batch(
+        csv_file,
+        n_rows=None):
+    point_table = pandas.read_csv(
+        csv_file,
+        dtype={
+            YEAR_FIELD: int,
+            LNG_FIELD: float,
+            LAT_FIELD: float},
+        nrows=n_rows)
+
     point_features_by_year = collections.defaultdict(list)
     point_unique_id_per_year = collections.defaultdict(list)
     for index, row in point_table.iterrows():
@@ -308,7 +313,13 @@ def initialize_gee():
     initalize_global_stat_functions()
 
 
-def process_data_table(dataset_table):
+def process_data_table(
+        dataset_table_path,
+        n_rows=None):
+    dataset_table = pandas.read_csv(
+        dataset_table_path,
+        nrows=n_rows)
+    dataset_table[SP_TM_AGG_OP] = None
     missing_columns = set(
         EXPECTED_DATATABLE_COLUMNS).difference(set(dataset_table.columns))
     if missing_columns:
@@ -345,6 +356,9 @@ def process_data_table(dataset_table):
                 f'for syntax errors\n error on row {dataset_row}')
         lexer = SpatioTemporalFunctionProcessor()
         output = lexer.visit(grammar_tree)
+        LOGGER.info(SP_TM_AGG_OP)
+        LOGGER.info(dataset_table)
+        LOGGER.info(output)
         dataset_table.at[row_index, SP_TM_AGG_OP] = output
     try:
         dataset_table.to_csv('test.csv')
@@ -789,25 +803,41 @@ def main():
     parser.add_argument(
         '--dataset_table_path', required=True, help='path to data table')
     parser.add_argument(
-        '--n_dataset_rows', nargs='+', type=int, help='limit csv read to this many rows')
-    parser.add_argument(
         '--batch_size', type=int, default=BATCH_SIZE,
         help=f'how many points to process per batch, defaults to {BATCH_SIZE}')
     parser.add_argument(
         '--max_workers', type=int, default=MAX_WORKERS,
         help=f'how many datasets to process in parallel, defaults to {MAX_WORKERS}')
+    parser.add_argument(
+        '--n_point_table_rows',
+        type=int,
+        help='Limit the number of points to this many rows for testing.')
+    parser.add_argument(
+        '--n_dataset_rows',
+        type=int, help='Limit the dataset table to read this many rows')
 
     args = parser.parse_args()
     initialize_gee()
 
-    dataset_table = pandas.read_csv(
+    point_features_by_year, point_unique_id_per_year, point_table = (
+        point_table_to_point_batch(
+            args.point_table_path,
+            n_rows=args.n_point_table_rows))
+
+    dataset_table = process_data_table(
         args.dataset_table_path,
-        skip_blank_lines=True,
-    ).dropna(how='all')
+        n_rows=args.n_dataset_rows)
+    print(dataset_table)
+    return
 
-    point_table = point_table_to_point_batch(args.point_table_path)
 
-    print(point_table)
+    point_id_value_list = process_gee_dataset(
+        dataset_id,
+        band_name,
+        point_features_by_year,
+        point_unique_id_per_year,
+        None,
+        sp_tm_agg_op)
 
     return
 
@@ -821,7 +851,6 @@ def main():
 
     dataset_table[SP_TM_AGG_OP] = None
     dataset_table[PIXEL_FN_OP] = None
-    dataset_table = process_data_table(dataset_table)
     LOGGER.info(f'loaded {args.dataset_table_path}')
     LOGGER.info(dataset_table)
 
