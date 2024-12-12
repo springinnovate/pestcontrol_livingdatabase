@@ -1115,6 +1115,8 @@ def data_extractor():
             download_name=f'remote_sensed_point_table_{datetime.now().strftime("%Y_%m_%d_%H_%M_%S")}.csv')
 
     data_sources = [
+        '*GOOGLE/DYNAMICWORLD/V1 crop and landcover table',
+        '*MODIS/006/MCD12Q1 landcover table'
         'ECMWF/ERA5/MONTHLY:dewpoint_2m_temperature',
         'ECMWF/ERA5/MONTHLY:maximum_2m_air_temperature',
         'ECMWF/ERA5/MONTHLY:mean_2m_air_temperature',
