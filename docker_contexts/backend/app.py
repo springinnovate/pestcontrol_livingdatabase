@@ -1091,28 +1091,36 @@ def data_extractor():
         LOGGER.debug(f'this is the operation: {sp_tm_agg_op_str}')
         sp_tm_agg_op = parse_spatiotemporal_fn(sp_tm_agg_op_str)
         LOGGER.info(f'{dataset_id} - {band_name} - {sp_tm_agg_op}')
-        point_id_value_list = gee_database_point_sampler.process_gee_dataset(
-            dataset_id,
-            band_name,
-            point_features_by_year,
-            point_unique_id_per_year,
-            None,
-            sp_tm_agg_op)
+        if not dataset_id.startswith('*'):
+            point_id_value_list = gee_database_point_sampler.process_gee_dataset(
+                dataset_id,
+                band_name,
+                point_features_by_year,
+                point_unique_id_per_year,
+                None,
+                sp_tm_agg_op)
 
-        value_dict = dict(point_id_value_list)
-        header_id = f'{dataset_id}:{band_name} -> {sp_tm_agg_op}'
-        point_table[header_id] = point_table.index.map(value_dict)
-        point_table[header_id] = point_table[header_id].apply(
-            lambda x: pd.to_numeric(x, errors='ignore'))
+            value_dict = dict(point_id_value_list)
+            header_id = f'{dataset_id}:{band_name} -> {sp_tm_agg_op}'
+            point_table[header_id] = point_table.index.map(value_dict)
+            point_table[header_id] = point_table[header_id].apply(
+                lambda x: pd.to_numeric(x, errors='ignore'))
 
-        csv_output = StringIO()
-        point_table.to_csv(csv_output, index=False)
-        csv_output.seek(0)
-        return send_file(
-            BytesIO(('\ufeff' + csv_output.getvalue()).encode('utf-8')),
-            mimetype='text/csv',
-            as_attachment=True,
-            download_name=f'remote_sensed_point_table_{datetime.now().strftime("%Y_%m_%d_%H_%M_%S")}.csv')
+            csv_output = StringIO()
+            point_table.to_csv(csv_output, index=False)
+            csv_output.seek(0)
+            return send_file(
+                BytesIO(('\ufeff' + csv_output.getvalue()).encode('utf-8')),
+                mimetype='text/csv',
+                as_attachment=True,
+                download_name=f'remote_sensed_point_table_{datetime.now().strftime("%Y_%m_%d_%H_%M_%S")}.csv')
+        else:
+            # special case to handle
+            gee_database_point_sampler.process_custom_dataset(
+                dataset_id,
+                point_features_by_year,
+                point_unique_id_per_year,
+                sp_tm_agg_op)
 
     data_sources = [
         '*GOOGLE/DYNAMICWORLD/V1 crop and landcover table',

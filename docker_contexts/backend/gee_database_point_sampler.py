@@ -469,6 +469,41 @@ def load_collection_or_image(dataset_id):
         return LOAD_DATASET_MEMO_CACHE[dataset_id]
 
 
+def process_custom_dataset(
+        dataset_id,
+        point_features_by_year,
+        point_unique_id_per_year,
+        sp_tm_agg_op):
+    if dataset_id == '*GOOGLE/DYNAMICWORLD/V1 crop and landcover table':
+        process_dynamicworld_crop_and_landcover_table(
+            point_features_by_year,
+            point_unique_id_per_year,
+            sp_tm_agg_op)
+    elif dataset_id == '*MODIS/006/MCD12Q1 landcover table':
+        process_MODIS_landcover_table(
+            point_features_by_year,
+            point_unique_id_per_year,
+            sp_tm_agg_op)
+
+
+def process_dynamicworld_crop_and_landcover_table():
+    pass
+
+
+def process_MODIS_landcover_table(
+        point_features_by_year,
+        point_unique_id_per_year,
+        sp_tm_agg_op):
+    for lulc_class in range(16):
+        process_gee_dataset(
+            'MODIS/006/MCD12Q1',
+            'LC_Type2',
+            point_features_by_year,
+            point_unique_id_per_year,
+            (MASK_FN, lulc_class),
+            sp_tm_agg_op)
+
+
 def process_gee_dataset(
         dataset_id,
         band_name,
@@ -518,7 +553,8 @@ def process_gee_dataset(
                     MASK_FN: lambda: active_collection.map(
                         lambda image: image.remap(
                             ee.List(args),
-                            ee.List([1]*len(args)), 0).copyProperties(
+                            ee.List([1]*len(args)),
+                            0).copyProperties(
                                 image, ['system:time_start'])),
                     MULT_FN: lambda: active_collection.map(
                         lambda image: image.multiply(
