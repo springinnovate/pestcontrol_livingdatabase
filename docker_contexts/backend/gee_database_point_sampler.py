@@ -1,4 +1,5 @@
 """Sample GEE datasets given pest control CSV."""
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, date
 from threading import Lock
@@ -465,23 +466,42 @@ LOAD_DATASET_MEMO_LOCK = Lock()
 
 
 def load_collection_or_image(dataset_id):
-    # Check if the result is already in the cache
     with LOAD_DATASET_MEMO_LOCK:
         if dataset_id not in LOAD_DATASET_MEMO_CACHE:
-            dataset = ee.ImageCollection(dataset_id)
-            try:
-                # Try to access a property that should be present in an ImageCollection
-                # If the property access succeeds, it's likely an ImageCollection
-                dataset.size().getInfo()
-                LOAD_DATASET_MEMO_CACHE[dataset_id] = dataset
-                return dataset
-            except ee.EEException:
-                # If an error occurred, it's likely not an ImageCollection, so load as an Image
-                image = ee.Image(dataset_id)
-                # Convert the single Image to an ImageCollection
-                image_collection = ee.ImageCollection([image])
-                LOAD_DATASET_MEMO_CACHE[dataset_id] = image_collection
+            asset_info = ee.data.getAsset(dataset_id)
+            asset_type = asset_info.get('type', '').upper()
+
+            if asset_type == 'IMAGE_COLLECTION':
+                dataset = ee.ImageCollection(dataset_id)
+            elif asset_type == 'IMAGE':
+                dataset = ee.ImageCollection([ee.Image(dataset_id)])
+            else:
+                # Fallback if not IMAGE or IMAGE_COLLECTION
+                dataset = ee.ImageCollection([ee.Image(dataset_id)])
+
+            LOAD_DATASET_MEMO_CACHE[dataset_id] = dataset
         return LOAD_DATASET_MEMO_CACHE[dataset_id]
+
+# def load_collection_or_image(dataset_id):
+#     # Check if the result is already in the cache
+#     with LOAD_DATASET_MEMO_LOCK:
+#         if dataset_id not in LOAD_DATASET_MEMO_CACHE:
+#             dataset = ee.ImageCollection(dataset_id)
+#             try:
+#                 # Try to access a property that should be present in an ImageCollection
+#                 # If the property access succeeds, it's likely an ImageCollection
+#                 print(f'trying to see if it is an image collection {get_time():.2f}s')
+#                 dataset.size().getInfo()
+#                 LOAD_DATASET_MEMO_CACHE[dataset_id] = dataset
+#                 return dataset
+#             except ee.EEException:
+#                 # If an error occurred, it's likely not an ImageCollection, so load as an Image
+#                 image = ee.Image(dataset_id)
+#                 # Convert the single Image to an ImageCollection
+#                 print(f'convert to an image collection {get_time():.2f}s')
+#                 image_collection = ee.ImageCollection([image])
+#                 LOAD_DATASET_MEMO_CACHE[dataset_id] = image_collection
+#         return LOAD_DATASET_MEMO_CACHE[dataset_id]
 
 
 def process_custom_dataset(
@@ -501,22 +521,65 @@ def process_custom_dataset(
             sp_tm_agg_op)
 
 
-def process_dynamicworld_crop_and_landcover_table():
-    pass
+def process_dynamicworld_crop_and_landcover_table(
+        point_features_by_year,
+        point_unique_id_per_year,
+        sp_tm_agg_op):
+    results_by_key_class = {}
+    print(f'processing dynamic world dataset: {get_time():.2f}s')
+    crop_point_id_value_list = process_gee_dataset(
+        'GOOGLE/DYNAMICWORLD/V1',
+        'crops',
+        point_features_by_year,
+        point_unique_id_per_year,
+        None,
+        sp_tm_agg_op)
+    print(f'got the crops: {get_time():.2f}s')
+    results_by_key_class['GOOGLE/DYNAMICWORLD/V1_crop_prop'] = crop_point_id_value_list
+    for lulc_class in range(9):
+        key = f'GOOGLE/DYNAMICWORLD/V1_lulc_prop_{lulc_class}'
+        lulc_point_id_value_list = process_gee_dataset(
+            'GOOGLE/DYNAMICWORLD/V1',
+            'label',
+            point_features_by_year,
+            point_unique_id_per_year,
+            (MASK_FN, [lulc_class]),
+            sp_tm_agg_op)
+        print(f'got the lulc class: {lulc_class} {get_time():.2f}s')
+        # save to point table
+        results_by_key_class[key] = lulc_point_id_value_list
+    # save to point table
+    results_by_key_class['crop'] = lulc_point_id_value_list
+    return results_by_key_class
 
 
 def process_MODIS_landcover_table(
         point_features_by_year,
         point_unique_id_per_year,
         sp_tm_agg_op):
+    results_by_lulc_class = {}
     for lulc_class in range(16):
-        process_gee_dataset(
-            'MODIS/006/MCD12Q1',
+        key = f'MODIS/061/MCD12Q1_lulc_prop_{lulc_class}'
+        lulc_point_id_value_list = process_gee_dataset(
+            'MODIS/061/MCD12Q1',
             'LC_Type2',
             point_features_by_year,
             point_unique_id_per_year,
-            (MASK_FN, lulc_class),
+            (MASK_FN, [lulc_class]),
             sp_tm_agg_op)
+        # save to point table
+        results_by_lulc_class[key] = lulc_point_id_value_list
+    return results_by_lulc_class
+
+
+TIME = 0
+def get_time():
+    global TIME
+    if TIME == 0:
+        TIME = time.time()
+        return 0
+    else:
+        return time.time() - TIME
 
 
 def process_gee_dataset(
@@ -536,14 +599,19 @@ def process_gee_dataset(
 
     image_collection = load_collection_or_image(dataset_id)
     image_collection = image_collection.select(band_name)
+
+    print(f'getting the appropriate resolutions {get_time():.2f}s')
     collection_temporal_resolution, nominal_scale, valid_year_set = \
         infer_temporal_and_spatial_resolution_and_valid_years(
             image_collection)
+    print(f'got the resolutions {get_time():.2f}s')
 
     collection_per_year = ee.Dictionary()
     for current_year in point_list_by_year.keys():
         applied_functions = set()
         # apply year filter
+        print(f'fetching year range {get_time():2}s)')
+
         year_range, julian_range = get_year_julian_range(
             current_year, spatiotemporal_commands)
 
@@ -558,6 +626,7 @@ def process_gee_dataset(
                 for unique_id in point_unique_id_per_year[current_year]]))
             continue
         if valid_year_set:
+            print(f'filter image colleciton by date range {get_time():2}s)')
             active_collection = filter_imagecollection_by_date_range(
                 year_range, julian_range, image_collection)
         else:
@@ -582,6 +651,7 @@ def process_gee_dataset(
                 }.get(pixel_op_fn, lambda: None)()
 
             LOGGER.debug(pixel_op_transform)
+            print(f'this is the pixel op transform {pixel_op_transform} {get_time():2}s)')
             pixel_op_fn, pixel_op_args = pixel_op_transform
             active_collection = pixel_op(pixel_op_fn, pixel_op_args)
             if active_collection is None:
@@ -589,7 +659,7 @@ def process_gee_dataset(
                     f'"{pixel_op_fn}" is not a valid function in '
                     f'{PIXEL_TRANSFORM_ALLOWED_FUNCTIONS} for {dataset_id} - {band_name}')
         n_points = len(point_list_by_year[current_year])
-        LOGGER.info(f'processing {n_points} points on {dataset_id} {band_name} {pixel_op_transform} {spatiotemporal_commands} {current_year} over {year_range}')
+        LOGGER.info(f'processing {n_points} points on {dataset_id} {band_name} {pixel_op_transform} {spatiotemporal_commands} {current_year} over {year_range} {get_time():2}s')
         for index, (spatiotemp_flag, op_type, args) in enumerate(spatiotemporal_commands):
             point_list = ee.FeatureCollection(point_list_by_year[current_year])
             if spatiotemp_flag in applied_functions:
@@ -749,9 +819,11 @@ def process_gee_dataset(
             return result
 
         try:
+            LOGGER.debug(f' accumulate by year {get_time():.2}s')
             accumulated_active_collection = accumulate_by_year(active_collection)
             collection_per_year = collection_per_year.set(
                 str(current_year), accumulated_active_collection)
+            LOGGER.debug(f'got {current_year} done {get_time():.2}s')
         except Exception:
             LOGGER.exception(
                 f'something bad happened on this collectoin: {active_collection}')
@@ -821,16 +893,67 @@ def main():
     args = parser.parse_args()
     initialize_gee()
 
+    # # Create the FeatureCollection of points
+    # points = ee.FeatureCollection([
+    #     ee.Feature(ee.Geometry.Point([-119.2747798, 36.60678309])),
+    #     ee.Feature(ee.Geometry.Point([-119.2763897, 36.51107327])),
+    #     ee.Feature(ee.Geometry.Point([-119.4078862, 36.58501194])),
+    #     ee.Feature(ee.Geometry.Point([-119.5407169, 36.54133622])),
+    #     ee.Feature(ee.Geometry.Point([-119.276439, 36.50728327])),
+    #     ee.Feature(ee.Geometry.Point([-119.271641, 36.51070032])),
+    #     ee.Feature(ee.Geometry.Point([-119.2720993, 36.50885002])),
+    #     ee.Feature(ee.Geometry.Point([-119.2721386, 36.50744884])),
+    #     ee.Feature(ee.Geometry.Point([-119.2694354, 36.51061335])),
+    #     ee.Feature(ee.Geometry.Point([-119.270232, 36.50860051]))
+    # ])
+
     point_features_by_year, point_unique_id_per_year, point_table = (
         point_table_to_point_batch(
             args.point_table_path,
             n_rows=args.n_point_table_rows))
-    print(point_table)
+    print(point_features_by_year)
+
+    # band = 'crops'
+    # for year, point_features in point_features_by_year.items():
+    #     dw = ee.ImageCollection('GOOGLE/DYNAMICWORLD/V1') \
+    #         .filterDate(f'{year}-01-01', f'{year+2}-12-31')
+
+    #     meanImage = dw.select([band]).mean()
+
+    #     def add_mean_crops(feature):
+    #         buffer_geom = feature.geometry().buffer(30)
+    #         mean_val = meanImage.reduceRegion(
+    #             reducer=ee.Reducer.mean(),
+    #             geometry=buffer_geom,
+    #             scale=10,
+    #             bestEffort=True
+    #         ).get(band)
+    #         return feature.set('mean_crops', mean_val)
+
+    #     bufferedPoints = ee.FeatureCollection(point_features).map(add_mean_crops)
+
+    #     # Get the results as a dictionary to print
+    #     results = bufferedPoints.getInfo()
+    #     print(results)
+
+    # return
 
     dataset_table = process_data_table(
         args.dataset_table_path,
         n_rows=args.n_dataset_rows)
-    print(dataset_table)
+    for process_fn in [
+            #process_MODIS_landcover_table,
+            process_dynamicworld_crop_and_landcover_table]:
+        point_list_by_label = process_fn(
+            point_features_by_year,
+            point_unique_id_per_year,
+            dataset_table.iloc[0][SP_TM_AGG_OP])
+
+        for key, point_id_value_list in point_list_by_label.items():
+            point_table[key] = None
+            for pt_idx, val in point_id_value_list:
+                point_table.at[pt_idx, key] = val
+
 
     for row_index, dataset_row in dataset_table.iterrows():
         key = (
@@ -838,19 +961,32 @@ def main():
             f'{dataset_row[BAND_NAME]}_'
             f'{dataset_row[SP_TM_AGG_FUNC]}_'
             f'{dataset_row[TRANSFORM_FUNC]}')
+        point_table[key] = None
         LOGGER.debug(f'************** {dataset_row[TRANSFORM_FUNC]}')
-        point_id_value_list = process_gee_dataset(
-            dataset_row[DATASET_ID],
-            dataset_row[BAND_NAME],
-            point_features_by_year,
-            point_unique_id_per_year,
-            dataset_row[PIXEL_FN_OP],
-            dataset_row[SP_TM_AGG_OP])
+        # point_id_value_list = process_gee_dataset(
+        #     dataset_row[DATASET_ID],
+        #     dataset_row[BAND_NAME],
+        #     point_features_by_year,
+        #     point_unique_id_per_year,
+        #     dataset_row[PIXEL_FN_OP],
+        #     dataset_row[SP_TM_AGG_OP])
+        # for pt_idx, val in point_id_value_list:
+        #     point_table.at[pt_idx, key] = val
+
+        for process_fn in [
+                #process_MODIS_landcover_table,
+                process_dynamicworld_crop_and_landcover_table]:
+            point_list_by_label = process_fn(
+                point_features_by_year,
+                point_unique_id_per_year,
+                dataset_row[SP_TM_AGG_OP])
+
+            for key, point_id_value_list in point_list_by_label.items():
+                point_table[key] = None
+                for pt_idx, val in point_id_value_list:
+                    point_table.at[pt_idx, key] = val
 
         # save to point table
-        point_table[key] = None
-        for pt_idx, val in point_id_value_list:
-            point_table.at[pt_idx, key] = val
         LOGGER.debug(point_id_value_list)
 
     point_table.to_csv('test.csv', index=False)
