@@ -9,15 +9,25 @@ import re
 import sys
 import warnings
 
+import requests
 from bs4 import BeautifulSoup
-from duckduckgo_search import DDGS
 from playwright.async_api import async_playwright
 from transformers import pipeline
-import duckduckgo_search.exceptions
 import pandas as pd
 import spacy
 from transformers import logging as hf_logging
 hf_logging.set_verbosity_error()
+
+LOGGER = logging.getLogger(__name__)
+
+SEARCH_ENGINE_ID = 'd7b8ff21e69824ba5'
+
+try:
+    API_KEY = open('./secrets/custom_search_api_key.txt', 'r').read()
+except FileNotFoundError:
+    LOGGER.exception(
+        'custom_search_api_key.txt API key not found, should be in '
+        'subidrectory of "secrets"')
 
 
 def encode_text(text, tokenizer, max_length=512):
@@ -45,11 +55,8 @@ for module in [
         'selenium',
         'urllib3.connectionpool',
         'primp',
-        'rquest',
-        'duckduckgo_search.DDGS',]:
+        'request']:
     logging.getLogger(module).setLevel(logging.ERROR)
-
-LOGGER = logging.getLogger(__name__)
 
 spacy_tokenizer = spacy.load('en_core_web_sm')
 qa_pipeline = pipeline(
@@ -60,17 +67,60 @@ qa_pipeline = pipeline(
 
 async def searchengine_search(ddg_semaphore, query):
     async with ddg_semaphore:
+        results = []
         while True:
-            loop = asyncio.get_event_loop()
-            try:
-                results = await loop.run_in_executor(
-                    None,
-                    partial(DDGS().text, query, max_results=20))
-            except duckduckgo_search.exceptions.RatelimitException:
-                LOGGER.warning('duckduckgo rate limit error, sleeping for a bit')
-                await asyncio.sleep(3)
-                continue
-            return results
+            url = f'https://html.duckduckgo.com/html/?q={query.replace(" ", "+")}'
+            response = requests.get(url)
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.text, 'html.parser')
+
+                # Locate the main results container
+                results_container = soup.find('div', id='links')
+                if results_container:
+                    # Find each result within the container
+                    local_results = results_container.find_all('div', class_='links_main links_deep result__body')
+                    for result in local_results:
+                        # Extract the title and URL from <a> inside "result_title"
+                        title_tag = result.find('a', class_='result__a')
+                        result_title = title_tag.get_text(strip=True) if title_tag else 'No title'
+                        result_link = title_tag['href'] if title_tag else 'No link'
+
+                        # Extract the snippet text from <a> inside "result__snippet"
+                        snippet_tag = result.find('a', class_='result__snippet')
+                        result_snippet = snippet_tag.get_text(strip=True) if snippet_tag else 'No snippet'
+
+                        # Print the extracted details
+                        print("-" * 40)
+                        results.append({
+                            'title': result_title,
+                            'link': result_link,
+                            'snippet': result_snippet,
+                        })
+                else:
+                    print("No results container found.")
+            else:
+                print(f"Failed to retrieve results. Status code: {response.status_code}")
+
+            # url = "https://www.googleapis.com/customsearch/v1"
+            # params = {
+            #     "key": API_KEY,
+            #     "cx": SEARCH_ENGINE_ID,
+            #     "q": query
+            # }
+
+            # print(f'searching {params}')
+
+            # response = requests.get(url, params=params)
+            # loop = asyncio.get_event_loop()
+            # try:
+            #     results = await loop.run_in_executor(
+            #         None,
+            #         partial(DDGS().text, query, max_results=20))
+            # except duckduckgo_search.exceptions.RatelimitException:
+            #     LOGGER.warning('duckduckgo rate limit error, sleeping for a bit')
+            #     await asyncio.sleep(3)
+            #     continue
+            # return results
 
 
 async def fetch_page_content(browser_semaphore, browser, url):
@@ -89,18 +139,20 @@ async def fetch_page_content(browser_semaphore, browser, url):
 
 async def extract_query_relevant_text(args):
     result = args['result']
-    query_template = args['query_template']
-    subject = args['subject']
-    detailed_snippet = await fetch_relevant_snippet(
-        args['browser_semaphore'],
-        args['browser'],
-        result['href'],
-        query_template.format(subject=''),
-        subject)
-    detailed_snippet = f'{detailed_snippet} {result["body"]}' if detailed_snippet else result['body']
+    # query_template = args['query_template']
+    # subject = args['subject']
+    # detailed_snippet = result['snippet_text']
+
+    # await fetch_relevant_snippet(
+    #     args['browser_semaphore'],
+    #     args['browser'],
+    #     result['href'],
+    #     query_template.format(subject=''),
+    #     subject)
+    # detailed_snippet = f'{detailed_snippet} {result["body"]}' if detailed_snippet else result['body']
     return {
-        'body': f'{result["title"]}: {detailed_snippet}',
-        'href': result['href']}
+        'body': f'{result["title"]}: {result["snippet"]}',
+        'href': result['link']}
 
 
 async def extract_relevant_text_from_search_results(
@@ -232,7 +284,7 @@ async def get_answers(cleaned_context_list, query_template, full_query, context)
                     (result['score'], normalize_answer(result['answer']), chunk, href)
                 )
         return answers
-    except Exception as e:
+    except Exception:
         LOGGER.exception('somethinb bad happened answering questions')
         raise
 
@@ -241,6 +293,8 @@ async def answer_question(ddg_semaphore, browser_semaphore, browser, subject, ar
     try:
         subject = subject.strip()
         query = args.query_template.format(subject=subject)
+        LOGGER.debug(query)
+        sys.exit()
         raw_search_results = await searchengine_search(ddg_semaphore, query)
         LOGGER.info(f'1/3 INITAL INTERNET SEARCH COMPLETE - {query}')
         relevant_text_list = await extract_relevant_text_from_search_results(
@@ -346,7 +400,7 @@ async def main():
             LOGGER.info(f'processing {subject}')
             tasks.append(answer_question(
                 ddg_semaphore, browser_semaphore, browser, subject, args))
-            if args.max_subjects is not None and index == args.max_subjects-1:
+            if args.max_subjects is not None and index == args.max_subjects - 1:
                 break
         for answer in await asyncio.gather(*tasks):
             if answer is not None:
@@ -361,5 +415,57 @@ async def main():
     LOGGER.info(f'all done, results in: {query_result_filename}')
 
 
+def test_search():
+    # url = "https://www.googleapis.com/customsearch/v1"
+    # params = {
+    #     "key": API_KEY,
+    #     "cx": 'd7b8ff21e69824ba5',
+    #     "q": "is {subject} monophagous or polyphagous?"
+    # }
+
+    # print(f'searching {params}')
+    # response = requests.get(url, params=params)
+    # print(f'response {response}')
+    # results = response.json().get("items", [])
+    # print(f'results {results}')
+    # for item in results:
+    #     print(item["title"], item["link"])
+
+    #https://html.duckduckgo.com/html/?q=is abax ater monophagous or polyphagous
+    query = f'is abax ater monophagous or polyphagous'
+    url = f'https://html.duckduckgo.com/html/?q={query.replace(" ", "+")}'
+    response = requests.get(url)
+    if response.status_code == 200:
+        soup = BeautifulSoup(response.text, 'html.parser')
+
+        # Locate the main results container
+        results_container = soup.find('div', id='links')
+        if results_container:
+            # Find each result within the container
+            results = results_container.find_all('div', class_='links_main links_deep result__body')
+            for result in results:
+                # Extract the title and URL from <a> inside "result_title"
+                title_tag = result.find('a', class_='result__a')
+                title_text = title_tag.get_text(strip=True) if title_tag else 'No title'
+                title_link = title_tag['href'] if title_tag else 'No link'
+
+                # Extract the snippet text from <a> inside "result__snippet"
+                snippet_tag = result.find('a', class_='result__snippet')
+                snippet_text = snippet_tag.get_text(strip=True) if snippet_tag else 'No snippet'
+
+                # Print the extracted details
+                print(f"Title: {title_text}")
+                print(f"Link: {title_link}")
+                print(f"Snippet: {snippet_text}")
+                print("-" * 40)
+        else:
+            print("No results container found.")
+    else:
+        print(f"Failed to retrieve results. Status code: {response.status_code}")
+
+
 if __name__ == '__main__':
+    print('about to search')
+    #test_search()
+
     asyncio.run(main())
