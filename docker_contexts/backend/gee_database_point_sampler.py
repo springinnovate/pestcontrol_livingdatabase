@@ -690,27 +690,36 @@ def process_gee_dataset(
         n_points = len(point_list_by_year[current_year])
         LOGGER.info(f'processing {n_points} points on {dataset_id} {band_name} {pixel_op_transform} {spatiotemporal_commands} {current_year} over {year_range} {get_time():2}s')
         for index, (spatiotemp_flag, op_type, args) in enumerate(spatiotemporal_commands):
-            point_list = ee.FeatureCollection(point_list_by_year[current_year])
+            # chunk so we don't run out of memory
+            full_point_list = ee.FeatureCollection(point_list_by_year[current_year])
+            point_list_size = full_point_list.size()
+            i = 0
+            chunked_point_list = ee.FeatureCollection([])
+
+            while i < point_list_size:
+                chunk = ee.FeatureCollection(full_point_list.toList(BATCH_SIZE, i))
+                chunked_point_list = chunked_point_list.merge(chunk)
+                i += BATCH_SIZE
+
+            point_list = chunked_point_list
+
             if spatiotemp_flag in applied_functions:
                 raise ValueError(
                     f'already applied a {spatiotemp_flag} in the command list '
                     f'{spatiotemporal_commands}')
             applied_functions.add(spatiotemp_flag)
+
             if (spatiotemp_flag == JULIAN_FN and
                     collection_temporal_resolution == YEARS_FN):
                 spatiotemp_flag = YEARS_FN
-                LOGGER.warning(  # raise ValueError(
+                LOGGER.warning(
                     f'requesting {spatiotemp_flag} when underlying '
                     f'dataset is coarser at {collection_temporal_resolution} '
                     f'for {dataset_id} - {band_name}')
 
-            # process the collection on this spatiotemporal function
             if isinstance(active_collection, ee.ImageCollection):
                 if spatiotemp_flag == YEARS_FN:
-                    # already been filtered to be the right year span, just
-                    # set the target time to be the current year
-                    time_start_millis = ee.Date.fromYMD(
-                        current_year, 1, 1).millis()
+                    time_start_millis = ee.Date.fromYMD(current_year, 1, 1).millis()
                     active_collection = ee.ImageCollection(
                         IMG_COL_AGGREGATION_FUNCTIONS[op_type](
                             active_collection).set(
@@ -722,11 +731,8 @@ def process_gee_dataset(
                     start_day, end_day = args
 
                     def _op_by_julian_range(_year):
-                        # aggregate julian range around _year to just
-                        # a single image at _year
                         start_date = ee.Date.fromYMD(_year, 1, 1)
                         if start_day > 0:
-                            # day 1 should be jan 1, so do a -1
                             start_date = start_date.advance(start_day - 1, 'day')
                         else:
                             start_date = start_date.advance(start_day, 'day')
@@ -735,17 +741,11 @@ def process_gee_dataset(
                             end_date = end_date.advance(end_day, 'day')
                         else:
                             end_date = end_date.advance(end_day - 1, 'day')
-                        daily_collection = active_collection.filterDate(
-                            start_date, end_date)
-                        time_start_millis = ee.Date.fromYMD(
-                            _year, 1, 1).millis()
-                        aggregate_image = IMG_COL_AGGREGATION_FUNCTIONS[
-                            op_type](daily_collection)
-                        aggregate_image = aggregate_image.set(
-                            'system:time_start', time_start_millis)
-                        return aggregate_image
-                    # Defines as the min/max year that will be aggregated
-                    # later for current year
+                        daily_collection = active_collection.filterDate(start_date, end_date)
+                        time_start_millis = ee.Date.fromYMD(_year, 1, 1).millis()
+                        aggregate_image = IMG_COL_AGGREGATION_FUNCTIONS[op_type](daily_collection)
+                        return aggregate_image.set('system:time_start', time_start_millis)
+
                     years = ee.List(list(range(*year_range)))
                     active_collection = ee.ImageCollection.fromImages(
                         years.map(lambda y: _op_by_julian_range(y)))
@@ -758,24 +758,27 @@ def process_gee_dataset(
 
                     local_scale = (
                         nominal_scale if nominal_scale < args[0] and args[0] > 0
-                        else DEFAULT_SCALE)
+                        else DEFAULT_SCALE
+                    )
 
-                    batch_size = BATCH_SIZE
                     i = 0
                     results = ee.FeatureCollection([])
+                    n_points = buffered_point_list.size()
+
                     while i < n_points:
-                        batch = buffered_point_list.toList(batch_size, i)
+                        batch = buffered_point_list.toList(BATCH_SIZE, i)
                         batch_features = ee.FeatureCollection(batch)
                         batch_results = process_batch(
-                            batch_features, active_collection, batch_size,
-                            op_type, local_scale)
+                            batch_features, active_collection, BATCH_SIZE,
+                            op_type, local_scale
+                        )
                         results = results.merge(batch_results)
-                        i += batch_size
+                        i += BATCH_SIZE
 
                     active_collection = results
+
             elif isinstance(active_collection, ee.FeatureCollection):
                 if spatiotemp_flag == YEARS_FN:
-                    # we group all the points into a single value for the year?
                     def reduce_by_unique_id(unique_id):
                         unique_collection = active_collection.filter(
                             ee.Filter.eq(UNIQUE_ID, unique_id))
@@ -786,14 +789,11 @@ def process_gee_dataset(
                             unique_collection.first()).set(
                                 OUTPUT_TAG, aggregate_output)
                         return representative_feature
-                    # Get a list of unique IDs and years to iterate over.
+
                     active_collection = ee.FeatureCollection(
                         ee.List(point_unique_id_per_year[current_year]).map(
-                            lambda unique_id: reduce_by_unique_id(
-                                unique_id)))
+                            lambda unique_id: reduce_by_unique_id(unique_id)))
                 elif spatiotemp_flag == JULIAN_FN:
-                    # we group all the points into groups of years
-                    # Function to calculate mean output by unique_id and year.
                     if op_type in N_LIMIT_OPS:
                         n_samples, start_day, end_day = args
                     else:
@@ -801,8 +801,7 @@ def process_gee_dataset(
 
                     def reduce_by_julian(unique_id, _year):
                         start_date = ee.Date.fromYMD(_year, 1, 1)
-                        if args[0] > 0:
-                            # day 1 should be jan 1, so do a -1
+                        if start_day > 0:
                             start_date = start_date.advance(start_day - 1, 'day')
                         else:
                             start_date = start_date.advance(start_day, 'day')
@@ -811,10 +810,8 @@ def process_gee_dataset(
                             end_date = end_date.advance(end_day - 1, 'day')
                         else:
                             end_date = end_date.advance(end_day, 'day')
-
                         julian_collection = active_collection.filterDate(
-                            start_date, end_date).filter(ee.Filter.eq(
-                                UNIQUE_ID, unique_id))
+                            start_date, end_date).filter(ee.Filter.eq(UNIQUE_ID, unique_id))
 
                         if op_type in N_LIMIT_OPS:
                             aggregate_output = FEATURE_COLLECTION_AGGREGATION_FUNCTIONS[
@@ -822,19 +819,18 @@ def process_gee_dataset(
                         else:
                             aggregate_output = FEATURE_COLLECTION_AGGREGATION_FUNCTIONS[
                                 op_type](julian_collection)
-
                         representative_feature = ee.Feature(
-                            julian_collection.first()).set(
-                                OUTPUT_TAG, aggregate_output)
+                            julian_collection.first()).set(OUTPUT_TAG, aggregate_output)
                         return representative_feature
 
                     years = ee.List(list(range(*year_range)))
-                    # Use nested mapping to apply the mean function to each unique ID and year combination.
                     active_collection = ee.FeatureCollection(
                         ee.List(point_unique_id_per_year[current_year]).map(
                             lambda unique_id: years.map(
-                                lambda year: reduce_by_julian(
-                                    unique_id, year))).flatten())
+                                lambda year: reduce_by_julian(unique_id, year)
+                            )
+                        ).flatten()
+                    )
 
         def accumulate_by_year(active_collection):
             def extract_properties(feature):
@@ -861,6 +857,7 @@ def process_gee_dataset(
             raise
 
     collection_per_year_info = collection_per_year.getInfo()
+    LOGGER.debug(collection_per_year_info)
     result_list = []
     for year, data in collection_per_year_info.items():
         try:
@@ -902,8 +899,8 @@ def main():
     """Entry point."""
     parser = argparse.ArgumentParser(description='sample points on GEE data')
     parser.add_argument(
-        '--point_table_path', required=True,
-        help=f'path to table with {LAT_FIELD}, {LNG_FIELD}, and {YEAR_FIELD} columns')
+        '--point_table_paths', required=True, nargs='+',
+        help=f'paths to tables with {LAT_FIELD}, {LNG_FIELD}, and {YEAR_FIELD} columns (space-separated)')
     parser.add_argument(
         '--dataset_table_path', required=True, help='path to data table')
     parser.add_argument(
@@ -923,38 +920,55 @@ def main():
     args = parser.parse_args()
     initialize_gee()
 
-    point_features_by_year, point_unique_id_per_year, point_table = (
-        point_table_to_point_batch(
-            args.point_table_path,
-            n_rows=args.n_point_table_rows))
+    # point_features_by_year, point_unique_id_per_year, point_table = (
+    #     point_table_to_point_batch(
+    #         args.point_table_path,
+    #         n_rows=args.n_point_table_rows))
 
     dataset_table = process_data_table(
         args.dataset_table_path,
         n_rows=args.n_dataset_rows)
 
-    for row_index, dataset_row in dataset_table.iterrows():
-        key = (
-            f'{dataset_row[DATASET_ID]}_'
-            f'{dataset_row[BAND_NAME]}_'
-            f'{dataset_row[SP_TM_AGG_FUNC]}_'
-            f'{dataset_row[TRANSFORM_FUNC]}')
-        point_table[key] = None
-        LOGGER.debug(f'************** {dataset_row[TRANSFORM_FUNC]}')
-        point_id_value_list = process_gee_dataset(
-            dataset_row[DATASET_ID],
-            dataset_row[BAND_NAME],
-            dataset_row[START_DATE],
-            dataset_row[END_DATE],
-            dataset_row[COLLECTION_TEMPORAL_RESOLUTION],
-            point_features_by_year,
-            point_unique_id_per_year,
-            dataset_row[PIXEL_FN_OP],
-            dataset_row[SP_TM_AGG_OP])
+    # Process each point table path
+    for point_table_path in args.point_table_paths:
+        # Load point table and prepare for processing
+        point_features_by_year, point_unique_id_per_year, point_table = (
+            point_table_to_point_batch(
+                point_table_path,
+                n_rows=args.n_point_table_rows))
 
-        # save to point table
-        LOGGER.debug(point_id_value_list)
+        for row_index, dataset_row in dataset_table.iterrows():
+            key = (
+                f'{dataset_row[DATASET_ID]}_'
+                f'{dataset_row[BAND_NAME]}_'
+                f'{dataset_row[SP_TM_AGG_FUNC]}_'
+                f'{dataset_row[TRANSFORM_FUNC]}')
+            if key not in point_table.columns:
+                point_table[key] = None  # Ensure column exists
+            LOGGER.debug(f'************** {dataset_row[TRANSFORM_FUNC]}')
 
-    point_table.to_csv('test.csv', index=False)
+            point_id_value_list = process_gee_dataset(
+                dataset_row[DATASET_ID],
+                dataset_row[BAND_NAME],
+                dataset_row[START_DATE],
+                dataset_row[END_DATE],
+                dataset_row[COLLECTION_TEMPORAL_RESOLUTION],
+                point_features_by_year,
+                point_unique_id_per_year,
+                dataset_row[PIXEL_FN_OP],
+                dataset_row[SP_TM_AGG_OP])
+
+            for row_id, value in point_id_value_list:
+                if row_id in point_table.index:
+                    point_table.at[row_id, key] = value
+
+            LOGGER.debug(point_id_value_list)
+
+        # Save the updated point table with a timestamped filename
+        timestamp = datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
+        output_filename = f'{os.path.basename(point_table_path).rsplit(".", 1)[0]}_{timestamp}.csv'
+        point_table.to_csv(output_filename, index=False)
+        LOGGER.info(f'Saved updated point table to {output_filename}')
 
 
 if __name__ == "__main__":
