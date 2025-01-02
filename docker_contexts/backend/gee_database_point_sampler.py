@@ -11,6 +11,7 @@ import os
 import re
 import sys
 
+import requests
 from database import DATABASE_URI
 from database_model_definitions import Sample, Point, CovariateDefn, CovariateValue, CovariateType, CovariateAssociation
 from parsimonious.grammar import Grammar
@@ -52,6 +53,10 @@ DATASET_ID = 'Dataset ID'
 BAND_NAME = 'Band Name'
 SP_TM_AGG_FUNC = 'Spatiotemporal Aggregation Function'
 TRANSFORM_FUNC = 'Pixel Value Transform'
+START_DATE = 'start_date'
+END_DATE = 'end_date'
+DATASET_TYPE = 'dataset_type'
+COLLECTION_TEMPORAL_RESOLUTION = 'collection_temporal_resolution'
 
 SP_TM_AGG_OP = '_internal_sptmaggop'
 PIXEL_FN_OP = '_internal_pixelop'
@@ -115,6 +120,40 @@ EXPECTED_POINTTABLE_COLUMNS = [
     LNG_FIELD,
     YEAR_FIELD
 ]
+
+
+def parse_gee_dataset_info(url):
+    """Read the GEE developer page for dataset range and ID."""
+    if not url.startswith('https://'):
+        base_dataset_id = url
+        url = f'https://developers.google.com/earth-engine/datasets/catalog/{base_dataset_id}'
+    result = {}
+    r = requests.get(url)
+    date_match = re.search(
+        r"Dataset Availability.*?(\d{4}-\d{2}-\d{2})T.*?(\d{4}-\d{2}-\d{2})T",
+        r.text, re.DOTALL)
+    if date_match:
+        start_date, end_date = date_match.groups()
+        result[START_DATE], result[END_DATE] = date_match.groups()
+
+    dataset_match = re.search(
+        r"Earth Engine Snippet.*?(ee\.(ImageCollection|Image)\(\"([^\"]+)\"\))",
+        r.text, re.DOTALL)
+    if dataset_match:
+        _, result[DATASET_TYPE], result[DATASET_ID] = dataset_match.groups()
+
+    temporal_match = re.search(
+        r"Cadence.*?(\bYear\b|\bMonth\b|\bDay\b)",
+        r.text, re.DOTALL)
+
+    if temporal_match:
+        cadence = temporal_match.group(1)[0]
+        if cadence == 'Year':
+            result[COLLECTION_TEMPORAL_RESOLUTION] = YEARS_FN
+        else:
+            result[COLLECTION_TEMPORAL_RESOLUTION] = JULIAN_FN
+
+    return result
 
 
 def point_table_to_point_batch(
@@ -320,8 +359,14 @@ def process_data_table(
     dataset_table = pandas.read_csv(
         dataset_table_path,
         nrows=n_rows)
+
     dataset_table[SP_TM_AGG_OP] = None
     dataset_table[PIXEL_FN_OP] = None
+    dataset_table[START_DATE] = None
+    dataset_table[END_DATE] = None
+    dataset_table[DATASET_TYPE] = None
+    dataset_table[COLLECTION_TEMPORAL_RESOLUTION] = None
+
     missing_columns = set(
         EXPECTED_DATATABLE_COLUMNS).difference(set(dataset_table.columns))
     if missing_columns:
@@ -331,6 +376,10 @@ def process_data_table(
             '\nexisting columns:' + '\n\t'.join(dataset_table.columns))
 
     for row_index, dataset_row in dataset_table.iterrows():
+        dataset_info = parse_gee_dataset_info(dataset_row[DATASET_ID])
+        # Update DataFrame row with data parsed out of the URL/dataset id
+        for key, value in dataset_info.items():
+            dataset_table.at[row_index, key] = value
         if isinstance(dataset_row[TRANSFORM_FUNC], str) and \
                 dataset_row[TRANSFORM_FUNC].lower() not in IGNORE_FLAGS:
             transform_func_re = re.search(
@@ -387,25 +436,22 @@ INFER_RESOLUTION_MEMO_CACHE = {}
 INFER_RESOLUTION_MEMO_LOCK = Lock()
 
 
-def infer_temporal_and_spatial_resolution_and_valid_years(collection):
+def get_spatial_resolution(dataset_id):
     with INFER_RESOLUTION_MEMO_LOCK:
-        if collection not in INFER_RESOLUTION_MEMO_CACHE:
-            date_collection = collection.aggregate_array('system:time_start')
-            year_strings = date_collection.map(
-                lambda timestamp: ee.Date(timestamp).format('YYYY'))
-            unique_years = set(
-                int(x) for x in ee.List(year_strings).distinct().getInfo())
-            date_list = [
-                datetime.utcfromtimestamp(date / 1000)
-                for date in date_collection.getInfo()]
-            scale = collection.first().projection().nominalScale().getInfo()
-            for i in range(1, len(date_list)):
-                diff = (date_list[i] - date_list[i - 1]).days
-                if diff > 300:  # we saw at least a year's gap, so quit
-                    return YEARS_FN, scale, unique_years
-            INFER_RESOLUTION_MEMO_CACHE[collection] = (
-                JULIAN_FN, scale, unique_years)
-        return INFER_RESOLUTION_MEMO_CACHE[collection]
+        if dataset_id not in INFER_RESOLUTION_MEMO_CACHE:
+            asset_info = ee.data.getAsset(dataset_id)
+            asset_type = asset_info.get('type', '').upper()
+
+            # If not a collection, just handle it as a single image dataset
+            if asset_type == 'IMAGE_COLLECTION':
+                collection = ee.ImageCollection(dataset_id)
+                scale = collection.first().projection().nominalScale().getInfo()
+            else:
+                image = ee.Image(dataset_id)
+                scale = image.projection().nominalScale().getInfo()
+
+            INFER_RESOLUTION_MEMO_CACHE[dataset_id] = scale
+        return INFER_RESOLUTION_MEMO_CACHE[dataset_id]
 
 
 def get_year_julian_range(current_year, spatiotemporal_commands):
@@ -481,27 +527,6 @@ def load_collection_or_image(dataset_id):
 
             LOAD_DATASET_MEMO_CACHE[dataset_id] = dataset
         return LOAD_DATASET_MEMO_CACHE[dataset_id]
-
-# def load_collection_or_image(dataset_id):
-#     # Check if the result is already in the cache
-#     with LOAD_DATASET_MEMO_LOCK:
-#         if dataset_id not in LOAD_DATASET_MEMO_CACHE:
-#             dataset = ee.ImageCollection(dataset_id)
-#             try:
-#                 # Try to access a property that should be present in an ImageCollection
-#                 # If the property access succeeds, it's likely an ImageCollection
-#                 print(f'trying to see if it is an image collection {get_time():.2f}s')
-#                 dataset.size().getInfo()
-#                 LOAD_DATASET_MEMO_CACHE[dataset_id] = dataset
-#                 return dataset
-#             except ee.EEException:
-#                 # If an error occurred, it's likely not an ImageCollection, so load as an Image
-#                 image = ee.Image(dataset_id)
-#                 # Convert the single Image to an ImageCollection
-#                 print(f'convert to an image collection {get_time():.2f}s')
-#                 image_collection = ee.ImageCollection([image])
-#                 LOAD_DATASET_MEMO_CACHE[dataset_id] = image_collection
-#         return LOAD_DATASET_MEMO_CACHE[dataset_id]
 
 
 def process_custom_dataset(
@@ -585,6 +610,9 @@ def get_time():
 def process_gee_dataset(
         dataset_id,
         band_name,
+        dataset_start_date,
+        dataset_end_date,
+        collection_temporal_resolution,
         point_list_by_year,
         point_unique_id_per_year,
         pixel_op_transform,
@@ -601,10 +629,11 @@ def process_gee_dataset(
     image_collection = image_collection.select(band_name)
 
     print(f'getting the appropriate resolutions {get_time():.2f}s')
-    collection_temporal_resolution, nominal_scale, valid_year_set = \
-        infer_temporal_and_spatial_resolution_and_valid_years(
-            image_collection)
+    nominal_scale = get_spatial_resolution(dataset_id)
     print(f'got the resolutions {get_time():.2f}s')
+
+    dataset_start_year = int(dataset_start_date[:4])
+    dataset_end_year = int(dataset_end_date[:4])
 
     collection_per_year = ee.Dictionary()
     for current_year in point_list_by_year.keys():
@@ -615,22 +644,22 @@ def process_gee_dataset(
         year_range, julian_range = get_year_julian_range(
             current_year, spatiotemporal_commands)
 
-        if valid_year_set and any(
-                year not in valid_year_set for year in year_range):
+        if (not (dataset_start_year <= year_range[0] <= dataset_end_year) or
+                not (dataset_start_year <= year_range[1] <= dataset_end_year)):
             LOGGER.debug(
-                f'{valid_year_set} does not cover queried year range '
+                f'{dataset_start_year} - {dataset_end_year} does not cover queried year range '
                 f'of {year_range} in {dataset_id} - {band_name}')
             collection_per_year = collection_per_year.set(str(current_year), ee.List([
                 (unique_id,
-                 f'{valid_year_set} does not cover queried year range of {year_range}')
+                 f'{dataset_start_year} - {dataset_end_year} does not cover queried year range '
+                 f'of {year_range}')
                 for unique_id in point_unique_id_per_year[current_year]]))
             continue
-        if valid_year_set:
-            print(f'filter image colleciton by date range {get_time():2}s)')
-            active_collection = filter_imagecollection_by_date_range(
-                year_range, julian_range, image_collection)
-        else:
-            active_collection = image_collection
+
+        print(f'filter image colleciton by date range {get_time():2}s)')
+        active_collection = filter_imagecollection_by_date_range(
+            year_range, julian_range, image_collection)
+
         if pixel_op_transform is not None:
             def pixel_op(pixel_op_fn, args):
                 return {
@@ -893,66 +922,26 @@ def main():
     args = parser.parse_args()
     initialize_gee()
 
-    # # Create the FeatureCollection of points
-    # points = ee.FeatureCollection([
-    #     ee.Feature(ee.Geometry.Point([-119.2747798, 36.60678309])),
-    #     ee.Feature(ee.Geometry.Point([-119.2763897, 36.51107327])),
-    #     ee.Feature(ee.Geometry.Point([-119.4078862, 36.58501194])),
-    #     ee.Feature(ee.Geometry.Point([-119.5407169, 36.54133622])),
-    #     ee.Feature(ee.Geometry.Point([-119.276439, 36.50728327])),
-    #     ee.Feature(ee.Geometry.Point([-119.271641, 36.51070032])),
-    #     ee.Feature(ee.Geometry.Point([-119.2720993, 36.50885002])),
-    #     ee.Feature(ee.Geometry.Point([-119.2721386, 36.50744884])),
-    #     ee.Feature(ee.Geometry.Point([-119.2694354, 36.51061335])),
-    #     ee.Feature(ee.Geometry.Point([-119.270232, 36.50860051]))
-    # ])
-
     point_features_by_year, point_unique_id_per_year, point_table = (
         point_table_to_point_batch(
             args.point_table_path,
             n_rows=args.n_point_table_rows))
-    print(point_features_by_year)
-
-    # band = 'crops'
-    # for year, point_features in point_features_by_year.items():
-    #     dw = ee.ImageCollection('GOOGLE/DYNAMICWORLD/V1') \
-    #         .filterDate(f'{year}-01-01', f'{year+2}-12-31')
-
-    #     meanImage = dw.select([band]).mean()
-
-    #     def add_mean_crops(feature):
-    #         buffer_geom = feature.geometry().buffer(30)
-    #         mean_val = meanImage.reduceRegion(
-    #             reducer=ee.Reducer.mean(),
-    #             geometry=buffer_geom,
-    #             scale=10,
-    #             bestEffort=True
-    #         ).get(band)
-    #         return feature.set('mean_crops', mean_val)
-
-    #     bufferedPoints = ee.FeatureCollection(point_features).map(add_mean_crops)
-
-    #     # Get the results as a dictionary to print
-    #     results = bufferedPoints.getInfo()
-    #     print(results)
-
-    # return
 
     dataset_table = process_data_table(
         args.dataset_table_path,
         n_rows=args.n_dataset_rows)
-    for process_fn in [
-            #process_MODIS_landcover_table,
-            process_dynamicworld_crop_and_landcover_table]:
-        point_list_by_label = process_fn(
-            point_features_by_year,
-            point_unique_id_per_year,
-            dataset_table.iloc[0][SP_TM_AGG_OP])
+    # for process_fn in [
+    #         #process_MODIS_landcover_table,
+    #         process_dynamicworld_crop_and_landcover_table]:
+    #     point_list_by_label = process_fn(
+    #         point_features_by_year,
+    #         point_unique_id_per_year,
+    #         dataset_table.iloc[0][SP_TM_AGG_OP])
 
-        for key, point_id_value_list in point_list_by_label.items():
-            point_table[key] = None
-            for pt_idx, val in point_id_value_list:
-                point_table.at[pt_idx, key] = val
+    #     for key, point_id_value_list in point_list_by_label.items():
+    #         point_table[key] = None
+    #         for pt_idx, val in point_id_value_list:
+    #             point_table.at[pt_idx, key] = val
 
 
     for row_index, dataset_row in dataset_table.iterrows():
@@ -963,28 +952,31 @@ def main():
             f'{dataset_row[TRANSFORM_FUNC]}')
         point_table[key] = None
         LOGGER.debug(f'************** {dataset_row[TRANSFORM_FUNC]}')
-        # point_id_value_list = process_gee_dataset(
-        #     dataset_row[DATASET_ID],
-        #     dataset_row[BAND_NAME],
-        #     point_features_by_year,
-        #     point_unique_id_per_year,
-        #     dataset_row[PIXEL_FN_OP],
-        #     dataset_row[SP_TM_AGG_OP])
+        point_id_value_list = process_gee_dataset(
+            dataset_row[DATASET_ID],
+            dataset_row[BAND_NAME],
+            dataset_row[START_DATE],
+            dataset_row[END_DATE],
+            dataset_row[COLLECTION_TEMPORAL_RESOLUTION],
+            point_features_by_year,
+            point_unique_id_per_year,
+            dataset_row[PIXEL_FN_OP],
+            dataset_row[SP_TM_AGG_OP])
         # for pt_idx, val in point_id_value_list:
         #     point_table.at[pt_idx, key] = val
 
-        for process_fn in [
-                #process_MODIS_landcover_table,
-                process_dynamicworld_crop_and_landcover_table]:
-            point_list_by_label = process_fn(
-                point_features_by_year,
-                point_unique_id_per_year,
-                dataset_row[SP_TM_AGG_OP])
+        # for process_fn in [
+        #         #process_MODIS_landcover_table,
+        #         process_dynamicworld_crop_and_landcover_table]:
+        #     point_list_by_label = process_fn(
+        #         point_features_by_year,
+        #         point_unique_id_per_year,
+        #         dataset_row[SP_TM_AGG_OP])
 
-            for key, point_id_value_list in point_list_by_label.items():
-                point_table[key] = None
-                for pt_idx, val in point_id_value_list:
-                    point_table.at[pt_idx, key] = val
+        #     for key, point_id_value_list in point_list_by_label.items():
+        #         point_table[key] = None
+        #         for pt_idx, val in point_id_value_list:
+        #             point_table.at[pt_idx, key] = val
 
         # save to point table
         LOGGER.debug(point_id_value_list)
