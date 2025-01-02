@@ -717,6 +717,7 @@ def process_gee_dataset(
                             'system:time_start', time_start_millis))
                 elif spatiotemp_flag == JULIAN_FN:
                     if op_type in N_LIMIT_OPS:
+                        print(f'temporal resolution: {collection_temporal_resolution} {dataset_id}')
                         raise RuntimeError(f'{spatiotemp_flag} is not implemented for images')
                     start_day, end_day = args
 
@@ -930,19 +931,6 @@ def main():
     dataset_table = process_data_table(
         args.dataset_table_path,
         n_rows=args.n_dataset_rows)
-    # for process_fn in [
-    #         #process_MODIS_landcover_table,
-    #         process_dynamicworld_crop_and_landcover_table]:
-    #     point_list_by_label = process_fn(
-    #         point_features_by_year,
-    #         point_unique_id_per_year,
-    #         dataset_table.iloc[0][SP_TM_AGG_OP])
-
-    #     for key, point_id_value_list in point_list_by_label.items():
-    #         point_table[key] = None
-    #         for pt_idx, val in point_id_value_list:
-    #             point_table.at[pt_idx, key] = val
-
 
     for row_index, dataset_row in dataset_table.iterrows():
         key = (
@@ -962,21 +950,6 @@ def main():
             point_unique_id_per_year,
             dataset_row[PIXEL_FN_OP],
             dataset_row[SP_TM_AGG_OP])
-        # for pt_idx, val in point_id_value_list:
-        #     point_table.at[pt_idx, key] = val
-
-        # for process_fn in [
-        #         #process_MODIS_landcover_table,
-        #         process_dynamicworld_crop_and_landcover_table]:
-        #     point_list_by_label = process_fn(
-        #         point_features_by_year,
-        #         point_unique_id_per_year,
-        #         dataset_row[SP_TM_AGG_OP])
-
-        #     for key, point_id_value_list in point_list_by_label.items():
-        #         point_table[key] = None
-        #         for pt_idx, val in point_id_value_list:
-        #             point_table.at[pt_idx, key] = val
 
         # save to point table
         LOGGER.debug(point_id_value_list)
