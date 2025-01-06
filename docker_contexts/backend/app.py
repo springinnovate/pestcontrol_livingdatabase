@@ -1124,7 +1124,7 @@ def data_extractor():
 
     data_sources = [
         '*GOOGLE/DYNAMICWORLD/V1 crop and landcover table',
-        '*MODIS/006/MCD12Q1 landcover table'
+        '*MODIS/006/MCD12Q1 landcover table',
         'ECMWF/ERA5/MONTHLY:dewpoint_2m_temperature',
         'ECMWF/ERA5/MONTHLY:maximum_2m_air_temperature',
         'ECMWF/ERA5/MONTHLY:mean_2m_air_temperature',
@@ -1137,20 +1137,6 @@ def data_extractor():
         'MODIS/061/MCD12Q2:Peak_1',
         'CSP/ERGo/1_0/Global/SRTM_topoDiversity:constant'
     ]
-    aggregation_functions = [
-        'years_mean(-2, 0; julian_max(1, 365))',
-        'years_mean(-2, 0; julian_max(121, 273))',
-        'years_mean(-2, 0; julian_mean(1, 365))',
-        'years_mean(-2, 0; julian_mean(121, 273))',
-        'years_mean(-2, 0; julian_min(1, 365))',
-        'years_mean(-2, 0; julian_min(121, 273))',
-        'years_mean(-5, 0; julian_max(1, 365))',
-        'years_mean(-5, 0; julian_max(121, 273))',
-        'years_mean(-5, 0; julian_mean(1, 365))',
-        'years_mean(-5, 0; julian_mean(121, 273))',
-        'years_mean(-5, 0; julian_min(1, 365))',
-        'years_mean(-5, 0; julian_min(121, 273))',
-    ]
 
     return render_template(
         'remote_sensed_data_extractor.html',
@@ -1159,7 +1145,6 @@ def data_extractor():
         year_id=YEAR,
         max_eo_points=MAX_EO_POINT_SAMPLES,
         data_sources=data_sources,
-        aggregation_functions=aggregation_functions,
     )
 
 
