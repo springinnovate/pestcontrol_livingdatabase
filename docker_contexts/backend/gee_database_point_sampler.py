@@ -43,6 +43,7 @@ for lib_name in LIBS_TO_SILENCE:
 
 MAX_WORKERS = 10
 BATCH_SIZE = 100
+N_POINTS_BATCH = 50
 DEFAULT_SCALE = 30
 MAX_ATTEMPTS = 5
 DATATABLE_TEMPLATE_PATH = 'template_datatable.csv'
@@ -169,13 +170,20 @@ def point_table_to_point_batch(
 
     point_features_by_year = collections.defaultdict(list)
     point_unique_id_per_year = collections.defaultdict(list)
+    points_per_year = collections.defaultdict(int)
     for index, row in point_table.iterrows():
         year = int(row[YEAR_FIELD])
-        point_features_by_year[year].append(
+        batch_id = points_per_year[year] // N_POINTS_BATCH
+        batch_key = f'{year}_{batch_id}'
+        if len(point_features_by_year[batch_key]) >= N_POINTS_BATCH:
+            batch_id += 1
+            batch_key = f'{year}_{batch_id}'
+        point_features_by_year[batch_key].append(
             ee.Feature(ee.Geometry.Point(
                 [row[LNG_FIELD], row[LAT_FIELD]], 'EPSG:4326'),
                 {UNIQUE_ID: index}))
-        point_unique_id_per_year[year].append(index)
+        point_unique_id_per_year[batch_key].append(index)
+        points_per_year[year] += 1
     return point_features_by_year, point_unique_id_per_year, point_table
 
 
@@ -504,7 +512,8 @@ def filter_imagecollection_by_date_range(year_range, julian_range, image_collect
         # Filter the image collection for the given range and merge with the cumulative collection
         year_filtered_collection = image_collection.filterDate(start_date_str, end_date_str)
         filtered_collection = filtered_collection.merge(year_filtered_collection)
-    return filtered_collection
+        size = filtered_collection.size().getInfo()
+    return size, filtered_collection
 
 
 LOAD_DATASET_MEMO_CACHE = {}
@@ -636,7 +645,12 @@ def process_gee_dataset(
     dataset_end_year = int(dataset_end_date[:4])
 
     collection_per_year = collections.defaultdict(list)
-    for current_year in point_list_by_year.keys():
+    active_collection_size = 0
+    for current_year_batch_id in point_list_by_year.keys():
+        if '_' in current_year_batch_id:
+            current_year = int(current_year_batch_id.split('_')[0])
+        else:
+            current_year = int(current_year_batch_id)
         applied_functions = set()
         # apply year filter
         print(f'fetching year range {get_time():2}s)')
@@ -649,16 +663,17 @@ def process_gee_dataset(
             LOGGER.debug(
                 f'{dataset_start_year} - {dataset_end_year} does not cover queried year range '
                 f'of {year_range} in {dataset_id} - {band_name}')
-            collection_per_year[str(current_year)] = ([
+            collection_per_year[current_year_batch_id] = ([
                 (unique_id,
                  f'{dataset_start_year} - {dataset_end_year} does not cover queried year range '
                  f'of {year_range}')
-                for unique_id in point_unique_id_per_year[current_year]])
+                for unique_id in point_unique_id_per_year[current_year_batch_id]])
             continue
 
         print(f'filter image colleciton by date range {get_time():2}s)')
-        active_collection = filter_imagecollection_by_date_range(
+        active_collection_size, active_collection = filter_imagecollection_by_date_range(
             year_range, julian_range, image_collection)
+        print(f'the active collection size is {active_collection_size}')
 
         if pixel_op_transform is not None:
             def pixel_op(pixel_op_fn, args):
@@ -687,9 +702,9 @@ def process_gee_dataset(
                 raise ValueError(
                     f'"{pixel_op_fn}" is not a valid function in '
                     f'{PIXEL_TRANSFORM_ALLOWED_FUNCTIONS} for {dataset_id} - {band_name}')
-        n_points = len(point_list_by_year[current_year])
-        LOGGER.info(f'processing {n_points} points on {dataset_id} {band_name} {pixel_op_transform} {spatiotemporal_commands} {current_year} over {year_range} {get_time():2}s')
-        point_list = ee.FeatureCollection(point_list_by_year[current_year])
+        n_points = len(point_list_by_year[current_year_batch_id])
+        LOGGER.info(f'processing {n_points} points on {dataset_id} {band_name} {pixel_op_transform} {spatiotemporal_commands} {current_year_batch_id} over {year_range} {get_time():2}s')
+        point_list = ee.FeatureCollection(point_list_by_year[current_year_batch_id])
         for index, (spatiotemp_flag, op_type, args) in enumerate(spatiotemporal_commands):
             if spatiotemp_flag in applied_functions:
                 raise ValueError(
@@ -760,17 +775,20 @@ def process_gee_dataset(
                         nominal_scale if nominal_scale < args[0] and args[0] > 0
                         else DEFAULT_SCALE)
 
-                    batch_size = BATCH_SIZE
-                    i = 0
                     results = ee.FeatureCollection([])
-                    while i < n_points:
-                        batch = buffered_point_list.toList(batch_size, i)
-                        batch_features = ee.FeatureCollection(batch)
-                        batch_results = process_batch(
-                            batch_features, active_collection, batch_size,
-                            op_type, local_scale)
-                        results = results.merge(batch_results)
-                        i += batch_size
+                    batch_features = ee.FeatureCollection(buffered_point_list)
+
+                    def reduce_image(image):
+                        reduced_points = image.reduceRegions(
+                            collection=batch_features,
+                            reducer=POINT_AGGREGATION_FUNCTIONS[op_type],
+                            scale=local_scale,
+                        )
+                        time_start_millis = image.get('system:time_start')
+                        return reduced_points.map(lambda feature: feature.set('system:time_start', time_start_millis))
+
+                    batch_results = active_collection.map(reduce_image).flatten()
+                    results = results.merge(batch_results)
 
                     active_collection = results
             elif isinstance(active_collection, ee.FeatureCollection):
@@ -788,7 +806,7 @@ def process_gee_dataset(
                         return representative_feature
                     # Get a list of unique IDs and years to iterate over.
                     active_collection = ee.FeatureCollection(
-                        ee.List(point_unique_id_per_year[current_year]).map(
+                        ee.List(point_unique_id_per_year[current_year_batch_id]).map(
                             lambda unique_id: reduce_by_unique_id(
                                 unique_id)))
                 elif spatiotemp_flag == JULIAN_FN:
@@ -831,23 +849,24 @@ def process_gee_dataset(
                     years = ee.List(list(range(*year_range)))
                     # Use nested mapping to apply the mean function to each unique ID and year combination.
                     active_collection = ee.FeatureCollection(
-                        ee.List(point_unique_id_per_year[current_year]).map(
+                        ee.List(point_unique_id_per_year[current_year_batch_id]).map(
                             lambda unique_id: years.map(
                                 lambda year: reduce_by_julian(
                                     unique_id, year))).flatten())
 
-        def _chunk_feature_collection(fc, chunk_size):
-            size = fc.size().getInfo()  # Get the total size (client-side)
+        def _chunk_feature_collection(fc, chunk_size, total_size):
             start = 0
             chunked_list = []
 
             # Walk through the FeatureCollection in steps of `chunk_size`
-            while start < size:
+            n_chunks = 0
+            while start < total_size:
                 chunk = ee.FeatureCollection(fc.toList(chunk_size, start))
                 chunked_list.append(chunk)
                 start += chunk_size
+                n_chunks += 1
 
-            return chunked_list
+            return n_chunks, chunked_list
 
         def accumulate_by_year(active_collection):
             def extract_properties(feature):
@@ -863,11 +882,11 @@ def process_gee_dataset(
 
         try:
             LOGGER.debug(f' accumulate by year {get_time():.2}s')
-            chunked_active_collection = _chunk_feature_collection(active_collection, BATCH_SIZE)
-            for chunk in chunked_active_collection:
-                # accumulate_by_year returns an ee.List (or something you can .getInfo() on)
+            n_chunks, chunked_active_collection = _chunk_feature_collection(active_collection, BATCH_SIZE, active_collection_size)
+            for index, chunk in enumerate(chunked_active_collection):
+                LOGGER.debug(f'accumulating chunk {index} of {n_chunks}')
                 partial_result = accumulate_by_year(chunk).getInfo()
-                collection_per_year[str(current_year)].extend(partial_result)
+                collection_per_year[current_year_batch_id].extend(partial_result)
             LOGGER.debug(f'got {current_year} done {get_time():.2}s')
         except Exception:
             LOGGER.exception(
@@ -879,7 +898,6 @@ def process_gee_dataset(
     # LOGGER.debug(collection_per_year_info)
     result_list = []
     for year, data in collection_per_year.items():
-        print(data)
         try:
             result_list.extend([(f[0], f[1]) for f in data])
         except Exception:
