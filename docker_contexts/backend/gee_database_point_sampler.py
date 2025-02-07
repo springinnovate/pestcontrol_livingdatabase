@@ -58,6 +58,7 @@ START_DATE = 'start_date'
 END_DATE = 'end_date'
 DATASET_TYPE = 'dataset_type'
 COLLECTION_TEMPORAL_RESOLUTION = 'collection_temporal_resolution'
+NOMINAL_SCALE = 'nominal_scale'
 
 SP_TM_AGG_OP = '_internal_sptmaggop'
 PIXEL_FN_OP = '_internal_pixelop'
@@ -124,35 +125,46 @@ EXPECTED_POINTTABLE_COLUMNS = [
 
 
 def parse_gee_dataset_info(url):
-    """Read the GEE developer page for dataset range and ID."""
+    """Read the GEE developer page for dataset range, ID, and resolution."""
     if not url.startswith('https://'):
         base_dataset_id = url
-        url = f'https://developers.google.com/earth-engine/datasets/catalog/{base_dataset_id}'
+        url = f'https://developers.google.com/earth-engine/datasets/catalog/{base_dataset_id}#bands'
     result = {}
     r = requests.get(url)
+
+    # Parse dataset availability dates
     date_match = re.search(
         r"Dataset Availability.*?(\d{4}-\d{2}-\d{2})T.*?(\d{4}-\d{2}-\d{2})T",
         r.text, re.DOTALL)
     if date_match:
         start_date, end_date = date_match.groups()
-        result[START_DATE], result[END_DATE] = date_match.groups()
+        result[START_DATE], result[END_DATE] = start_date, end_date
 
+    # Parse Earth Engine Snippet
     dataset_match = re.search(
         r"Earth Engine Snippet.*?(ee\.(ImageCollection|Image)\(\"([^\"]+)\"\))",
         r.text, re.DOTALL)
     if dataset_match:
         _, result[DATASET_TYPE], result[DATASET_ID] = dataset_match.groups()
 
+    # Parse temporal resolution (cadence)
     temporal_match = re.search(
-        r"Cadence.*?(\bYear\b|\bMonth\b|\bDay\b)",
+        r"Cadence.*?(\bYear\b|\bMonth\b|\bDay\b|\bHour\b)",
         r.text, re.DOTALL)
-
     if temporal_match:
-        cadence = temporal_match.group(1)[0]
+        cadence = temporal_match.group(1)
         if cadence == 'Year':
             result[COLLECTION_TEMPORAL_RESOLUTION] = YEARS_FN
         else:
             result[COLLECTION_TEMPORAL_RESOLUTION] = JULIAN_FN
+
+    # Parse nominal scale (resolution)
+    resolution_match = re.search(
+        r"<p>\s*<b>Resolution</b>\s*<br>\s*([\d,]+)\s*meters",
+        r.text, re.DOTALL)
+    if resolution_match:
+        resolution = resolution_match.group(1).replace(",", "")
+        result[NOMINAL_SCALE] = int(resolution)
 
     return result
 
@@ -374,6 +386,7 @@ def process_data_table(
     dataset_table[END_DATE] = None
     dataset_table[DATASET_TYPE] = None
     dataset_table[COLLECTION_TEMPORAL_RESOLUTION] = None
+    dataset_table[NOMINAL_SCALE] = None
 
     missing_columns = set(
         EXPECTED_DATATABLE_COLUMNS).difference(set(dataset_table.columns))
@@ -622,6 +635,7 @@ def process_gee_dataset(
         dataset_start_date,
         dataset_end_date,
         collection_temporal_resolution,
+        nominal_scale,
         point_list_by_year,
         point_unique_id_per_year,
         pixel_op_transform,
@@ -636,10 +650,6 @@ def process_gee_dataset(
 
     image_collection = load_collection_or_image(dataset_id)
     image_collection = image_collection.select(band_name)
-
-    print(f'getting the appropriate resolutions {get_time():.2f}s')
-    nominal_scale = get_spatial_resolution(dataset_id)
-    print(f'got the resolutions {get_time():.2f}s')
 
     dataset_start_year = int(dataset_start_date[:4])
     dataset_end_year = int(dataset_end_date[:4])
@@ -797,6 +807,7 @@ def process_gee_dataset(
                     def reduce_by_unique_id(unique_id):
                         unique_collection = active_collection.filter(
                             ee.Filter.eq(UNIQUE_ID, unique_id))
+                        print(op_type)
                         aggregate_output = \
                             FEATURE_COLLECTION_AGGREGATION_FUNCTIONS[op_type](
                                 unique_collection)
@@ -991,6 +1002,7 @@ def main():
                 dataset_row[START_DATE],
                 dataset_row[END_DATE],
                 dataset_row[COLLECTION_TEMPORAL_RESOLUTION],
+                dataset_row[NOMINAL_SCALE],
                 point_features_by_year,
                 point_unique_id_per_year,
                 dataset_row[PIXEL_FN_OP],
