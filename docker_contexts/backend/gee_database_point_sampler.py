@@ -562,12 +562,12 @@ def process_custom_dataset(
         point_unique_id_per_year,
         sp_tm_agg_op):
     if dataset_id == '*GOOGLE/DYNAMICWORLD/V1 crop and landcover table':
-        process_dynamicworld_crop_and_landcover_table(
+        return process_dynamicworld_crop_and_landcover_table(
             point_features_by_year,
             point_unique_id_per_year,
             sp_tm_agg_op)
     elif dataset_id == '*MODIS/006/MCD12Q1 landcover table':
-        process_MODIS_landcover_table(
+        return process_MODIS_landcover_table(
             point_features_by_year,
             point_unique_id_per_year,
             sp_tm_agg_op)
