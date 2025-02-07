@@ -1,6 +1,4 @@
 """Sample GEE datasets given pest control CSV."""
-import time
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, date
 from threading import Lock
 import argparse
@@ -10,13 +8,13 @@ import logging
 import os
 import re
 import sys
+import time
 
 import requests
 from database import DATABASE_URI
-from database_model_definitions import Sample, Point, CovariateDefn, CovariateValue, CovariateType, CovariateAssociation
 from parsimonious.grammar import Grammar
 from parsimonious.nodes import NodeVisitor
-from sqlalchemy import update, create_engine
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, scoped_session
 import ee
 import pandas
@@ -122,6 +120,32 @@ EXPECTED_POINTTABLE_COLUMNS = [
     LNG_FIELD,
     YEAR_FIELD
 ]
+
+
+def get_gee_dataset_stats(dataset_id):
+    url = f'https://developers.google.com/earth-engine/datasets/catalog/{dataset_id}'
+    r = requests.get(url)
+    match = re.search(r"Dataset Availability.*?(\d{4}-\d{2}-\d{2})T.*?(\d{4}-\d{2}-\d{2})T", r.text, re.DOTALL)
+    if match:
+        start_date, end_date = match.groups()
+    else:
+        start_date, end_date = None, None
+
+    snippet_match = re.search(r"Earth Engine Snippet.*?(ee\.(ImageCollection|Image)\(\"([^\"]+)\"\))", r.text, re.DOTALL)
+    if snippet_match:
+        full_snippet, dataset_type, dataset_id = snippet_match.groups()
+    else:
+        dataset_type = None
+
+    temporal_match = re.search(
+        r"Cadence.*?(\bYear\b|\bMonth\b|\bDay\b)",
+        r.text, re.DOTALL)
+    if temporal_match:
+        cadence = temporal_match.groups(1)
+    else:
+        cadence = None
+
+    return start_date, end_date, dataset_type, cadence
 
 
 def parse_gee_dataset_info(url):
@@ -632,6 +656,8 @@ def process_MODIS_landcover_table(
 
 
 TIME = 0
+
+
 def get_time():
     global TIME
     if TIME == 0:
