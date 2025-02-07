@@ -1075,7 +1075,11 @@ def data_extractor():
         csv_file = request.files.get('csv_file')
         point_features_by_year, point_unique_id_per_year, point_table = (
             gee_database_point_sampler.point_table_to_point_batch(csv_file))
-        dataset_id, band_name = request.form.get('data_source').split(':')
+        try:
+            dataset_id, band_name = request.form.get('data_source').split(':')
+        except ValueError:
+            dataset_id = request.form.get('data_source')
+            band_name = ''
 
         num_years_avg = int(request.form.get('num_years_avg'))
         seasonality_aggregation_fn = request.form.get('seasonality_aggregation_fn')
