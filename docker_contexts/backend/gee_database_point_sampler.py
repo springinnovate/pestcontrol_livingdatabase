@@ -679,7 +679,6 @@ def process_gee_dataset(
         dataset_start_year = 0
         dataset_end_year = 9999
 
-
     collection_per_year = collections.defaultdict(list)
     active_collection_size = 0
     for current_year_batch_id in point_list_by_year.keys():
