@@ -588,6 +588,10 @@ def process_dynamicworld_crop_and_landcover_table(
         lulc_point_id_value_list = process_gee_dataset(
             'GOOGLE/DYNAMICWORLD/V1',
             'label',
+            '2015-06-27',
+            '2025-02-07',
+            JULIAN_FN,
+            10,
             point_features_by_year,
             point_unique_id_per_year,
             (MASK_FN, [lulc_class]),
@@ -610,6 +614,10 @@ def process_MODIS_landcover_table(
         lulc_point_id_value_list = process_gee_dataset(
             'MODIS/061/MCD12Q1',
             'LC_Type2',
+            '2001-01-01',
+            '2023-01-01',
+            YEARS_FN,
+            500,
             point_features_by_year,
             point_unique_id_per_year,
             (MASK_FN, [lulc_class]),
