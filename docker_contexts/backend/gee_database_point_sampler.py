@@ -122,38 +122,12 @@ EXPECTED_POINTTABLE_COLUMNS = [
 ]
 
 
-def get_gee_dataset_stats(dataset_id):
-    url = f'https://developers.google.com/earth-engine/datasets/catalog/{dataset_id}'
-    r = requests.get(url)
-    match = re.search(r"Dataset Availability.*?(\d{4}-\d{2}-\d{2})T.*?(\d{4}-\d{2}-\d{2})T", r.text, re.DOTALL)
-    if match:
-        start_date, end_date = match.groups()
-    else:
-        start_date, end_date = None, None
-
-    snippet_match = re.search(r"Earth Engine Snippet.*?(ee\.(ImageCollection|Image)\(\"([^\"]+)\"\))", r.text, re.DOTALL)
-    if snippet_match:
-        full_snippet, dataset_type, dataset_id = snippet_match.groups()
-    else:
-        dataset_type = None
-
-    temporal_match = re.search(
-        r"Cadence.*?(\bYear\b|\bMonth\b|\bDay\b)",
-        r.text, re.DOTALL)
-    if temporal_match:
-        cadence = temporal_match.groups(1)
-    else:
-        cadence = None
-
-    return start_date, end_date, dataset_type, cadence
-
-
 def parse_gee_dataset_info(url):
     """Read the GEE developer page for dataset range, ID, and resolution."""
     if not url.startswith('https://'):
-        base_dataset_id = url
-        url = f'https://developers.google.com/earth-engine/datasets/catalog/{base_dataset_id}#bands'
-    result = {}
+        base_dataset_id = url.replace('/', '_')
+        url = f'https://developers.google.com/earth-engine/datasets/catalog/{base_dataset_id}'
+    result = collections.defaultdict(lambda: None)
     r = requests.get(url)
 
     # Parse dataset availability dates
@@ -173,7 +147,7 @@ def parse_gee_dataset_info(url):
 
     # Parse temporal resolution (cadence)
     temporal_match = re.search(
-        r"Cadence.*?(\bYear\b|\bMonth\b|\bDay\b|\bHour\b)",
+        r"Cadence.*?(\bYear\b|\bMonth\b|\bDay\b)",
         r.text, re.DOTALL)
     if temporal_match:
         cadence = temporal_match.group(1)
@@ -185,6 +159,13 @@ def parse_gee_dataset_info(url):
     # Parse nominal scale (resolution)
     resolution_match = re.search(
         r"<p>\s*<b>Resolution</b>\s*<br>\s*([\d,]+)\s*meters",
+        r.text, re.DOTALL)
+    if resolution_match:
+        resolution = resolution_match.group(1).replace(",", "")
+        result[NOMINAL_SCALE] = int(resolution)
+
+    resolution_match = re.search(
+        r"Pixel Size.*?(\d+) meters",
         r.text, re.DOTALL)
     if resolution_match:
         resolution = resolution_match.group(1).replace(",", "")
@@ -598,13 +579,14 @@ def process_dynamicworld_crop_and_landcover_table(
         sp_tm_agg_op):
     results_by_key_class = {}
     print(f'processing dynamic world dataset: {get_time():.2f}s')
+    result = parse_gee_dataset_info('GOOGLE/DYNAMICWORLD/V1')
     crop_point_id_value_list = process_gee_dataset(
         'GOOGLE/DYNAMICWORLD/V1',
         'crops',
-        '2015-06-27',
-        '2025-02-07',
-        JULIAN_FN,
-        10,
+        result[START_DATE],
+        result[END_DATE],
+        result[COLLECTION_TEMPORAL_RESOLUTION],
+        result[NOMINAL_SCALE],
         point_features_by_year,
         point_unique_id_per_year,
         None,
@@ -639,13 +621,14 @@ def process_MODIS_landcover_table(
     results_by_lulc_class = {}
     for lulc_class in range(16):
         key = f'MODIS/061/MCD12Q1_lulc_prop_{lulc_class}'
+        result = parse_gee_dataset_info('MODIS/061/MCD12Q1')
         lulc_point_id_value_list = process_gee_dataset(
             'MODIS/061/MCD12Q1',
             'LC_Type2',
-            '2001-01-01',
-            '2023-01-01',
-            YEARS_FN,
-            500,
+            result[START_DATE],
+            result[END_DATE],
+            result[COLLECTION_TEMPORAL_RESOLUTION],
+            result[NOMINAL_SCALE],
             point_features_by_year,
             point_unique_id_per_year,
             (MASK_FN, [lulc_class]),
@@ -689,8 +672,13 @@ def process_gee_dataset(
     image_collection = load_collection_or_image(dataset_id)
     image_collection = image_collection.select(band_name)
 
-    dataset_start_year = int(dataset_start_date[:4])
-    dataset_end_year = int(dataset_end_date[:4])
+    try:
+        dataset_start_year = int(dataset_start_date[:4])
+        dataset_end_year = int(dataset_end_date[:4])
+    except ValueError:
+        dataset_start_year = 0
+        dataset_end_year = 9999
+
 
     collection_per_year = collections.defaultdict(list)
     active_collection_size = 0

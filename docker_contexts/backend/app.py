@@ -1,6 +1,6 @@
 import time
 from datetime import datetime
-from io import StringIO, BytesIO, TextIOWrapper
+from io import StringIO, BytesIO
 import collections
 import configparser
 import csv
@@ -13,9 +13,10 @@ import re
 import sys
 import zipfile
 
+from gee_database_point_sampler import START_DATE, END_DATE, COLLECTION_TEMPORAL_RESOLUTION, NOMINAL_SCALE
 from celery_config import make_celery
 from database import SessionLocal
-from database_model_definitions import OBSERVATION, LATITUDE, LONGITUDE, YEAR, STUDY_ID
+from database_model_definitions import LATITUDE, LONGITUDE, YEAR, STUDY_ID
 from database_model_definitions import Study, Sample, Point, CovariateDefn, CovariateValue, CovariateType, CovariateAssociation, Geolocation
 from flask import Flask
 from flask import jsonify
@@ -27,15 +28,13 @@ from flask import url_for
 from gee_database_point_sampler import initialize_gee
 from gee_database_point_sampler import SPATIOTEMPORAL_FN_GRAMMAR
 from gee_database_point_sampler import SpatioTemporalFunctionProcessor
-from gee_database_point_sampler import UNIQUE_ID
 from sqlalchemy import distinct, func
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import selectinload
-from sqlalchemy.sql import and_, exists
+from sqlalchemy.sql import and_
 from sqlalchemy.sql.functions import GenericFunction
 from sqlalchemy.types import String
-import ee
 import gee_database_point_sampler
 import numpy
 import pandas as pd
@@ -1096,9 +1095,14 @@ def data_extractor():
         sp_tm_agg_op = parse_spatiotemporal_fn(sp_tm_agg_op_str)
         LOGGER.info(f'{dataset_id} - {band_name} - {sp_tm_agg_op}')
         if not dataset_id.startswith('*'):
+            result = gee_database_point_sampler.parse_gee_dataset_info(dataset_id)
             point_id_value_list = gee_database_point_sampler.process_gee_dataset(
                 dataset_id,
                 band_name,
+                result[START_DATE],
+                result[END_DATE],
+                result[COLLECTION_TEMPORAL_RESOLUTION],
+                result[NOMINAL_SCALE],
                 point_features_by_year,
                 point_unique_id_per_year,
                 None,
