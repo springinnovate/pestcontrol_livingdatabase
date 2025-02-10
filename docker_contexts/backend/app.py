@@ -25,6 +25,7 @@ from flask import render_template
 from flask import request
 from flask import send_file
 from flask import url_for
+from flask import redirect
 from gee_database_point_sampler import initialize_gee
 from gee_database_point_sampler import SPATIOTEMPORAL_FN_GRAMMAR
 from gee_database_point_sampler import SpatioTemporalFunctionProcessor
@@ -781,6 +782,7 @@ def view_covariate():
         'covariate_view.html',
         covariate_association_states=[str(x).split('.')[1] for x in CovariateAssociation],)
 
+
 @app.route('/api/get_covariates', methods=['GET'])
 def get_covariates():
     session = SessionLocal()
@@ -828,36 +830,6 @@ def start_download():
     return jsonify({'task_id': task.id, 'query_id': query_id}), 202
 
 
-@app.route('/check_task/<task_id>')
-def check_task(task_id):
-    task = _prep_download.AsyncResult(task_id)
-    if task.state == 'PENDING':
-        return jsonify({'status': 'PENDING'}), 202
-    elif task.state == 'FAILURE':
-        return jsonify({'status': 'FAILURE', 'error': str(task.info)}), 500
-    elif task.state == 'SUCCESS':
-        current = task.info.get('current', 0)
-        query_id = task.result.get('query_id')
-        result_url = url_for('download_file', query_id=query_id)
-        return jsonify({'status': 'SUCCESS', 'current': current, 'result_url': result_url}), 200
-    elif task.state == 'PROGRESS':
-        current = task.info.get('current', 0)
-        total = task.info.get('total', 1)
-        return jsonify({'status': 'PROGRESS', 'current': current, 'total': total}), 202
-    else:
-        # For 'STARTED' or any other states
-        return jsonify({'status': task.state}), 202
-
-
-@app.route('/download/<query_id>')
-def download_file(query_id):
-    zipfile_path = os.path.join(QUERY_RESULTS_DIR, f'{query_id}.zip')
-    if os.path.exists(zipfile_path):
-        return send_file(zipfile_path, as_attachment=True)
-    else:
-        return 'File not found', 404
-
-
 @celery.task
 def delete_file(zipfile_path):
     try:
@@ -897,7 +869,7 @@ def _prep_download(self, query_id):
         sample_covariate_names = list(
             name for (name,) in session.query(CovariateDefn.name)
             .join(CovariateValue, CovariateDefn.id_key == CovariateValue.covariate_defn_id)
-            .filter(CovariateValue.sample_id != None)
+            .filter(CovariateValue.sample_id is not None)
             .join(Sample, CovariateValue.sample_id == Sample.id_key)
             .join(Sample.study)
             .filter(*filters)
@@ -912,7 +884,7 @@ def _prep_download(self, query_id):
         study_covariate_names = list(
             name for (name,) in session.query(CovariateDefn.name)
             .join(CovariateValue, CovariateDefn.id_key == CovariateValue.covariate_defn_id)
-            .filter(CovariateValue.study_id != None)
+            .filter(CovariateValue.study_id is not None)
             .group_by(CovariateDefn.name)
             .order_by(
                 CovariateDefn.display_order,
@@ -1072,70 +1044,71 @@ def parse_spatiotemporal_fn(spatiotemporal_fn):
 def data_extractor():
     if request.method == 'POST':
         csv_file = request.files.get('csv_file')
-        point_features_by_year, point_unique_id_per_year, point_table = (
-            gee_database_point_sampler.point_table_to_point_batch(csv_file))
-        try:
-            dataset_id, band_name = request.form.get('data_source').split(':')
-        except ValueError:
-            dataset_id = request.form.get('data_source')
-            band_name = ''
+        form_data = request.form.to_dict()
+        csv_content = csv_file.read()
 
-        num_years_avg = int(request.form.get('num_years_avg'))
-        seasonality_aggregation_fn = request.form.get('seasonality_aggregation_fn')
-        julian_start_day = int(request.form.get('julian_start_day'))
-        julian_end_day = int(request.form.get('julian_end_day'))
-        spatial_aggregation = request.form.get('spatial_aggregation_fn')
-        spatial_radius = int(request.form.get('spatial_radius'))
+        task = gee_data_pull_task.delay(form_data, csv_content)
+        return redirect(url_for('processing_page', task_id=task.id))
 
-        sp_tm_agg_op_str = (
-            f'spatial_{spatial_aggregation}({spatial_radius};'
-            f'years_mean(-{num_years_avg},0;'
-            f'julian_{seasonality_aggregation_fn}({julian_start_day},{julian_end_day})))')
-        LOGGER.debug(f'this is the operation: {sp_tm_agg_op_str}')
-        sp_tm_agg_op = parse_spatiotemporal_fn(sp_tm_agg_op_str)
-        LOGGER.info(f'{dataset_id} - {band_name} - {sp_tm_agg_op}')
-        if not dataset_id.startswith('*'):
-            result = gee_database_point_sampler.parse_gee_dataset_info(dataset_id)
-            point_id_value_list = gee_database_point_sampler.process_gee_dataset(
-                dataset_id,
-                band_name,
-                result[START_DATE],
-                result[END_DATE],
-                result[COLLECTION_TEMPORAL_RESOLUTION],
-                result[NOMINAL_SCALE],
-                point_features_by_year,
-                point_unique_id_per_year,
-                None,
-                sp_tm_agg_op)
-        else:
-            # special case to handle
-            point_id_value_list = gee_database_point_sampler.process_custom_dataset(
-                dataset_id,
-                point_features_by_year,
-                point_unique_id_per_year,
-                sp_tm_agg_op)
+        # csv_file = request.files.get('csv_file')
+        # point_features_by_year, point_unique_id_per_year, point_table = (
+        #     gee_database_point_sampler.point_table_to_point_batch(csv_file))
+        # try:
+        #     dataset_id, band_name = request.form.get('data_source').split(':')
+        # except ValueError:
+        #     dataset_id = request.form.get('data_source')
+        #     band_name = ''
 
-        value_dict = dict(point_id_value_list)
-        LOGGER.debug(value_dict)
-        for column_name, list_of_tuples in value_dict.items():
-            data_dict = dict(list_of_tuples)
-            point_table[column_name] = point_table.index.map(data_dict)
-            point_table[column_name] = pd.to_numeric(point_table[column_name], errors='ignore')
+        # num_years_avg = int(request.form.get('num_years_avg'))
+        # seasonality_aggregation_fn = request.form.get('seasonality_aggregation_fn')
+        # julian_start_day = int(request.form.get('julian_start_day'))
+        # julian_end_day = int(request.form.get('julian_end_day'))
+        # spatial_aggregation = request.form.get('spatial_aggregation_fn')
+        # spatial_radius = int(request.form.get('spatial_radius'))
 
+        # sp_tm_agg_op_str = (
+        #     f'spatial_{spatial_aggregation}({spatial_radius};'
+        #     f'years_mean(-{num_years_avg},0;'
+        #     f'julian_{seasonality_aggregation_fn}({julian_start_day},{julian_end_day})))')
+        # LOGGER.debug(f'this is the operation: {sp_tm_agg_op_str}')
+        # sp_tm_agg_op = parse_spatiotemporal_fn(sp_tm_agg_op_str)
+        # LOGGER.info(f'{dataset_id} - {band_name} - {sp_tm_agg_op}')
+        # if not dataset_id.startswith('*'):
+        #     result = gee_database_point_sampler.parse_gee_dataset_info(dataset_id)
+        #     point_id_value_list = gee_database_point_sampler.process_gee_dataset(
+        #         dataset_id,
+        #         band_name,
+        #         result[START_DATE],
+        #         result[END_DATE],
+        #         result[COLLECTION_TEMPORAL_RESOLUTION],
+        #         result[NOMINAL_SCALE],
+        #         point_features_by_year,
+        #         point_unique_id_per_year,
+        #         None,
+        #         sp_tm_agg_op)
+        # else:
+        #     # special case to handle
+        #     point_id_value_list = gee_database_point_sampler.process_custom_dataset(
+        #         dataset_id,
+        #         point_features_by_year,
+        #         point_unique_id_per_year,
+        #         sp_tm_agg_op)
 
-        #header_id = f'{dataset_id}:{band_name} -> {sp_tm_agg_op}'
-        # point_table[header_id] = point_table.index.map(value_dict)
-        # point_table[header_id] = point_table[header_id].apply(
-        #     lambda x: pd.to_numeric(x, errors='ignore'))
+        # value_dict = dict(point_id_value_list)
+        # LOGGER.debug(value_dict)
+        # for column_name, list_of_tuples in value_dict.items():
+        #     data_dict = dict(list_of_tuples)
+        #     point_table[column_name] = point_table.index.map(data_dict)
+        #     point_table[column_name] = pd.to_numeric(point_table[column_name], errors='ignore')
 
-        csv_output = StringIO()
-        point_table.to_csv(csv_output, index=False)
-        csv_output.seek(0)
-        return send_file(
-            BytesIO(('\ufeff' + csv_output.getvalue()).encode('utf-8')),
-            mimetype='text/csv',
-            as_attachment=True,
-            download_name=f'remote_sensed_point_table_{datetime.now().strftime("%Y_%m_%d_%H_%M_%S")}.csv')
+        # csv_output = StringIO()
+        # point_table.to_csv(csv_output, index=False)
+        # csv_output.seek(0)
+        # return send_file(
+        #     BytesIO(('\ufeff' + csv_output.getvalue()).encode('utf-8')),
+        #     mimetype='text/csv',
+        #     as_attachment=True,
+        #     download_name=f'remote_sensed_point_table_{datetime.now().strftime("%Y_%m_%d_%H_%M_%S")}.csv')
 
     data_sources = [
         '*GOOGLE/DYNAMICWORLD/V1 crop and landcover table',
@@ -1161,6 +1134,14 @@ def data_extractor():
         max_eo_points=MAX_EO_POINT_SAMPLES,
         data_sources=data_sources,
     )
+
+
+@app.route('/processing/<task_id>')
+def processing_page(task_id):
+    """
+    Renders a page with a spinner/loader and JS to poll the status endpoint.
+    """
+    return render_template('processing.html', task_id=task_id)
 
 
 @app.route('/validate_csv', methods=['POST'])
@@ -1205,5 +1186,109 @@ LOGGER.debug(os.getenv('INIT_COVARIATES'))
 if os.getenv('INIT_COVARIATES') == 'True':
     initialize_covariates(False)
 
+
+@celery.task(bind=True)
+def gee_data_pull_task(self, form_data, csv_content):
+    csv_buffer = BytesIO(csv_content)
+
+    point_features_by_year, point_unique_id_per_year, point_table = (
+        gee_database_point_sampler.point_table_to_point_batch(csv_buffer)
+    )
+
+    try:
+        dataset_id, band_name = form_data.get('data_source').split(':')
+    except ValueError:
+        dataset_id = form_data.get('data_source')
+        band_name = ''
+
+    num_years_avg = int(form_data.get('num_years_avg'))
+    seasonality_aggregation_fn = form_data.get('seasonality_aggregation_fn')
+    julian_start_day = int(form_data.get('julian_start_day'))
+    julian_end_day = int(form_data.get('julian_end_day'))
+    spatial_aggregation = form_data.get('spatial_aggregation_fn')
+    spatial_radius = int(form_data.get('spatial_radius'))
+
+    sp_tm_agg_op_str = (
+        f'spatial_{spatial_aggregation}({spatial_radius};'
+        f'years_mean(-{num_years_avg},0;'
+        f'julian_{seasonality_aggregation_fn}({julian_start_day},{julian_end_day})))'
+    )
+    sp_tm_agg_op = parse_spatiotemporal_fn(sp_tm_agg_op_str)
+
+    if not dataset_id.startswith('*'):
+        result = gee_database_point_sampler.parse_gee_dataset_info(dataset_id)
+        point_id_value_list = gee_database_point_sampler.process_gee_dataset(
+            dataset_id,
+            band_name,
+            result[START_DATE],
+            result[END_DATE],
+            result[COLLECTION_TEMPORAL_RESOLUTION],
+            result[NOMINAL_SCALE],
+            point_features_by_year,
+            point_unique_id_per_year,
+            None,
+            sp_tm_agg_op
+        )
+    else:
+        point_id_value_list = gee_database_point_sampler.process_custom_dataset(
+            dataset_id,
+            point_features_by_year,
+            point_unique_id_per_year,
+            sp_tm_agg_op
+        )
+
+    value_dict = dict(point_id_value_list)
+    LOGGER.debug(value_dict)
+    for column_name, list_of_tuples in value_dict.items():
+        data_dict = dict(list_of_tuples)
+        point_table[column_name] = point_table.index.map(data_dict)
+        point_table[column_name] = pd.to_numeric(point_table[column_name], errors='ignore')
+
+    csv_output = StringIO()
+    point_table.to_csv(csv_output, index=False)
+    csv_output.seek(0)
+    final_csv = '\ufeff' + csv_output.getvalue()
+    return final_csv
+
+
+@app.route('/gee_eo_pull_status/<task_id>')
+def gee_eo_pull_status(task_id):
+    task = gee_data_pull_task.AsyncResult(task_id)
+    if task.state == 'PENDING':
+        return jsonify({'status': 'PENDING'}), 200
+    elif task.state == 'STARTED':
+        return jsonify({'status': 'PROCESSING'}), 200
+    elif task.state == 'SUCCESS':
+        LOGGER.debug(f'in gee eo p ull status here is the result: {task.result}')
+        return jsonify({
+            'status': 'DONE',
+            'download_url': url_for('download_result', task_id=task_id, _external=True)
+        }), 200
+    elif task.state == 'FAILURE':
+        return jsonify({'status': 'ERROR', 'message': str(task.info)}), 200
+    else:
+        return jsonify({'status': task.state}), 200
+
+
+@app.route('/download/<task_id>')
+def download_result(task_id):
+    """
+    Fetches the CSV string from Celery's result and returns it as a file.
+    """
+    task = gee_data_pull_task.AsyncResult(task_id)
+    LOGGER.debug(f'about to download hte result for {task_id} {task.state}')
+
+    if task.state == 'SUCCESS':
+        csv_str = task.result
+        LOGGER.debug(f'here is the csv_str: {csv_str}')
+        return send_file(
+            BytesIO(csv_str.encode('utf-8', 'replace')),
+            as_attachment=True,
+            mimetype='text/csv',
+            download_name=f'remote_sensed_point_table_{datetime.now().strftime("%Y_%m_%d_%H_%M_%S")}.csv'
+        )
+    return "File not ready or task failed", 400
+
+
 if __name__ == '__main__':
-    app.run(debug=False)
+    app.run(debug=True)

@@ -1,0 +1,76 @@
+<!-- templates/processing.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Processing Your File</title>
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+    rel="stylesheet"
+  />
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <style>
+    .spinner-border {
+      width: 3rem;
+      height: 3rem;
+    }
+    .status-text {
+      font-size: 1.25rem;
+      margin-top: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container mt-5 text-center">
+    <h1 class="mb-4">Processing...</h1>
+    <div class="spinner-border text-primary" role="status"></div>
+    <div class="status-text" id="statusMessage">
+      Please wait while we process your request. This could take MANY minutes and adding feedback about runtime estimates can be more complex than the base code that's here to begin with. So either sit on this page until this is done, or save this url in case you want to check back on it later. Results will be saved for a few hours.
+    </div>
+  </div>
+
+  <script>
+    const taskId = "{{ task_id }}";
+
+    function checkStatus() {
+      fetch("/gee_eo_pull_status/" + taskId)
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.status === "DONE") {
+            // (1) Attempt an automatic download by programmatically clicking an <a> element:
+            const link = document.createElement("a");
+            link.href = data.download_url;
+            link.download = ""; // let the server define the filename
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            // (2) Show a status message that it's all done, plus a link back to the extractor page:
+            document.getElementById("statusMessage").innerHTML =
+              `All done! Your file is being downloaded now.<br/><br/>
+               If the download didn't start automatically,
+               <a href="${data.download_url}">click here</a> to download.<br/><br/>
+               <a href="/eo_extractor">Click here</a> to process more data.`;
+          } else if (data.status === "PROCESSING" || data.status === "PENDING") {
+            setTimeout(checkStatus, 2000); // poll again in 2 seconds
+          } else if (data.status === "ERROR") {
+            document.getElementById("statusMessage").innerHTML =
+              "An error occurred: " + data.message +
+              "<br/><br/><a href='/eo_extractor'>Go back</a>";
+          } else {
+            // Other states (e.g. RETRY, REVOKED, etc.) – keep polling or handle as needed
+            setTimeout(checkStatus, 500);
+          }
+        })
+        .catch((err) => {
+          document.getElementById("statusMessage").innerText =
+            "Error checking status. Retrying in a moment...";
+          setTimeout(checkStatus, 500);
+        });
+    }
+
+    // Start polling immediately on page load
+    checkStatus();
+  </script>
+</body>
+</html>
