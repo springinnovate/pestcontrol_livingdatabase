@@ -710,7 +710,7 @@ def process_gee_dataset(
 
         LOGGER.info(f'filter image colleciton by date range {get_time():2}s)\n year_range: {year_range}\n julian_range: {julian_range}')
         point_list = ee.FeatureCollection(point_list_by_year[current_year_batch_id])
-        bounding_box = point_list.geometry().bounds();
+        bounding_box = point_list.geometry().bounds()
         if bounding_buffer > 0:
             bounding_box = bounding_box.buffer(bounding_buffer)
 

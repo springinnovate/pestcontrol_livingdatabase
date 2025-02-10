@@ -1262,7 +1262,7 @@ def gee_eo_pull_status(task_id):
         LOGGER.debug(f'in gee eo p ull status here is the result: {task.result}')
         return jsonify({
             'status': 'DONE',
-            'download_url': url_for('download_result', task_id=task_id, _external=True)
+            'download_url': url_for('download_result', task_id=task_id, _external=True, _scheme='https')
         }), 200
     elif task.state == 'FAILURE':
         return jsonify({'status': 'ERROR', 'message': str(task.info)}), 200
