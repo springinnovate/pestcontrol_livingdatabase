@@ -501,7 +501,7 @@ def get_year_julian_range(current_year, spatiotemporal_commands):
     return year_range, julian_range
 
 
-def filter_imagecollection_by_date_range(year_range, julian_range, image_collection):
+def filter_imagecollection_by_date_range(year_range, julian_range, image_collection, bounding_box):
     # Initialize an empty ImageCollection
     filtered_collection = ee.ImageCollection([])
 
@@ -528,7 +528,8 @@ def filter_imagecollection_by_date_range(year_range, julian_range, image_collect
         end_date_str = end_date.strftime('%Y-%m-%d')
 
         # Filter the image collection for the given range and merge with the cumulative collection
-        year_filtered_collection = image_collection.filterDate(start_date_str, end_date_str)
+        year_filtered_collection = image_collection.filterDate(
+            start_date_str, end_date_str).filterBounds(bounding_box)
         filtered_collection = filtered_collection.merge(year_filtered_collection)
         size = filtered_collection.size().getInfo()
     return size, filtered_collection
@@ -606,11 +607,9 @@ def process_dynamicworld_crop_and_landcover_table(
             point_unique_id_per_year,
             (MASK_FN, [lulc_class]),
             sp_tm_agg_op)
-        print(f'got the lulc class: {lulc_class} {get_time():.2f}s')
+        LOGGER.debug(f'got the lulc class: {lulc_class} {get_time():.2f}s')
         # save to point table
         results_by_key_class[key] = lulc_point_id_value_list
-    # save to point table
-    results_by_key_class['crop'] = lulc_point_id_value_list
     return results_by_key_class
 
 
@@ -667,7 +666,11 @@ def process_gee_dataset(
         f'processing the following commands:\n'
         f'\t{dataset_id} - {band_name} -- {spatiotemporal_commands}')
     if SPATIAL_FN not in [x[0] for x in spatiotemporal_commands]:
-        spatiotemporal_commands += [(SPATIAL_FN, MEAN_STAT, [0])]
+        bounding_buffer = 0
+        spatiotemporal_commands += [(SPATIAL_FN, MEAN_STAT, [bounding_buffer])]
+    else:
+        # get the first instance of the spatial fn
+        bounding_buffer = next(x[2][0] for x in spatiotemporal_commands if x[0] == SPATIAL_FN)
 
     image_collection = load_collection_or_image(dataset_id)
     image_collection = image_collection.select(band_name)
@@ -705,9 +708,14 @@ def process_gee_dataset(
                 for unique_id in point_unique_id_per_year[current_year_batch_id]])
             continue
 
-        print(f'filter image colleciton by date range {get_time():2}s)')
+        LOGGER.info(f'filter image colleciton by date range {get_time():2}s)\n year_range: {year_range}\n julian_range: {julian_range}')
+        point_list = ee.FeatureCollection(point_list_by_year[current_year_batch_id])
+        bounding_box = point_list.geometry().bounds();
+        if bounding_buffer > 0:
+            bounding_box = bounding_box.buffer(bounding_buffer)
+
         active_collection_size, active_collection = filter_imagecollection_by_date_range(
-            year_range, julian_range, image_collection)
+            year_range, julian_range, image_collection, bounding_box)
         print(f'the active collection size is {active_collection_size}')
 
         if pixel_op_transform is not None:
@@ -739,7 +747,6 @@ def process_gee_dataset(
                     f'{PIXEL_TRANSFORM_ALLOWED_FUNCTIONS} for {dataset_id} - {band_name}')
         n_points = len(point_list_by_year[current_year_batch_id])
         LOGGER.info(f'processing {n_points} points on {dataset_id} {band_name} {pixel_op_transform} {spatiotemporal_commands} {current_year_batch_id} over {year_range} {get_time():2}s')
-        point_list = ee.FeatureCollection(point_list_by_year[current_year_batch_id])
         for index, (spatiotemp_flag, op_type, args) in enumerate(spatiotemporal_commands):
             if spatiotemp_flag in applied_functions:
                 raise ValueError(

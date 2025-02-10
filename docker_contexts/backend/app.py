@@ -1116,10 +1116,17 @@ def data_extractor():
                 sp_tm_agg_op)
 
         value_dict = dict(point_id_value_list)
-        header_id = f'{dataset_id}:{band_name} -> {sp_tm_agg_op}'
-        point_table[header_id] = point_table.index.map(value_dict)
-        point_table[header_id] = point_table[header_id].apply(
-            lambda x: pd.to_numeric(x, errors='ignore'))
+        LOGGER.debug(value_dict)
+        for column_name, list_of_tuples in value_dict.items():
+            data_dict = dict(list_of_tuples)
+            point_table[column_name] = point_table.index.map(data_dict)
+            point_table[column_name] = pd.to_numeric(point_table[column_name], errors='ignore')
+
+
+        #header_id = f'{dataset_id}:{band_name} -> {sp_tm_agg_op}'
+        # point_table[header_id] = point_table.index.map(value_dict)
+        # point_table[header_id] = point_table[header_id].apply(
+        #     lambda x: pd.to_numeric(x, errors='ignore'))
 
         csv_output = StringIO()
         point_table.to_csv(csv_output, index=False)
