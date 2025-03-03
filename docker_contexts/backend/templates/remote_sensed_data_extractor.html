@@ -95,9 +95,45 @@
                 </div>
             </div>
 
-            <button id="submitBtn" type="submit" class="btn btn-primary">Submit</button>
+            <div class="mb-3">
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="enable_masking" name="enable_masking">
+                    <label class="form-check-label h5" for="enable_masking">Enable Masking</label>
+                </div>
+            </div>
+
+            <div id="masking_section" style="display: none;">
+                <div class="mb-3">
+                    <label for="masking_data_source" class="form-label">Masking Data Source</label>
+                    <select class="form-select" id="masking_data_source" name="masking_data_source">
+                        {% for mask_source in masking_data_sources %}
+                            <option value="{{ mask_source }}">{{ mask_source }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="mb-3">
+                    <label for="masking_rule" class="form-label">Masking Rule (List of Codes)</label>
+                    <input type="text" class="form-control" id="masking_rule" name="masking_rule"
+                           placeholder="e.g. 11,12,13,14">
+                    <small class="form-text text-muted">Enter comma-separated landcover codes to mask.</small>
+                </div>
+            </div>
+        <button id="submitBtn" type="submit" class="btn btn-primary">Submit</button>
         </form>
     </div>
+
+    <script>
+        $(document).ready(function() {
+            $('#enable_masking').on('change', function() {
+                if ($(this).is(':checked')) {
+                    $('#masking_section').show();
+                } else {
+                    $('#masking_section').hide();
+                }
+            });
+        });
+    </script>
 
     <script>
         $(document).ready(function() {
