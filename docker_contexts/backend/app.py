@@ -1063,7 +1063,12 @@ def data_extractor():
         'MODIS/061/MCD12Q2:Dormancy_1',
         'MODIS/061/MCD12Q2:Greenup_1',
         'MODIS/061/MCD12Q2:Peak_1',
-        'CSP/ERGo/1_0/Global/SRTM_topoDiversity:constant'
+        'CSP/ERGo/1_0/Global/SRTM_topoDiversity:constant',
+    ]
+
+    masking_data_sources = [
+        '*GOOGLE/DYNAMICWORLD/V1:label',
+        '*MODIS/006/MCD12Q1:LC_Type1',
     ]
 
     return render_template(
@@ -1073,6 +1078,7 @@ def data_extractor():
         year_id=YEAR,
         max_eo_points=MAX_EO_POINT_SAMPLES,
         data_sources=data_sources,
+        masking_data_sources=masking_data_sources,
     )
 
 
