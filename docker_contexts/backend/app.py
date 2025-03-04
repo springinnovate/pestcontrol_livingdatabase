@@ -1067,8 +1067,8 @@ def data_extractor():
     ]
 
     masking_data_sources = [
-        '*GOOGLE/DYNAMICWORLD/V1:label',
-        '*MODIS/006/MCD12Q1:LC_Type1',
+        'GOOGLE/DYNAMICWORLD/V1:label',
+        'MODIS/006/MCD12Q1:LC_Type1',
     ]
 
     return render_template(
