@@ -1189,8 +1189,11 @@ def gee_data_pull_task(self, form_data, csv_content, original_filename):
             mask_codes=mask_codes
         )
         LOGGER.info('processed a regular dataset {dataset_id}')
+        column_to_point_dict = {
+            f'{dataset_id}_{sp_tm_agg_op_str}': point_id_value_list
+        }
     else:
-        point_id_value_list = gee_database_point_sampler.process_custom_dataset(
+        column_to_point_dict = gee_database_point_sampler.process_custom_dataset(
             dataset_id,
             point_features_by_year,
             point_unique_id_per_year,
@@ -1198,11 +1201,9 @@ def gee_data_pull_task(self, form_data, csv_content, original_filename):
         )
         LOGGER.info(f'processed a custom dataset {dataset_id}')
 
-    value_dict = dict(point_id_value_list)
     # 2025-03-04 19:43:12,186: WARNING/ForkPoolWorker-1] the next line crashes: {0: 274.6029357910156, 1: 274.6029357910156, 2: 274.6029357910156}
 
-    LOGGER.warning(f'the next line crashes: {value_dict}')
-    for column_name, list_of_tuples in value_dict.items():
+    for column_name, list_of_tuples in column_to_point_dict.items():
         data_dict = dict(list_of_tuples)
         point_table[column_name] = point_table.index.map(data_dict)
         point_table[column_name] = pd.to_numeric(point_table[column_name], errors='ignore')
