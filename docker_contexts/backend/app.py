@@ -1158,7 +1158,9 @@ def data_extractor():
         year_id=YEAR,
         max_eo_points=MAX_EO_POINT_SAMPLES,
         data_sources=data_sources,
+        data_sources_json=json.dumps(data_sources),
         masking_data_sources=masking_data_sources,
+        masking_data_sources_json=json.dumps(masking_data_sources),
     )
 
 
