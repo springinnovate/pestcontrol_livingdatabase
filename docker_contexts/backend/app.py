@@ -1050,26 +1050,107 @@ def data_extractor():
         task = gee_data_pull_task.delay(form_data, csv_content, csv_file.filename)
         return redirect(url_for('processing_page', task_id=task.id))
 
-    data_sources = [
-        '*GOOGLE/DYNAMICWORLD/V1 crop and landcover table',
-        '*MODIS/061/MCD12Q1 landcover table',
-        'ECMWF/ERA5/MONTHLY:dewpoint_2m_temperature',
-        'ECMWF/ERA5/MONTHLY:maximum_2m_air_temperature',
-        'ECMWF/ERA5/MONTHLY:mean_2m_air_temperature',
-        'ECMWF/ERA5/MONTHLY:minimum_2m_air_temperature',
-        'ECMWF/ERA5/MONTHLY:total_precipitation',
-        'MODIS/061/MCD12Q2:EVI_Amplitude_1',
-        'MODIS/061/MCD12Q2:EVI_Area_1',
-        'MODIS/061/MCD12Q2:Dormancy_1',
-        'MODIS/061/MCD12Q2:Greenup_1',
-        'MODIS/061/MCD12Q2:Peak_1',
-        'CSP/ERGo/1_0/Global/SRTM_topoDiversity:constant',
-    ]
+    data_sources = {
+        "*GOOGLE/DYNAMICWORLD/V1 crop and landcover table": {
+            "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/GOOGLE_DYNAMICWORLD_V1",
+            "date_range": "YYYY-MM-DD to YYYY-MM-DD",
+        },
+        "*MODIS/061/MCD12Q1 landcover table": {
+            "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q1",
+            "date_range": "YYYY-MM-DD to YYYY-MM-DD",
+        },
 
-    masking_data_sources = [
-        'GOOGLE/DYNAMICWORLD/V1:label',
-        'MODIS/061/MCD12Q1:LC_Type1',
-    ]
+        "ECMWF/ERA5/MONTHLY:dewpoint_2m_temperature": {
+            "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY",
+            "date_range": "YYYY-MM-DD to YYYY-MM-DD",
+        },
+
+        "ECMWF/ERA5/MONTHLY:maximum_2m_air_temperature": {
+            "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY",
+            "date_range": "YYYY-MM-DD to YYYY-MM-DD",
+        },
+
+        "ECMWF/ERA5/MONTHLY:mean_2m_air_temperature": {
+            "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY",
+            "date_range": "YYYY-MM-DD to YYYY-MM-DD",
+        },
+
+        "ECMWF/ERA5/MONTHLY:minimum_2m_air_temperature": {
+            "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY",
+            "date_range": "YYYY-MM-DD to YYYY-MM-DD",
+        },
+
+        "ECMWF/ERA5/MONTHLY:total_precipitation": {
+            "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY",
+            "date_range": "YYYY-MM-DD to YYYY-MM-DD",
+        },
+
+        "MODIS/061/MCD12Q2:EVI_Amplitude_1": {
+            "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2",
+            "date_range": "YYYY-MM-DD to YYYY-MM-DD",
+        },
+
+        "MODIS/061/MCD12Q2:EVI_Area_1": {
+            "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2",
+            "date_range": "YYYY-MM-DD to YYYY-MM-DD",
+        },
+
+        "MODIS/061/MCD12Q2:Dormancy_1": {
+            "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2",
+            "date_range": "YYYY-MM-DD to YYYY-MM-DD",
+        },
+
+        "MODIS/061/MCD12Q2:Greenup_1": {
+            "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2",
+            "date_range": "YYYY-MM-DD to YYYY-MM-DD",
+        },
+
+        "MODIS/061/MCD12Q2:Peak_1": {
+            "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2",
+            "date_range": "YYYY-MM-DD to YYYY-MM-DD",
+        },
+
+        "CSP/ERGo/1_0/Global/SRTM_topoDiversity:constant": {
+            "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/CSP_ERGo_1_0_Global_SRTM_topoDiversity",
+            "date_range": "YYYY-MM-DD to YYYY-MM-DD",
+        },
+    }
+
+    masking_data_sources = {
+        "GOOGLE/DYNAMICWORLD/V1:label": {
+            "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/GOOGLE_DYNAMICWORLD_V1",
+            "date_range": "YYYY-MM-DD to YYYY-MM-DD",
+        },
+
+        "MODIS/061/MCD12Q1:LC_Type1": {
+            "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q1",
+            "date_range": "YYYY-MM-DD to YYYY-MM-DD",
+        },
+    }
+
+
+    # # You can fill in doc_url and date_range for each entry as you see fit.
+
+    # data_sources = [
+    #     '*GOOGLE/DYNAMICWORLD/V1 crop and landcover table',
+    #     '*MODIS/061/MCD12Q1 landcover table',
+    #     'ECMWF/ERA5/MONTHLY:dewpoint_2m_temperature',
+    #     'ECMWF/ERA5/MONTHLY:maximum_2m_air_temperature',
+    #     'ECMWF/ERA5/MONTHLY:mean_2m_air_temperature',
+    #     'ECMWF/ERA5/MONTHLY:minimum_2m_air_temperature',
+    #     'ECMWF/ERA5/MONTHLY:total_precipitation',
+    #     'MODIS/061/MCD12Q2:EVI_Amplitude_1',
+    #     'MODIS/061/MCD12Q2:EVI_Area_1',
+    #     'MODIS/061/MCD12Q2:Dormancy_1',
+    #     'MODIS/061/MCD12Q2:Greenup_1',
+    #     'MODIS/061/MCD12Q2:Peak_1',
+    #     'CSP/ERGo/1_0/Global/SRTM_topoDiversity:constant',
+    # ]
+
+    # masking_data_sources = [
+    #     'GOOGLE/DYNAMICWORLD/V1:label',
+    #     'MODIS/061/MCD12Q1:LC_Type1',
+    # ]
 
     return render_template(
         'remote_sensed_data_extractor.html',
