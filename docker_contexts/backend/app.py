@@ -1197,7 +1197,7 @@ def gee_data_pull_task(self, form_data, csv_content, original_filename):
         )
 
     value_dict = dict(point_id_value_list)
-    LOGGER.debug(value_dict)
+    LOGGER.warning(f'the next line crashes: {value_dict}')
     for column_name, list_of_tuples in value_dict.items():
         data_dict = dict(list_of_tuples)
         point_table[column_name] = point_table.index.map(data_dict)
