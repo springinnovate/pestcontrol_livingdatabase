@@ -1128,7 +1128,6 @@ def data_extractor():
         },
     }
 
-
     # # You can fill in doc_url and date_range for each entry as you see fit.
 
     # data_sources = [

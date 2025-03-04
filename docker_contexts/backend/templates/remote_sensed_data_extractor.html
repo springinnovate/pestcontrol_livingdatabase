@@ -36,14 +36,16 @@
                 <input class="form-control" type="file" id="csv_file" name="csv_file" accept=".csv" required>
             </div>
 
-             <div class="mb-3">
+            <div class="mb-3">
                 <label for="data_source" class="form-label">Data Source</label>
                 <select class="form-select" id="data_source" name="data_source">
-                    {% for source in data_sources %}
-                        <option value="{{ source }}">{{ source }}</option>
+                    {% for source_key, source_info in data_sources.items() %}
+                        <option value="{{ source_key }}">{{ source_key }}</option>
                     {% endfor %}
                 </select>
             </div>
+
+            <!-- This section will show metadata about the selected data source -->
             <div id="source_details" class="p-3" style="display: none; border: 1px solid #ccc;">
                 <strong>Data Source Information</strong><br>
                 <span id="source_date_range"></span><br>
