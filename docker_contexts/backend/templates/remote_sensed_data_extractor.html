@@ -119,6 +119,11 @@
                         {% endfor %}
                     </select>
                 </div>
+                <div id="masking_source_details" class="p-3" style="display: none; border: 1px solid #ccc;">
+                    <strong>Masking Data Source Information</strong><br>
+                    <span id="masking_source_date_range"></span><br>
+                    <a id="masking_source_doc_link" href="#" target="_blank">Documentation</a>
+                </div>
 
                 <div class="mb-3">
                     <label for="masking_rule" class="form-label">Masking Rule (List of Codes)</label>
@@ -173,6 +178,12 @@
         var sourceDateRange = document.getElementById('source_date_range');
         var sourceDocLink = document.getElementById('source_doc_link');
 
+        var maskingDataSourceMetadata = JSON.parse('{{ masking_data_sources_json | safe }}');
+        var maskingDataSourceSelect = document.getElementById('masking_data_source');
+        var maskingSourceDetails = document.getElementById('masking_source_details');
+        var maskingSourceDateRange = document.getElementById('masking_source_date_range')
+        var maskingSourceDocLink = document.getElementById('masking_source_doc_link')
+
         dataSourceSelect.addEventListener('change', function() {
             var selectedKey = this.value;
             if (dataSourceMetadata[selectedKey]) {
@@ -182,6 +193,17 @@
                 sourceDocLink.textContent = 'Documentation';
             } else {
                 sourceDetails.style.display = 'none';
+            }
+        });
+        maskingDataSourceSelect.addEventListener('change', function() {
+            var selectedKey = this.value;
+            if (maskingDataSourceMetadata[selectedKey]) {
+                maskingSourceDetails.style.display = 'block';
+                maskingSourceDateRange.textContent = 'Date Range: ' + maskingDataSourceMetadata[selectedKey].date_range;
+                maskingSourceDocLink.href = maskingDataSourceMetadata[selectedKey].doc_url;
+                maskingSourceDocLink.textContent = 'Documentation';
+            } else {
+                maskingSourceDetails.style.display = 'none';
             }
         });
     </script>
