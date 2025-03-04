@@ -907,7 +907,7 @@ def process_gee_dataset(
     # Flatten results
     final_list = []
     for year_batch, data in results_by_year.items():
-        final_list.extend((item[0], item[1]) for item in data)
+        final_list.extend([(item[0], item[1]) for item in data])
 
     return final_list
 

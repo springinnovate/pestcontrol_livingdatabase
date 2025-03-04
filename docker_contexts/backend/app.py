@@ -1197,6 +1197,8 @@ def gee_data_pull_task(self, form_data, csv_content, original_filename):
         )
 
     value_dict = dict(point_id_value_list)
+    # 2025-03-04 19:43:12,186: WARNING/ForkPoolWorker-1] the next line crashes: {0: 274.6029357910156, 1: 274.6029357910156, 2: 274.6029357910156}
+
     LOGGER.warning(f'the next line crashes: {value_dict}')
     for column_name, list_of_tuples in value_dict.items():
         data_dict = dict(list_of_tuples)
