@@ -1154,6 +1154,12 @@ def gee_data_pull_task(self, form_data, csv_content, original_filename):
     spatial_aggregation = form_data.get('spatial_aggregation_fn')
     spatial_radius = int(form_data.get('spatial_radius'))
 
+    enable_masking = request.form.get('enable_masking')
+    mask_payload = form_data.get('masking_data_source', '').strip()
+    if enable_masking and mask_payload:
+        mask_dataset_id, mask_band_name = form_data.get('masking_data_source').split(':')
+        mask_codes = [int(x) for x in form_data.get('masking_rule').strip().split(',')]
+
     sp_tm_agg_op_str = (
         f'spatial_{spatial_aggregation}({spatial_radius};'
         f'years_mean(-{num_years_avg},0;'
@@ -1163,6 +1169,21 @@ def gee_data_pull_task(self, form_data, csv_content, original_filename):
 
     if not dataset_id.startswith('*'):
         result = gee_database_point_sampler.parse_gee_dataset_info(dataset_id)
+        result = process_gee_dataset(
+            dataset_id,
+            band_name,
+            dataset_start_date,
+            dataset_end_date,
+            collection_temporal_resolution,
+            nominal_scale,
+            point_list_by_year,
+            point_unique_id_per_year,
+            pixel_op_transform,
+            parse_spatiotemporal_fn(spatiotemporal_commands),
+            mask_dataset_id=mask_dataset_id,
+            mask_band_name=mask_band_name,
+            mask_codes=mask_codes)
+
         point_id_value_list = gee_database_point_sampler.process_gee_dataset(
             dataset_id,
             band_name,
