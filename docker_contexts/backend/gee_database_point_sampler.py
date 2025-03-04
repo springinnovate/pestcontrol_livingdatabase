@@ -575,7 +575,7 @@ def process_custom_dataset(
             point_features_by_year,
             point_unique_id_per_year,
             sp_tm_agg_op)
-    elif dataset_id == '*MODIS/006/MCD12Q1 landcover table':
+    elif dataset_id == '*MODIS/061/MCD12Q1 landcover table':
         return process_MODIS_landcover_table(
             point_features_by_year,
             point_unique_id_per_year,

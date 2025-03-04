@@ -1188,7 +1188,7 @@ def gee_data_pull_task(self, form_data, csv_content, original_filename):
             mask_band_name=mask_band_name,
             mask_codes=mask_codes
         )
-        LOGGER.info('processed a special dataset {dataset_id}')
+        LOGGER.info('processed a regular dataset {dataset_id}')
     else:
         point_id_value_list = gee_database_point_sampler.process_custom_dataset(
             dataset_id,
@@ -1196,7 +1196,7 @@ def gee_data_pull_task(self, form_data, csv_content, original_filename):
             point_unique_id_per_year,
             sp_tm_agg_op
         )
-        LOGGER.info('processed a regular dataset {dataset_id}')
+        LOGGER.info(f'processed a custom dataset {dataset_id}')
 
     value_dict = dict(point_id_value_list)
     # 2025-03-04 19:43:12,186: WARNING/ForkPoolWorker-1] the next line crashes: {0: 274.6029357910156, 1: 274.6029357910156, 2: 274.6029357910156}
