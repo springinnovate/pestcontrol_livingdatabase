@@ -39,6 +39,7 @@
             <div class="mb-3">
                 <label for="data_source" class="form-label">Data Source</label>
                 <select class="form-select" id="data_source" name="data_source">
+                    <option value="" selected disabled hidden>Click here to select a dataset</option>
                     {% for source_key, source_info in data_sources.items() %}
                         <option value="{{ source_key }}">{{ source_key }}</option>
                     {% endfor %}
@@ -66,7 +67,7 @@
                     <label for="seasonality_aggregation_fn" class="form-label">Seasonal aggregation function</label>
                     <select class="form-select" id="seasonality_aggregation_fn" name="seasonality_aggregation_fn" required>
                         <option value="min">Min</option>
-                        <option value="mean">Mean</option>
+                        <option value="mean" selected>Mean</option>
                         <option value="max">Max</option>
                         <option value="sd">Standard Deviation</option>
                     </select>
@@ -90,7 +91,7 @@
                         <label for="spatial_aggregation_fn" class="form-label">Spatial aggregation function</label>
                         <select class="form-select" id="spatial_aggregation_fn" name="spatial_aggregation_fn" required>
                             <option value="min">Min</option>
-                            <option value="mean">Mean</option>
+                            <option value="mean" selected>Mean</option>
                             <option value="max">Max</option>
                             <option value="sd">Standard Deviation</option>
                         </select>
@@ -113,6 +114,7 @@
                 <div class="mb-3">
                     <label for="masking_data_source" class="form-label">Masking Data Source</label>
                     <select class="form-select" id="masking_data_source" name="masking_data_source">
+                        <option value="" selected disabled hidden>Click here to select a dataset</option>
                         {% for mask_source in masking_data_sources %}
                             <option value="{{ mask_source }}">{{ mask_source }}</option>
                         {% endfor %}
