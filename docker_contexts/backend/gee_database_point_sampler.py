@@ -657,11 +657,6 @@ def get_time():
         return time.time() - TIME
 
 
-def create_collection(dataset_id, band_name):
-    """Load and select a band from the given dataset."""
-    return load_collection_or_image(dataset_id).select(band_name)
-
-
 def apply_time_filter(image_collection, year_range, julian_range, bounding_box):
     """Filter the ImageCollection to a year and julian date range within a bounding box."""
     active_size, active_collection = filter_imagecollection_by_date_range(
@@ -707,7 +702,7 @@ def create_mask_collection(mask_dataset_id, mask_band_name, mask_codes, year_ran
     Build a 0/1 mask collection from a separate dataset based on integer codes.
     All pixels matching the `mask_codes` become 1, others become 0.
     """
-    mask_base = create_collection(mask_dataset_id, mask_band_name)
+    mask_base = load_collection_or_image(mask_dataset_id).select(mask_band_name)
     _, mask_filtered = apply_time_filter(mask_base, year_range, julian_range, bounding_box)
     return mask_filtered.map(
         lambda img: img.remap(
@@ -841,10 +836,7 @@ def process_gee_dataset(
         dataset_start_year, dataset_end_year = 0, 9999
 
     # Load main dataset
-    base_collection = create_collection(dataset_id, band_name)
-
-    # Optionally build a mask dataset
-    use_mask = (mask_dataset_id is not None and mask_band_name is not None and mask_codes is not None)
+    base_collection = load_collection_or_image(dataset_id).select(band_name)
 
     results_by_year = collections.defaultdict(list)
 
@@ -868,35 +860,27 @@ def process_gee_dataset(
         if bounding_buffer > 0:
             bounding_box = bounding_box.buffer(bounding_buffer)
 
-        # Filter main dataset by time
         active_size, active_collection = apply_time_filter(base_collection, year_range, julian_range, bounding_box)
-
-        # Pixel-level ops on main dataset
         active_collection = apply_pixel_transform(active_collection, pixel_op_transform)
 
-        # If we're using a mask, build that and multiply
-        if use_mask:
-            _, raw_mask_collection = apply_time_filter(
-                create_collection(mask_dataset_id, mask_band_name),
-                year_range, julian_range, bounding_box
+        if (mask_dataset_id and mask_band_name and mask_codes):
+            mask_full = load_collection_or_image(mask_dataset_id).select(mask_band_name)
+            _, mask_collection = filter_imagecollection_by_date_range(
+                year_range, [1, 365], mask_full, bounding_box
             )
-            mask_collection = raw_mask_collection.map(
-                lambda img: img.remap(
+
+            mask_collection = mask_collection.map(
+                lambda m: m.remap(
                     ee.List(mask_codes),
-                    ee.List([1] * len(mask_codes)),
+                    ee.List([1]*len(mask_codes)),
                     0
-                ).copyProperties(img, ['system:time_start'])
-            )
-            # Combine (multiply) the main dataset with the mask
-            active_collection = ee.ImageCollection(
-                active_collection.map(
-                    lambda base_img: base_img.multiply(
-                        mask_collection.filterDate(
-                            base_img.get('system:time_start'),
-                            base_img.get('system:time_start')
-                        ).first()
-                    ).copyProperties(base_img, ['system:time_start'])
                 )
+            )
+            yearly_mask_image = mask_collection.reduce(ee.Reducer.mode())
+
+            active_collection = active_collection.map(
+                lambda img: img.multiply(
+                    yearly_mask_image).copyProperties(img, ['system:time_start'])
             )
 
         # Apply spatiotemporal commands (yearly/julian/spatial reduce)
@@ -912,10 +896,9 @@ def process_gee_dataset(
 
         # Now batch and accumulate if we have a FeatureCollection
         if isinstance(active_collection, ee.FeatureCollection):
-            n_chunks, chunk_size = 0, BATCH_SIZE
             active_collection_size = active_size
             # If we further reduce the size, you could recalc. For simplicity, reuse active_size.
-            results = chunk_and_accumulate(active_collection, chunk_size, active_collection_size)
+            results = chunk_and_accumulate(active_collection, BATCH_SIZE, active_collection_size)
             results_by_year[current_year_batch_id].extend(results)
         else:
             # If it's still an ImageCollection, you may handle it differently.
