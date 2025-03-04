@@ -1,4 +1,3 @@
-<!-- templates/processing.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -18,14 +17,61 @@
       font-size: 1.25rem;
       margin-top: 1rem;
     }
+    .status-icon {
+      display: none;
+      width: 3rem;
+      height: 3rem;
+      margin: 0 auto 1rem;
+    }
   </style>
 </head>
 <body>
   <div class="container mt-5 text-center">
     <h1 class="mb-4">Processing...</h1>
-    <div class="spinner-border text-primary" role="status"></div>
+    <!-- Spinner icon  -->
+    <div id="spinnerWrapper" class="spinner-border text-primary" role="status"></div>
+
+    <!-- Success icon  -->
+    <svg
+      id="successIcon"
+      class="status-icon"
+      xmlns="http://www.w3.org/2000/svg"
+      fill="green"
+      viewBox="0 0 16 16"
+    >
+      <path
+        d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0ZM7 10.293 4.354
+         7.646a.5.5 0 1 0-.708.708l3 3a.5.5 0 0 0
+         .708 0l6-6a.5.5 0 0 0-.708-.708L7 10.293Z"
+      />
+    </svg>
+
+    <!-- Error icon  -->
+    <svg
+      id="errorIcon"
+      class="status-icon"
+      xmlns="http://www.w3.org/2000/svg"
+      fill="red"
+      viewBox="0 0 16 16"
+    >
+      <path
+        d="M8.982 1.566a1.5 1.5 0 0 0-1.964 0L.165
+         9.173c-.58.57-.733 1.407-.382 2.153.352.746
+         1.106 1.224 1.956 1.224h12.522c.85 0
+         1.604-.478 1.956-1.224.351-.746.198-1.583-.382-2.153
+         L8.982 1.566zM8 4c.535 0 .954.462.9
+         .995l-.35 3.507a.55.55 0 0 1-1.1 0
+         L7.1 4.995A.905.905 0 0 1 8 4zm.002 6a1
+         1 0 1 1-2 0 1 1 0 0 1 2 0z"
+      />
+    </svg>
+
     <div class="status-text" id="statusMessage">
-      Please wait while we process your request. This could take MANY minutes and adding feedback about runtime estimates can be more complex than the base code that's here to begin with. So either sit on this page until this is done, or save this url in case you want to check back on it later. Results will be saved for a few hours.
+      Please wait while we process your request. This could take MANY minutes
+      and adding feedback about runtime estimates can be more complex than the base code
+      that's here to begin with. So either sit on this page until this is done,
+      or save this URL in case you want to check back on it later. Results will be saved
+      for a few hours.
     </div>
   </div>
 
@@ -37,28 +83,34 @@
         .then((res) => res.json())
         .then((data) => {
           if (data.status === "DONE") {
-            // (1) Attempt an automatic download by programmatically clicking an <a> element:
+            document.getElementById("spinnerWrapper").style.display = "none";
+            document.getElementById("successIcon").style.display = "block";
+
             const link = document.createElement("a");
             link.href = data.download_url;
-            link.download = ""; // let the server define the filename
+            link.download = "";
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
 
-            // (2) Show a status message that it's all done, plus a link back to the extractor page:
             document.getElementById("statusMessage").innerHTML =
               `All done! Your file is being downloaded now.<br/><br/>
                If the download didn't start automatically,
                <a href="${data.download_url}">click here</a> to download.<br/><br/>
                <a href="/eo_extractor">Click here</a> to process more data.`;
+
           } else if (data.status === "PROCESSING" || data.status === "PENDING") {
-            setTimeout(checkStatus, 2000); // poll again in 2 seconds
+            setTimeout(checkStatus, 500);
+
           } else if (data.status === "ERROR") {
+            document.getElementById("spinnerWrapper").style.display = "none";
+            document.getElementById("errorIcon").style.display = "block";
+
             document.getElementById("statusMessage").innerHTML =
               "An error occurred: " + data.message +
               "<br/><br/><a href='/eo_extractor'>Go back</a>";
+
           } else {
-            // Other states (e.g. RETRY, REVOKED, etc.) – keep polling or handle as needed
             setTimeout(checkStatus, 500);
           }
         })
