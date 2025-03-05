@@ -835,7 +835,7 @@ def check_task(task_id):
     task = _prep_download.AsyncResult(task_id)
     return {
         'status': task.state,
-        'result_url': url_for(download_pcld_points, task_id=task_id)}
+        'result_url': url_for('download_pcld_points', task_id=task_id)}
 
 
 @app.route('/download_pcld_points/<task_id>')
