@@ -833,7 +833,28 @@ def start_download():
 @app.route('/check_task/<task_id>')
 def check_task(task_id):
     task = _prep_download.AsyncResult(task_id)
-    return {'status': task.state}
+    return {
+        'status': task.state,
+        'result_url': url_for(download_pcld_points, task_id=task_id)}
+
+
+@app.route('/download_pcld_points/<task_id>')
+def download_pcld_points(task_id):
+    task = _prep_download.AsyncResult(task_id)
+    if task.state == 'SUCCESS':
+        result = task.result
+        zipfile_path = result['zipfile_path']
+
+        # Derive a name for the user's downloaded file
+        prefix = os.path.basename(os.path.splitext(zipfile_path)[0])
+
+        return send_file(
+            zipfile_path,
+            as_attachment=True,
+            mimetype='application/zip',
+            download_name=f'{prefix}_{datetime.now().strftime("%Y_%m_%d_%H_%M_%S")}.zip'
+        )
+    return "File not ready or task failed", 400
 
 
 @celery.task
@@ -1012,7 +1033,9 @@ def _prep_download(self, query_id):
         # Schedule deletion of the ZIP file after an hour
         delete_file.apply_async(args=[zipfile_path], countdown=3600)
 
-        return {'query_id': query_id}
+        return {
+            'query_id': query_id,
+            'zipfile_path': zipfile_path}
 
     except Exception:
         LOGGER.exception('Error in _prep_download')
