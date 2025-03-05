@@ -830,6 +830,12 @@ def start_download():
     return jsonify({'task_id': task.id, 'query_id': query_id}), 202
 
 
+@app.route('/check_task/<task_id>')
+def check_task(task_id):
+    task = _prep_download.AsyncResult(task_id)
+    return {'status': task.state}
+
+
 @celery.task
 def delete_file(zipfile_path):
     try:
