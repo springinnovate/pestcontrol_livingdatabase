@@ -980,7 +980,7 @@ def _prep_download(self, query_id):
                 'study_id': study.name,
             }
             for cov in study.covariates:
-                LOGGER.debug(f'covariate: {cov}')
+                LOGGER.info(f'****** covariate: {cov}')
                 cov_name = cov.covariate_defn.name
                 row_data[cov_name] = cov.value
             row = [row_data.get(col, '') for col in study_columns]
