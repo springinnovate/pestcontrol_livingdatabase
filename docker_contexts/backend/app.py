@@ -980,9 +980,9 @@ def _prep_download(self, query_id):
                 'study_id': study.name,
             }
             for cov in study.covariates:
-                LOGGER.info(f'****** covariate: {cov}')
-                cov_name = cov.covariate_defn.name
-                row_data[cov_name] = cov.value
+                if cov.covariate_defn is not None:
+                    cov_name = cov.covariate_defn.name
+                    row_data[cov_name] = cov.value
             row = [row_data.get(col, '') for col in study_columns]
             batch_rows.append(row)
         df = pd.DataFrame(batch_rows, columns=study_columns)
