@@ -443,7 +443,6 @@ async def main():
                         )
                     )
                 )
-            break
 
         # Run them all in parallel
         all_results = await asyncio.gather(*tasks)
