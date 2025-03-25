@@ -1,30 +1,35 @@
-import random
-import time
-import hashlib
-import collections
-import json
+from collections import defaultdict
 from datetime import datetime
+from urllib.parse import urlparse
 import argparse
 import asyncio
+import collections
+import hashlib
+import json
 import logging
+import random
 import re
 import sys
+import time
 import warnings
 
-import pandas as pd
-from openai import OpenAI
-from diskcache import Cache
-import requests
 from bs4 import BeautifulSoup
-from transformers import pipeline
-import spacy
+from diskcache import Cache
+from openai import OpenAI
 from playwright.async_api import async_playwright
+from transformers import pipeline
+import pandas as pd
+import requests
+import spacy
+
 LOGGER = logging.getLogger(__name__)
 
 SEARCH_CACHE = Cache('google_search_cache')
 PROMPT_CACHE = Cache('openai_cache')
 BROWSER_CACHE = Cache('browser_cache')
 NLP_CACHE = Cache('nlp_cache')
+# avoid searching the same domain at once
+DOMAIN_SEMAPHORES = defaultdict(lambda: asyncio.Semaphore(1))
 
 try:
     API_KEY = open('./secrets/custom_search_api_key.txt', 'r').read()
@@ -43,7 +48,7 @@ def encode_text(text, tokenizer, max_length=512):
         return tokens
 
 
-MAX_TABS = 5
+MAX_TABS = 50
 
 if sys.platform.startswith('win'):
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -133,20 +138,26 @@ async def fetch_page_content(browser_semaphore, browser, url):
     if url in BROWSER_CACHE:
         print(f'CACHED BROWSER {url}')
         return BROWSER_CACHE[url]
-    print(f'NOOT CACHED BROWSER {url}')
-    async with browser_semaphore:
-        context = None
-        content = ''
-        try:
-            context = await browser.new_context()
-            page = await context.new_page()
-            await page.goto(url, timeout=5000)
-            content = await page.content()
-            return content
-        finally:
-            BROWSER_CACHE[url] = content
-            if context is not None:
-                await context.close()
+    print(f'NOT CACHED BROWSER {url}')
+
+    domain = urlparse(url).netloc
+
+    domain_semaphore = DOMAIN_SEMAPHORES[domain]
+
+    async with domain_semaphore:
+        async with browser_semaphore:
+            context = None
+            content = ''
+            try:
+                context = await browser.new_context()
+                page = await context.new_page()
+                await page.goto(url, timeout=5000)
+                content = await page.content()
+                return content
+            finally:
+                BROWSER_CACHE[url] = content
+                if context is not None:
+                    await context.close()
 
 
 async def handle_question_species(
@@ -323,7 +334,6 @@ def generate_text(openai_context, model, messages):
     else:
         print('NOT CACHED')
         print(messages)
-        #response = openai_context['client'].chat.completions.create(**chat_args)
         response = make_request_with_backoff(openai_context, chat_args)
         response_text = response.choices[0].message.content
         PROMPT_CACHE[key] = response_text
