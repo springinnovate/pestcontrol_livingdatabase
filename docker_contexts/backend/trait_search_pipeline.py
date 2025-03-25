@@ -17,12 +17,13 @@ from bs4 import BeautifulSoup
 from transformers import pipeline
 import spacy
 from playwright.async_api import async_playwright
-
+import playwright
 LOGGER = logging.getLogger(__name__)
 
 SEARCH_CACHE = Cache('google_search_cache')
 PROMPT_CACHE = Cache('openai_cache')
 BROWSER_CACHE = Cache('browser_cache')
+NLP_CACHE = Cache('nlp_cache')
 
 try:
     API_KEY = open('./secrets/custom_search_api_key.txt', 'r').read()
@@ -122,45 +123,25 @@ def google_custom_search(api_key, cx, query, num_results=25):
 
 async def fetch_page_content(browser_semaphore, browser, url):
     if url in BROWSER_CACHE:
+        print(f'CACHED BROWSER {url}')
         return BROWSER_CACHE[url]
+    print(f'NOOT CACHED BROWSER {url}')
     async with browser_semaphore:
         context = None
+        content = ''
         try:
             context = await browser.new_context()
             page = await context.new_page()
             await page.goto(url, timeout=5000)
             content = await page.content()
-            BROWSER_CACHE[url] = content
             return content
         finally:
+            BROWSER_CACHE[url] = content
             if context is not None:
                 await context.close()
 
 
-async def extract_query_relevant_text(result):
-    return {
-        'body': f'{result["title"]}: {result["snippet"]}',
-        'href': result['link']}
-
-
-async def extract_relevant_text_from_search_results(
-        browser_semaphore, browser, raw_search_results, query_template, subject):
-    tasks = []
-    for index, result in enumerate(raw_search_results):
-        tasks.append(extract_query_relevant_text({
-            'result': result,
-            'browser_semaphore': browser_semaphore,
-            'browser': browser,
-            'query_template': query_template,
-            'subject': subject,
-            'index': index,
-            'n_to_process': len(raw_search_results)
-        }))
-    relevant_text_list = await asyncio.gather(*tasks)
-    return relevant_text_list
-
-
-async def filter_by_query_and_subject(query_tokens, subject_tokens, candidate_text):
+def filter_by_query_and_subject(query_tokens, subject_tokens, candidate_text):
     text_tokens = set([
         token.lemma_
         for token in spacy_tokenizer(candidate_text)
@@ -170,7 +151,15 @@ async def filter_by_query_and_subject(query_tokens, subject_tokens, candidate_te
     return None
 
 
-async def find_relevant_snippets_nlp(text_elements, question, subject):
+def find_relevant_snippets_nlp(text_elements, question, subject):
+    cache_key = json.dumps({
+        'text_elements': text_elements,
+        'question': question,
+        'subject': subject
+    }, sort_keys=True)
+
+    if cache_key in NLP_CACHE:
+        return NLP_CACHE[cache_key]
     try:
         query_tokens = set(
             [token.lemma_
@@ -185,9 +174,11 @@ async def find_relevant_snippets_nlp(text_elements, question, subject):
             filter_by_query_and_subject(query_tokens, subject_tokens, candidate_text)
             for candidate_text in text_elements
         ]
-        return ' '.join([
-            filtered_text for filtered_text in await asyncio.gather(*task_list)
+        result_str = ' '.join([
+            filtered_text for filtered_text in task_list
             if filtered_text is not None])
+        NLP_CACHE[cache_key] = result_str
+        return result_str
     except Exception:
         LOGGER.exception('bad stuff')
 
@@ -211,7 +202,7 @@ async def fetch_relevant_snippet(browser_semaphore, browser, url, question, subj
     try:
         html_content = await fetch_page_content(browser_semaphore, browser, url)
         text_elements = extract_text_elements(html_content)
-        relevant_snippets = await find_relevant_snippets_nlp(
+        relevant_snippets = find_relevant_snippets_nlp(
             text_elements, question, subject)
         return relevant_snippets
     except Exception as e:
@@ -248,7 +239,7 @@ def cache_key(data):
     return hashlib.md5(json.dumps(data, sort_keys=True).encode("utf-8")).hexdigest()
 
 
-async def get_webpage_answers(openai_context, answer_context, query_template, full_query):
+def get_webpage_answers(openai_context, answer_context, query_template, full_query):
     messages = [
         {'role': 'developer',
          'content': 'You are given a snippet of text from a webpage that showed up in a Google search after querying the user question below. If you can find a specific succinct answer to that question return that answer with no other text. If there are multiple answers, return them all, comma separated. If no answer is found return UNKNOWN. Respond with no additional text besides the brief answer (s) or UNKNOWN.'},
@@ -266,8 +257,11 @@ def generate_text(openai_context, model, messages):
     chat_args = {'model': model, 'messages': messages}
     key = cache_key(chat_args)
     if key in PROMPT_CACHE:
+        print('CACHED')
         response_text = PROMPT_CACHE[key]
     else:
+        print('NOT CACHED')
+        print(messages)
         response = openai_context['client'].chat.completions.create(**chat_args)
         response_text = response.choices[0].message.content
         PROMPT_CACHE[key] = response_text
@@ -358,7 +352,7 @@ async def main():
                         species)
                     search_result['relevant_snippet'] = answer_context
 
-                    answer = await get_webpage_answers(
+                    answer = get_webpage_answers(
                         openai_context, answer_context, question, species_question)
                     answer_list.append(answer)
 
