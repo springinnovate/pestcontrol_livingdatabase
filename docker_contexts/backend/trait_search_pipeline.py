@@ -137,7 +137,10 @@ def google_custom_search_sync(api_key, cx, query, num_results=25):
 async def fetch_page_content(browser_semaphore, browser, url):
     if url in BROWSER_CACHE:
         print(f'CACHED BROWSER {url}')
-        return BROWSER_CACHE[url]
+        result = BROWSER_CACHE[url]
+        if result.strip():
+            # guard against an empty page
+            return result
     print(f'NOT CACHED BROWSER {url}')
 
     domain = urlparse(url).netloc
@@ -154,6 +157,8 @@ async def fetch_page_content(browser_semaphore, browser, url):
                 await page.goto(url, timeout=5000)
                 content = await page.content()
                 return content
+            except Exception as e:
+                return f'ERROR: could not load page because of {e}'
             finally:
                 BROWSER_CACHE[url] = content
                 if context is not None:
@@ -373,7 +378,6 @@ def aggregate_answers(openai_context, answer_list):
         }
     ]
     consolidated_answer = generate_text(openai_context, 'gpt-4o-mini', messages)
-    print(f'ANSWER: {answer_list} to consolidated: {consolidated_answer}')
     return consolidated_answer
 
 
@@ -456,19 +460,17 @@ async def main():
     details_list = []
     for col_prefix, qa_list in question_answers.items():
         for question, species, search_result_list, aggregate_answer, answer_list in qa_list:
-            LOGGER.info(search_result_list)
-            LOGGER.info(answer_list)
             if species not in main_data:
                 main_data[species] = {}
             main_data[species][question] = aggregate_answer
             for search_item, (snippet, answer_str) in zip(search_result_list, answer_list):
-                LOGGER.info(search_item)
                 details_list.append({
                     'species': species,
                     'question': question,
                     'answer': answer_str,
                     'url': search_item['link'],
-                    'context': snippet
+                    'webpage title': search_item['title'],
+                    'context (up to 5000 chars)': snippet[:5000]
                 })
 
     species_set = sorted(list(main_data.keys()))
