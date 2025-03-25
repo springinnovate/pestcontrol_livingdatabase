@@ -1,27 +1,33 @@
-# from datetime import datetime
-# from functools import partial
+import hashlib
+import collections
+import json
+from datetime import datetime
 import argparse
 import asyncio
-# import collections
-# import csv
 import logging
-# import re
+import re
 import sys
 import warnings
 
+import pandas as pd
+from openai import OpenAI
+from diskcache import Cache
 import requests
-# from bs4 import BeautifulSoup
-# from playwright.async_api import async_playwright
-# from transformers import pipeline
-# import pandas as pd
-# import spacy
-# from transformers import logging as hf_logging
-# hf_logging.set_verbosity_error()
+from bs4 import BeautifulSoup
+from transformers import pipeline
+import spacy
+from playwright.async_api import async_playwright
 
 LOGGER = logging.getLogger(__name__)
 
+SEARCH_CACHE = Cache('google_search_cache')
+PROMPT_CACHE = Cache('openai_cache')
+BROWSER_CACHE = Cache('browser_cache')
+
 try:
     API_KEY = open('./secrets/custom_search_api_key.txt', 'r').read()
+    CX = open('./secrets/cxid.txt', 'r').read()
+    OPENAI_KEY = open('../../../LLMTechnicalWriter/.secrets/llm_grant_assistant_openai.key', 'r').read()
 except FileNotFoundError:
     LOGGER.exception(
         'custom_search_api_key.txt API key not found, should be in '
@@ -53,16 +59,39 @@ for module in [
         'selenium',
         'urllib3.connectionpool',
         'primp',
-        'request']:
+        'request',
+        'httpcore',
+        'openai',
+        'httpx',]:
     logging.getLogger(module).setLevel(logging.ERROR)
 
-# spacy_tokenizer = spacy.load('en_core_web_sm')
-# qa_pipeline = pipeline(
-#     "question-answering",
-#     model="distilbert-base-uncased-distilled-squad",
-#     device='cuda')
 
-def google_custom_search(api_key, cx, query, num_results=10):
+def create_openai_context():
+    openai_client = OpenAI(api_key=OPENAI_KEY)
+    openai_context = {
+        'client': openai_client,
+    }
+    return openai_context
+
+
+spacy_tokenizer = spacy.load('en_core_web_sm')
+qa_pipeline = pipeline(
+    "question-answering",
+    model="distilbert-base-uncased-distilled-squad",
+    device='cuda')
+
+
+def google_custom_search(api_key, cx, query, num_results=25):
+    cache_key = json.dumps({
+        'api_key': api_key,
+        'cx': cx,
+        'query': query,
+        'num_results': num_results
+    }, sort_keys=True)
+
+    if cache_key in SEARCH_CACHE:
+        return SEARCH_CACHE[cache_key]
+
     url = 'https://www.googleapis.com/customsearch/v1'
     results = []
     start_index = 1
@@ -86,10 +115,14 @@ def google_custom_search(api_key, cx, query, num_results=10):
             if len(results) >= num_results:
                 break
         start_index += len(data['items'])
+
+    SEARCH_CACHE[cache_key] = results
     return results
 
 
 async def fetch_page_content(browser_semaphore, browser, url):
+    if url in BROWSER_CACHE:
+        return BROWSER_CACHE[url]
     async with browser_semaphore:
         context = None
         try:
@@ -97,25 +130,14 @@ async def fetch_page_content(browser_semaphore, browser, url):
             page = await context.new_page()
             await page.goto(url, timeout=5000)
             content = await page.content()
+            BROWSER_CACHE[url] = content
             return content
         finally:
             if context is not None:
                 await context.close()
 
 
-async def extract_query_relevant_text(args):
-    result = args['result']
-    # query_template = args['query_template']
-    # subject = args['subject']
-    # detailed_snippet = result['snippet_text']
-
-    # await fetch_relevant_snippet(
-    #     args['browser_semaphore'],
-    #     args['browser'],
-    #     result['href'],
-    #     query_template.format(subject=''),
-    #     subject)
-    # detailed_snippet = f'{detailed_snippet} {result["body"]}' if detailed_snippet else result['body']
+async def extract_query_relevant_text(result):
     return {
         'body': f'{result["title"]}: {result["snippet"]}',
         'href': result['link']}
@@ -148,11 +170,11 @@ async def filter_by_query_and_subject(query_tokens, subject_tokens, candidate_te
     return None
 
 
-async def find_relevant_snippets_nlp(text_elements, query_template, subject):
+async def find_relevant_snippets_nlp(text_elements, question, subject):
     try:
         query_tokens = set(
             [token.lemma_
-             for token in spacy_tokenizer(query_template)
+             for token in spacy_tokenizer(question)
              if not token.is_stop and token.lemma_.strip() != ''])
         subject_tokens = set(
             [token.lemma_
@@ -185,12 +207,12 @@ def extract_text_elements(html_content):
         print(f'MASSIVE ERROR {e}')
 
 
-async def fetch_relevant_snippet(browser_semaphore, browser, url, query_template, subject):
+async def fetch_relevant_snippet(browser_semaphore, browser, url, question, subject):
     try:
         html_content = await fetch_page_content(browser_semaphore, browser, url)
         text_elements = extract_text_elements(html_content)
         relevant_snippets = await find_relevant_snippets_nlp(
-            text_elements, query_template, subject)
+            text_elements, question, subject)
         return relevant_snippets
     except Exception as e:
         return 'got exception: ' + str(e)
@@ -201,124 +223,55 @@ def normalize_answer(answer):
     return " ".join([token.lemma_ for token in tokens if not token.is_stop])
 
 
-def split_contexts_into_chunks(contexts, max_length, tokenizer, question):
+def split_contexts_into_chunks(context, max_length, tokenizer, question):
     chunks = []
     question_length = len(encode_text(question, tokenizer))
     max_context_length = max_length - question_length - 3
-    for context, href in contexts:
-        context_tokens = encode_text(context, tokenizer)
-        context_length = len(context_tokens)
-        if context_length <= max_context_length:
-            chunks.append((context, href))
-        else:
-            # Context is too long, need to split it into smaller chunks
-            for i in range(0, context_length, max_context_length):
-                chunk_tokens = context_tokens[i:i + max_context_length]
-                chunk_text = tokenizer.decode(
-                    chunk_tokens,
-                    skip_special_tokens=True,
-                    clean_up_tokenization_spaces=True
-                )
-                chunks.append((chunk_text, href))
+    context_tokens = encode_text(context, tokenizer)
+    context_length = len(context_tokens)
+    if context_length <= max_context_length:
+        chunks.append(context)
+    else:
+        # Context is too long, need to split it into smaller chunks
+        for i in range(0, context_length, max_context_length):
+            chunk_tokens = context_tokens[i:i + max_context_length]
+            chunk_text = tokenizer.decode(
+                chunk_tokens,
+                skip_special_tokens=True,
+                clean_up_tokenization_spaces=True
+            )
+            chunks.append(chunk_text)
     return chunks
 
 
-async def get_answers(cleaned_context_list, query_template, full_query, context):
-    try:
-        max_length = qa_pipeline.tokenizer.model_max_length  # Typically 512 for BERT models
-        contexts = [(context['body'], context['href']) for context in cleaned_context_list]
-        chunks = split_contexts_into_chunks(
-            contexts, max_length, qa_pipeline.tokenizer, full_query + f' {context}.')
-        answers = []
-        for chunk, href in chunks:
-            result = qa_pipeline(
-                question=full_query + f' {context}',
-                context=chunk)
-            query_tokens = set(
-                token.lemma_ for token in spacy_tokenizer(query_template) if not token.is_stop
-            )
-
-            answer_tokens = set(
-                token.lemma_
-                for token in spacy_tokenizer(result['answer'])
-                if not token.is_stop
-            )
-
-            # Check if the answer is relevant
-            if query_tokens & answer_tokens:
-                answers.append(
-                    (result['score'], normalize_answer(result['answer']), chunk, href)
-                )
-        return answers
-    except Exception:
-        LOGGER.exception('somethinb bad happened answering questions')
-        raise
+def cache_key(data):
+    return hashlib.md5(json.dumps(data, sort_keys=True).encode("utf-8")).hexdigest()
 
 
-async def answer_question(ddg_semaphore, browser_semaphore, browser, subject, args):
-    try:
-        subject = subject.strip()
-        query = args.query_template.format(subject=subject)
-        LOGGER.debug(query)
-        sys.exit()
-        raw_search_results = await searchengine_search(ddg_semaphore, query)
-        LOGGER.info(f'1/3 INITAL INTERNET SEARCH COMPLETE - {query}')
-        relevant_text_list = await extract_relevant_text_from_search_results(
-            browser_semaphore, browser, raw_search_results, args.query_template, subject)
-        LOGGER.info(f'2/3 RELEVANT TEXT EXTRACTED FROM SEARCH - {query}')
-        answers = await get_answers(
-            relevant_text_list, args.query_template, query, args.context)
-        LOGGER.info(f'3/3 ANSWERS ARE ANSWERED - {query}')
-        answer_to_score = collections.defaultdict(lambda: (0, '', 0))
+async def get_webpage_answers(openai_context, answer_context, query_template, full_query):
+    messages = [
+        {'role': 'developer',
+         'content': 'You are given a snippet of text from a webpage that showed up in a Google search after querying the user question below. If you can find a specific succinct answer to that question return that answer with no other text. If there are multiple answers, return them all, comma separated. If no answer is found return UNKNOWN. Respond with no additional text besides the brief answer (s) or UNKNOWN.'},
+        {'role': 'user',
+         'content': full_query},
+        {'role': 'assistant',
+         'content': f'RELEVANT WEBPAGE SNIPPET: {answer_context}'}
+    ]
 
-        base_urls = '\n'.join([
-            search_result['href'] for search_result in raw_search_results])
+    response_text = generate_text(openai_context, 'gpt-4o-mini', messages)
+    return response_text
 
-        for score, answer, snippet, href in answers:
-            print(f'ANSWER: {answer} -- SNIPPET: {snippet}'.encode('utf-8', errors='replace').decode('utf-8'))
-            if answer in [None, '']:
-                continue
-            answer = answer.lower().strip()
-            current_tuple = answer_to_score[answer]
-            answer_to_score[answer] = (
-                current_tuple[0] + score,
-                current_tuple[1] + f'*************\n({href}) - ' + snippet + '\n',
-                current_tuple[2] + 1
-            )
 
-        # Get the best answer with the highest score
-        sorted_answers = sorted(answer_to_score.items(), key=lambda x: x[1][0], reverse=True)
-        if sorted_answers:
-            answer, (score, snippet, consensus_answer_count) = sorted_answers[0]
-            all_answers = '\n\t'.join([
-                f'{score:.2f}:{answer}'
-                for score, answer, _f, _ in
-                sorted(answers, key=lambda x: x[0], reverse=True)])
-            LOGGER.debug('ALL SCORES:\n\t' + all_answers)
-            LOGGER.info(f'*** FINAL ANSWER {subject} {score:.2f}: {answer}')
-            return {
-                'subject': subject,
-                'answer': answer,
-                'confidence score': score,
-                'consensus answer count': f'{consensus_answer_count} of {len(answers)}',
-                'text used to get answer': snippet,
-                'all answers': all_answers,
-                'urls searched': base_urls
-            }
-        else:
-            return {
-                'subject': subject,
-                'answer': '-',
-                'confidence score': -1,
-                'consensus answer count': 0,
-                'text used to get answer': '',
-                'all answers': '',
-                'urls searched': base_urls
-            }
-        LOGGER.info(f'4/4 TOP ANSWER IS SAVED - {query}')
-    except Exception as e:
-        LOGGER.exception('something bad happened')
-        raise
+def generate_text(openai_context, model, messages):
+    chat_args = {'model': model, 'messages': messages}
+    key = cache_key(chat_args)
+    if key in PROMPT_CACHE:
+        response_text = PROMPT_CACHE[key]
+    else:
+        response = openai_context['client'].chat.completions.create(**chat_args)
+        response_text = response.choices[0].message.content
+        PROMPT_CACHE[key] = response_text
+    return response_text
 
 
 def validate_query_template(value):
@@ -327,72 +280,132 @@ def validate_query_template(value):
     return value
 
 
+def aggregate_answers(openai_context, answer_list):
+    combined_answers = '; '.join(answer_list)
+    messages = [
+        {
+            'role': 'developer',
+            'content': (
+                'You are given a list of answers from a question answering system. '
+                'They may contain duplicates, partial overlaps, or the placeholder UNKNOWN. '
+                'Combine them into a concise, readable response. '
+                'Here is the required behavior: \n'
+                '1. Remove duplicates.\n'
+                '2. If there are any "UNKNOWN" entries, omit them unless every entry is "UNKNOWN".\n'
+                '3. If after removing UNKNOWN entries there is nothing left, return "UNKNOWN".\n'
+                '4. The final response can contain multiple words, but keep it succinct.\n'
+                '5. Do not add extra commentary or explanation, just the concise result.'
+            )
+        },
+        {
+            'role': 'user',
+            'content': 'Combine multiple answers into a simpler one.'
+        },
+        {
+            'role': 'assistant',
+            'content': f'Combined answers: {combined_answers}'
+        }
+    ]
+    consolidated_answer = generate_text(openai_context, 'gpt-4o-mini', messages)
+    print(f'ANSWER: {answer_list} to consolidated: {consolidated_answer}')
+    return consolidated_answer
+
+
 async def main():
     parser = argparse.ArgumentParser(description="Process a list of queries from a file.")
     parser.add_argument(
-        'query_template',
-        type=validate_query_template,
-        help="Query and insert {subject} to be queried around")
+        'species_list_file', type=argparse.FileType('r'), help="Path to txt file listing all species")
     parser.add_argument(
-        'query_subject_list', type=argparse.FileType('r'), help="Path to the file containing query subjects")
+        'question_list', type=argparse.FileType('r'), help="Path to the file containing query subjects of the form [header]: [question] on each line")
     parser.add_argument(
         '--max_subjects', type=int, help='limit to this many subjects for debugging reasons')
-    parser.add_argument(
-        '--context', default='',
-        help='Additional text info to include when asking a question that is not part of the raw subject.')
     parser.add_argument(
         '--headless_off', action='store_true')
     args = parser.parse_args()
 
-    ddg_semaphore = asyncio.Semaphore(1)
     browser_semaphore = asyncio.Semaphore(MAX_TABS)
 
+    species_list = [
+        line for line in args.species_list_file.read().splitlines()
+        if line.strip()
+    ]
+
+    question_list = [
+        line for line in args.question_list.read().splitlines()
+        if line.strip()
+    ]
+
+    openai_context = create_openai_context()
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=not args.headless_off)
 
-        current_time = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-        query_result_filename = f'query_result_{current_time}.csv'
+        question_answers = collections.defaultdict(list)
+        for row in question_list:
+            column_prefix, question = [x.strip() for x in row.split(':')]
+            for species in species_list:
+                species_question = question.format(**{'species': species})
+                search_result_list = google_custom_search(
+                    API_KEY, CX, species_question, num_results=25)
 
-        # Initialize CSV with headers
-        pd.DataFrame(columns=['subject', 'answer', 'score', 'consensus answer count', 'text used to get answer', 'all answers', 'urls searched']).to_csv(query_result_filename, index=False)
+                answer_list = []
+                for index, search_result in enumerate(search_result_list):
+                    print(f'serach result {index} for {species_question}')
+                    answer_context = await fetch_relevant_snippet(
+                        browser_semaphore,
+                        browser,
+                        search_result['link'],
+                        species_question,
+                        species)
+                    search_result['relevant_snippet'] = answer_context
 
-        with args.query_subject_list as subject_list_file:
-            subjects = subject_list_file.readlines()
+                    answer = await get_webpage_answers(
+                        openai_context, answer_context, question, species_question)
+                    answer_list.append(answer)
 
-        # Process subjects in parallel and stream results to CSV
-        tasks = []
-        for index, subject in enumerate(subjects):
-            subject = subject.strip()
-            LOGGER.info(f'processing {subject}')
-            tasks.append(answer_question(
-                ddg_semaphore, browser_semaphore, browser, subject, args))
-            if args.max_subjects is not None and index == args.max_subjects - 1:
-                break
-        for answer in await asyncio.gather(*tasks):
-            if answer is not None:
-                LOGGER.info(f'answer: {answer["subject"]}:{answer["answer"]}')
-                df = pd.DataFrame([answer])
-                df.to_csv(
-                    query_result_filename,
-                    mode='a',
-                    index=False,
-                    header=False,
-                    quoting=csv.QUOTE_ALL)
-    LOGGER.info(f'all done, results in: {query_result_filename}')
+                aggregate_answer = aggregate_answers(openai_context, answer_list)
+                question_answers[f'{column_prefix} - {question}'].append(
+                    (question, species, aggregate_answer, answer_list))
 
+    main_data = {}
+    details_list = []
+    for col_prefix, qa_list in question_answers.items():
+        for question, species, aggregate_answer, ans_list in qa_list:
+            if species not in main_data:
+                main_data[species] = {}
+            main_data[species][question] = aggregate_answer
+            for answer_item in ans_list:
+                details_list.append({
+                    'species': species,
+                    'question': question,
+                    'answer': answer_item.get('answer', ''),
+                    'url': answer_item.get('url', ''),
+                    'context': answer_item.get('snippet', '')
+                })
 
-def test_search():
-    CX = 'd7b8ff21e69824ba5'
-    query = 'test string'
-    num_results = 10
-    search_results = google_custom_search(API_KEY, CX, query, num_results)
-    for result in search_results:
-        print('Title:', result['title'])
-        print('URL:', result['link'])
-        print('Abstract:', result['snippet'])
-        print('-' * 80)
+    species_set = sorted(list(main_data.keys()))
+    questions_set = sorted(list({q for s in main_data for q in main_data[s].keys()}))
+    rows = []
+    for sp in species_set:
+        row_vals = {}
+        row_vals['species'] = sp
+        for q in questions_set:
+            row_vals[q] = main_data[sp].get(q, '')
+        rows.append(row_vals)
+    main_df = pd.DataFrame(rows)
+
+    # Create detail DataFrame
+    detail_df = pd.DataFrame(details_list)
+
+    # Generate filenames with timestamps
+    timestamp = datetime.now().strftime('%Y_%m_%d_%H_%M_%S')
+    main_filename = f'trait_search_results_{timestamp}.csv'
+    detail_filename = f'trait_search_detailed_results_{timestamp}.csv'
+
+    # Save to CSV
+    main_df.to_csv(main_filename, index=False)
+    detail_df.to_csv(detail_filename, index=False)
+
 
 if __name__ == '__main__':
     print('about to search')
-    test_search()
-#    asyncio.run(main())
+    asyncio.run(main())
