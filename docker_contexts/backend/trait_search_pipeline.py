@@ -334,10 +334,10 @@ def generate_text(openai_context, model, messages):
     chat_args = {'model': model, 'messages': messages}
     key = cache_key(chat_args)
     if key in PROMPT_CACHE:
-        print('CACHED')
+        print('CACHED openai')
         response_text = PROMPT_CACHE[key]
     else:
-        print('NOT CACHED')
+        print('NOT CACHED openai')
         print(messages)
         response = make_request_with_backoff(openai_context, chat_args)
         response_text = response.choices[0].message.content
@@ -443,7 +443,6 @@ async def main():
                         )
                     )
                 )
-                break
             break
 
         # Run them all in parallel
