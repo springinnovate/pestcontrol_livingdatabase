@@ -1,3 +1,5 @@
+import random
+import time
 import hashlib
 import collections
 import json
@@ -17,7 +19,6 @@ from bs4 import BeautifulSoup
 from transformers import pipeline
 import spacy
 from playwright.async_api import async_playwright
-import playwright
 LOGGER = logging.getLogger(__name__)
 
 SEARCH_CACHE = Cache('google_search_cache')
@@ -82,7 +83,14 @@ qa_pipeline = pipeline(
     device='cuda')
 
 
-def google_custom_search(api_key, cx, query, num_results=25):
+async def google_custom_search_async(api_key, cx, query, num_results=25):
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None, google_custom_search_sync, api_key, cx, query, num_results
+    )
+
+
+def google_custom_search_sync(api_key, cx, query, num_results=25):
     cache_key = json.dumps({
         'api_key': api_key,
         'cx': cx,
@@ -139,6 +147,40 @@ async def fetch_page_content(browser_semaphore, browser, url):
             BROWSER_CACHE[url] = content
             if context is not None:
                 await context.close()
+
+
+async def handle_question_species(
+    row,
+    species,
+    openai_context,
+    browser_semaphore,
+    browser
+):
+    column_prefix, question = [x.strip() for x in row.split(':')]
+    species_question = question.format(species=species)
+
+    search_result_list = await google_custom_search_async(
+        API_KEY, CX, species_question, num_results=25
+    )
+
+    tasks = [
+        asyncio.create_task(
+            process_one_search_result(
+                browser_semaphore,
+                browser,
+                openai_context,
+                question,
+                species_question,
+                sr,
+                species
+            ))
+        for sr in search_result_list
+    ]
+    # (snippet, answer) tuples in answer list
+    answer_list = await asyncio.gather(*tasks)
+    aggregate_answer = aggregate_answers(openai_context, answer_list)
+
+    return column_prefix, question, species, aggregate_answer, search_result_list, answer_list
 
 
 def filter_by_query_and_subject(query_tokens, subject_tokens, candidate_text):
@@ -239,6 +281,25 @@ def cache_key(data):
     return hashlib.md5(json.dumps(data, sort_keys=True).encode("utf-8")).hexdigest()
 
 
+MAX_BACKOFF = 10
+
+
+def make_request_with_backoff(openai_context, chat_args, max_retries=20):
+    backoff = 1
+    for attempt in range(1, max_retries + 1):
+        try:
+            response = openai_context['client'].chat.completions.create(**chat_args)
+            return response
+        except Exception as e:
+            LOGGER.warn(f'attempt {attempt} failed on openai exception {e} on {chat_args}')
+            if attempt == max_retries:
+                raise
+            time.sleep(backoff + random.uniform(0, 1))
+            backoff *= 2
+            if backoff > MAX_BACKOFF:
+                backoff = MAX_BACKOFF
+
+
 def get_webpage_answers(openai_context, answer_context, query_template, full_query):
     messages = [
         {'role': 'developer',
@@ -262,7 +323,8 @@ def generate_text(openai_context, model, messages):
     else:
         print('NOT CACHED')
         print(messages)
-        response = openai_context['client'].chat.completions.create(**chat_args)
+        #response = openai_context['client'].chat.completions.create(**chat_args)
+        response = make_request_with_backoff(openai_context, chat_args)
         response_text = response.choices[0].message.content
         PROMPT_CACHE[key] = response_text
     return response_text
@@ -275,7 +337,7 @@ def validate_query_template(value):
 
 
 def aggregate_answers(openai_context, answer_list):
-    combined_answers = '; '.join(answer_list)
+    combined_answers = '; '.join([answer[1] for answer in answer_list])
     messages = [
         {
             'role': 'developer',
@@ -303,6 +365,25 @@ def aggregate_answers(openai_context, answer_list):
     consolidated_answer = generate_text(openai_context, 'gpt-4o-mini', messages)
     print(f'ANSWER: {answer_list} to consolidated: {consolidated_answer}')
     return consolidated_answer
+
+
+async def process_one_search_result(
+        browser_semaphore,
+        browser,
+        openai_context,
+        question,
+        species_question,
+        search_result,
+        species):
+    async with browser_semaphore:
+        snippet = await fetch_relevant_snippet(
+            browser_semaphore,
+            browser,
+            search_result['link'],
+            species_question,
+            species
+        )
+    return snippet, get_webpage_answers(openai_context, snippet, question, species_question)
 
 
 async def main():
@@ -334,46 +415,50 @@ async def main():
         browser = await playwright.chromium.launch(headless=not args.headless_off)
 
         question_answers = collections.defaultdict(list)
+        tasks = []
         for row in question_list:
-            column_prefix, question = [x.strip() for x in row.split(':')]
             for species in species_list:
-                species_question = question.format(**{'species': species})
-                search_result_list = google_custom_search(
-                    API_KEY, CX, species_question, num_results=25)
+                tasks.append(
+                    asyncio.create_task(
+                        handle_question_species(
+                            row,
+                            species,
+                            openai_context,
+                            browser_semaphore,
+                            browser
+                        )
+                    )
+                )
+                break
+            break
 
-                answer_list = []
-                for index, search_result in enumerate(search_result_list):
-                    print(f'serach result {index} for {species_question}')
-                    answer_context = await fetch_relevant_snippet(
-                        browser_semaphore,
-                        browser,
-                        search_result['link'],
-                        species_question,
-                        species)
-                    search_result['relevant_snippet'] = answer_context
+        # Run them all in parallel
+        all_results = await asyncio.gather(*tasks)
 
-                    answer = get_webpage_answers(
-                        openai_context, answer_context, question, species_question)
-                    answer_list.append(answer)
+        # Aggregate final results
+        for column_prefix, question, species, aggregate_answer, search_result_list, answer_list in all_results:
+            question_answers[f'{column_prefix} - {question}'].append(
+                (question, species, search_result_list, aggregate_answer, answer_list)
+            )
 
-                aggregate_answer = aggregate_answers(openai_context, answer_list)
-                question_answers[f'{column_prefix} - {question}'].append(
-                    (question, species, aggregate_answer, answer_list))
-
+    LOGGER.info('all done with trait search pipeline, making table')
     main_data = {}
     details_list = []
     for col_prefix, qa_list in question_answers.items():
-        for question, species, aggregate_answer, ans_list in qa_list:
+        for question, species, search_result_list, aggregate_answer, answer_list in qa_list:
+            LOGGER.info(search_result_list)
+            LOGGER.info(answer_list)
             if species not in main_data:
                 main_data[species] = {}
             main_data[species][question] = aggregate_answer
-            for answer_item in ans_list:
+            for search_item, (snippet, answer_str) in zip(search_result_list, answer_list):
+                LOGGER.info(search_item)
                 details_list.append({
                     'species': species,
                     'question': question,
-                    'answer': answer_item.get('answer', ''),
-                    'url': answer_item.get('url', ''),
-                    'context': answer_item.get('snippet', '')
+                    'answer': answer_str,
+                    'url': search_item['link'],
+                    'context': snippet
                 })
 
     species_set = sorted(list(main_data.keys()))
@@ -398,7 +483,7 @@ async def main():
     # Save to CSV
     main_df.to_csv(main_filename, index=False)
     detail_df.to_csv(detail_filename, index=False)
-
+    LOGGER.info(f'tables saved to {main_filename} and {detail_filename}')
 
 if __name__ == '__main__':
     print('about to search')
