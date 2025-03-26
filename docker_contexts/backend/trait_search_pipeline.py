@@ -50,7 +50,7 @@ def encode_text(text, tokenizer, max_length=512):
 
 
 MAX_TABS = 10
-MAX_OPENAI = 10
+MAX_OPENAI = 4
 MAX_BACKOFF_WAIT = 8
 
 if sys.platform.startswith('win'):
@@ -131,58 +131,76 @@ def google_custom_search_sync(api_key, cx, query, num_results=25):
 
 
 async def fetch_page_content(browser_semaphore, context, url):
-    if url in BROWSER_CACHE:
-        LOGGER.info(f'CACHED BROWSER {url}')
-        result = BROWSER_CACHE[url]
-        if result.strip():
-            # guard against an empty page
-            return result
+    try:
+        if url in BROWSER_CACHE:
+            LOGGER.info(f'CACHED BROWSER {url}')
+            result = BROWSER_CACHE[url]
+            if result.strip():
+                # guard against an empty page
+                return result
+            else:
+                LOGGER.info('CACHED RESULT is empty, running anyway')
+        LOGGER.info(f'NOT CACHED BROWSER {url}')
+
+        domain = urlparse(url).netloc
+        LOGGER.debug(f'domain: {domain}')
+
+
+
+        async with GLOBAL_SEMPAHORE:
+            domain_semaphore = DOMAIN_SEMAPHORES[domain]
+
+        LOGGER.debug('got the semaphore')
+        if url.lower().endswith('.pdf'):
+            LOGGER.debug('check .pdf')
+            # Handle PDF outside Playwright, by just downloading and parsing.
+            async with domain_semaphore, aiohttp.ClientSession() as session:
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        pdf_data = await response.read()
+                        # Parse PDF
+                        pdf_file = io.BytesIO(pdf_data)
+                        reader = PyPDF2.PdfReader(pdf_file)
+                        text = []
+                        for page in reader.pages:
+                            page_text = page.extract_text()
+                            if page_text:
+                                text.append(page_text)
+                        content = '\n'.join(text)
+                    else:
+                        content = ''  # or handle error if needed
+
+            BROWSER_CACHE[url] = content
+            return content
+
         else:
-            LOGGER.info('CACHED RESULT is empty, running anyway')
-    LOGGER.info(f'NOT CACHED BROWSER {url}')
+            # Handle normal HTML pages with Playwright
+            LOGGER.debug('normal webpage')
+            async with domain_semaphore, browser_semaphore:
+                content = ''
+                try:
+                    page = await context.new_page()
+                    LOGGER.debug('wait for page')
+                    await page.goto(url, timeout=10000)  # maybe a longer timeout for safety
+                    LOGGER.debug('getting content')
+                    raw_content = await page.content()
+                    content = '\\n'.join([
+                        x.strip() for x in extract_text_elements(raw_content)
+                        if x.strip()])
+                    LOGGER.debug('got content')
+                except:
+                    LOGGER.exception(f'something terrible happened in fetch page content')
+                    raise
+                finally:
+                    await page.close()
+                    if content:
+                        BROWSER_CACHE[url] = content
 
-    domain = urlparse(url).netloc
-
-    async with GLOBAL_SEMPAHORE:
-        domain_semaphore = DOMAIN_SEMAPHORES[domain]
-
-    if url.lower().endswith('.pdf'):
-        # Handle PDF outside Playwright, by just downloading and parsing.
-        async with domain_semaphore, aiohttp.ClientSession() as session:
-            async with session.get(url) as response:
-                if response.status == 200:
-                    pdf_data = await response.read()
-                    # Parse PDF
-                    pdf_file = io.BytesIO(pdf_data)
-                    reader = PyPDF2.PdfReader(pdf_file)
-                    text = []
-                    for page in reader.pages:
-                        page_text = page.extract_text()
-                        if page_text:
-                            text.append(page_text)
-                    content = '\n'.join(text)
-                else:
-                    content = ''  # or handle error if needed
-
-        BROWSER_CACHE[url] = content
-        return content
-
-    else:
-        # Handle normal HTML pages with Playwright
-        async with domain_semaphore, browser_semaphore:
-            content = ''
-            try:
-                page = await context.new_page()
-                await page.goto(url, timeout=10000)  # maybe a longer timeout for safety
-                raw_content = await page.content()
-                content = '\\n'.join([
-                    x.strip() for x in extract_text_elements(raw_content)
-                    if x.strip()])
-            finally:
-                await page.close()
-                BROWSER_CACHE[url] = content
-
-        return content
+            LOGGER.debug('returning content')
+            return content
+    except Exception as e:
+        LOGGER.exception('fetching webpage exception')
+        return f'bad load, Exception: {e}'
 
 
 async def handle_question_species(
@@ -193,31 +211,36 @@ async def handle_question_species(
     browser_semaphore,
     context
 ):
-    column_prefix, question = [x.strip() for x in row.split(':')]
-    species_question = question.format(species=species)
+    try:
+        column_prefix, question = [x.strip() for x in row.split(':')]
+        species_question = question.format(species=species)
 
-    search_result_list = await google_custom_search_async(
-        API_KEY, CX, species_question, num_results=25
-    )
-    tasks = [
-        asyncio.create_task(
-            process_one_search_result(
-                browser_semaphore,
-                context,
-                openai_semaphore,
-                openai_context,
-                question,
-                species_question,
-                sr,
-                species
-            ))
-        for sr in search_result_list
-    ]
-    # (snippet, answer) tuples in answer list
-    answer_list = await asyncio.gather(*tasks, return_exceptions=True)
-    aggregate_answer = await aggregate_answers(openai_semaphore, openai_context, answer_list)
+        search_result_list = await google_custom_search_async(
+            API_KEY, CX, species_question, num_results=25
+        )
+        tasks = [
+            asyncio.create_task(
+                process_one_search_result(
+                    browser_semaphore,
+                    context,
+                    openai_semaphore,
+                    openai_context,
+                    question,
+                    species_question,
+                    sr,
+                    species
+                ))
+            for sr in search_result_list
+        ]
+        # (snippet, answer) tuples in answer list
+        answer_list = await asyncio.gather(*tasks, return_exceptions=True)
+        aggregate_answer = await aggregate_answers(openai_semaphore, openai_context, answer_list)
 
-    return column_prefix, question, species, aggregate_answer, search_result_list, answer_list
+
+        return column_prefix, question, species, aggregate_answer, search_result_list, answer_list
+    except Exception as e:
+        LOGGER.exception('something bad happened')
+        return column_prefix, question, species, f'Exception: {e}', f'Exception: {e}', f'Exception: {e}'
 
 
 def extract_text_elements(html_content):
@@ -257,17 +280,20 @@ async def make_request_with_backoff(openai_semaphore, openai_context, chat_args,
 
 
 async def get_webpage_answers(openai_semaphore, openai_context, answer_context, query_template, full_query, source_url):
-    messages = [
-        {'role': 'developer',
-         'content': 'You are given a snippet of text from a webpage that showed up in a Google search after querying the user question below. If you can find a specific succinct answer to that question return that answer with no other text. If there are multiple answers, return them all, comma separated. If no answer is found return UNKNOWN. Respond with no additional text besides the brief answer (s) or UNKNOWN.'},
-        {'role': 'user',
-         'content': full_query},
-        {'role': 'assistant',
-         'content': f'RELEVANT WEBPAGE SNIPPET: {answer_context}'}
-    ]
+    try:
+        messages = [
+            {'role': 'developer',
+             'content': 'You are given a snippet of text from a webpage that showed up in a Google search after querying the user question below. If you can find a specific succinct answer to that question return that answer with no other text. If there are multiple answers, return them all, comma separated. If no answer is found return UNKNOWN. Respond with no additional text besides the brief answer (s) or UNKNOWN.'},
+            {'role': 'user',
+             'content': full_query},
+            {'role': 'assistant',
+             'content': f'RELEVANT WEBPAGE SNIPPET: {answer_context}'}
+        ]
 
-    response_text = await generate_text(openai_semaphore, openai_context, 'gpt-4o-mini', messages, source_url)
-    return response_text
+        response_text = await generate_text(openai_semaphore, openai_context, 'gpt-4o-mini', messages, source_url)
+        return response_text
+    except Exception as e:
+        return f'UNKNOWN: exception {e}'
 
 
 async def generate_text(openai_semaphore, openai_context, model, messages, source_url=None):
@@ -331,9 +357,8 @@ async def process_one_search_result(
         species_question,
         search_result,
         species):
-    async with browser_semaphore:
-        text_content = await fetch_page_content(
-            browser_semaphore, context, search_result['link'])
+    text_content = await fetch_page_content(
+        browser_semaphore, context, search_result['link'])
 
     return text_content, await get_webpage_answers(openai_semaphore, openai_context, text_content, question, species_question, search_result['link'])
 
@@ -365,37 +390,33 @@ async def main():
 
     openai_context = create_openai_context()
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=args.headless_off)
-        context = await browser.new_context(
-            accept_downloads=False,
-            user_agent=(
-                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
-                'AppleWebKit/537.36 (KHTML, like Gecko) '
-                'Chrome/122.0.0.0 Safari/537.36'
-            ),
-            viewport={'width': 1280, 'height': 800},
-            locale='en-US')
-
         question_answers = collections.defaultdict(list)
-        tasks = []
-        for row in question_list:
+        all_results = []
+        for question_with_header in question_list:
             for species in species_list:
-                tasks.append(
-                    asyncio.create_task(
+                browser = await playwright.chromium.launch(headless=args.headless_on)
+                context = await browser.new_context(
+                    accept_downloads=False,
+                    user_agent=(
+                        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                        'AppleWebKit/537.36 (KHTML, like Gecko) '
+                        'Chrome/122.0.0.0 Safari/537.36'
+                    ),
+                    viewport={'width': 1280, 'height': 800},
+                    locale='en-US')
+                task = asyncio.create_task(
                         handle_question_species(
-                            row,
+                            question_with_header,
                             species,
                             openai_context,
                             openai_semaphore,
                             browser_semaphore,
                             context
                         )
-                    )
                 )
-
-        # Run them all in parallel
-        all_results = await asyncio.gather(*tasks, return_exceptions=True)
-        await context.close()
+                all_results.extend(await asyncio.gather(task, return_exceptions=True))
+                await context.close()
+                await browser.close()
 
     # Aggregate final results
     for column_prefix, question, species, aggregate_answer, search_result_list, answer_list in all_results:
@@ -454,7 +475,7 @@ async def test():
 
     # url = 'https://vtfishandwildlife.com/sites/fishandwildlife/files/documents/About%20Us/Budget%20and%20Planning/WAP2015/5.-SGCN-Lists-Taxa-Summaries-%282015%29.pdf'
     # url = 'https://www.columbiatribune.com/story/lifestyle/family/2016/05/18/amazing-adaptations/21809648007/'
-    url = 'https://cropwatch.unl.edu/2016/aphids-active-nebraska-spring-alfalfa/'
+    #url = 'https://cropwatch.unl.edu/2016/aphids-active-nebraska-spring-alfalfa/'
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=False)
         context = await browser.new_context(
@@ -466,10 +487,18 @@ async def test():
             ),
             viewport={'width': 1280, 'height': 800},
             locale='en-US')
-        content = await fetch_page_content(browser_semaphore, context, url)
+        #content = await fetch_page_content(browser_semaphore, context, url)
         openai_context = create_openai_context()
         question = 'What species does acyrthosiphon pisum eat?'
-        answers = await get_webpage_answers(openai_semaphore, openai_context, content, question, question, url)
+        answers = await handle_question_species(
+                'DietBreadth - DietTaxa: What species does {species} eat?',
+                'acyrthosiphon pisum',
+                openai_context,
+                openai_semaphore,
+                browser_semaphore,
+                context
+            )
+        #answers = await get_webpage_answers(openai_semaphore, openai_context, content, question, question, url)
         # result = await fetch_relevant_snippet(browser_semaphore, context, url, question, 'acyrthosiphon pisum')
 
         print(f'result: {answers}')
@@ -478,4 +507,4 @@ async def test():
 if __name__ == '__main__':
     print('about to search')
     asyncio.run(main())
-    # asyncio.run(test())
+    #asyncio.run(test())
