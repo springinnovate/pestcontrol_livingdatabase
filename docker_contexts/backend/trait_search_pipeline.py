@@ -1,3 +1,4 @@
+import io
 from collections import defaultdict
 from datetime import datetime
 from urllib.parse import urlparse
@@ -10,17 +11,16 @@ import logging
 import random
 import re
 import sys
-import time
 import warnings
 
+import aiohttp
+import PyPDF2
 from bs4 import BeautifulSoup
 from diskcache import Cache
 from openai import OpenAI
 from playwright.async_api import async_playwright
-from transformers import pipeline
 import pandas as pd
 import requests
-import spacy
 
 LOGGER = logging.getLogger(__name__)
 
@@ -30,6 +30,7 @@ BROWSER_CACHE = Cache('browser_cache')
 NLP_CACHE = Cache('nlp_cache')
 # avoid searching the same domain at once
 DOMAIN_SEMAPHORES = defaultdict(lambda: asyncio.Semaphore(1))
+GLOBAL_SEMPAHORE = asyncio.Semaphore(1)
 
 try:
     API_KEY = open('./secrets/custom_search_api_key.txt', 'r').read()
@@ -48,7 +49,9 @@ def encode_text(text, tokenizer, max_length=512):
         return tokens
 
 
-MAX_TABS = 50
+MAX_TABS = 10
+MAX_OPENAI = 10
+MAX_BACKOFF_WAIT = 8
 
 if sys.platform.startswith('win'):
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -79,13 +82,6 @@ def create_openai_context():
         'client': openai_client,
     }
     return openai_context
-
-
-spacy_tokenizer = spacy.load('en_core_web_sm')
-qa_pipeline = pipeline(
-    "question-answering",
-    model="distilbert-base-uncased-distilled-squad",
-    device='cuda')
 
 
 async def google_custom_search_async(api_key, cx, query, num_results=25):
@@ -134,43 +130,68 @@ def google_custom_search_sync(api_key, cx, query, num_results=25):
     return results
 
 
-async def fetch_page_content(browser_semaphore, browser, url):
+async def fetch_page_content(browser_semaphore, context, url):
     if url in BROWSER_CACHE:
-        print(f'CACHED BROWSER {url}')
+        LOGGER.info(f'CACHED BROWSER {url}')
         result = BROWSER_CACHE[url]
         if result.strip():
             # guard against an empty page
             return result
-    print(f'NOT CACHED BROWSER {url}')
+        else:
+            LOGGER.info('CACHED RESULT is empty, running anyway')
+    LOGGER.info(f'NOT CACHED BROWSER {url}')
 
     domain = urlparse(url).netloc
 
-    domain_semaphore = DOMAIN_SEMAPHORES[domain]
+    async with GLOBAL_SEMPAHORE:
+        domain_semaphore = DOMAIN_SEMAPHORES[domain]
 
-    async with domain_semaphore:
-        async with browser_semaphore:
-            context = None
+    if url.lower().endswith('.pdf'):
+        # Handle PDF outside Playwright, by just downloading and parsing.
+        async with domain_semaphore, aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                if response.status == 200:
+                    pdf_data = await response.read()
+                    # Parse PDF
+                    pdf_file = io.BytesIO(pdf_data)
+                    reader = PyPDF2.PdfReader(pdf_file)
+                    text = []
+                    for page in reader.pages:
+                        page_text = page.extract_text()
+                        if page_text:
+                            text.append(page_text)
+                    content = '\n'.join(text)
+                else:
+                    content = ''  # or handle error if needed
+
+        BROWSER_CACHE[url] = content
+        return content
+
+    else:
+        # Handle normal HTML pages with Playwright
+        async with domain_semaphore, browser_semaphore:
             content = ''
             try:
-                context = await browser.new_context()
                 page = await context.new_page()
-                await page.goto(url, timeout=5000)
-                content = await page.content()
-                return content
-            except Exception as e:
-                return f'ERROR: could not load page because of {e}'
+                await page.goto(url, timeout=10000)  # maybe a longer timeout for safety
+                raw_content = await page.content()
+                content = '\\n'.join([
+                    x.strip() for x in extract_text_elements(raw_content)
+                    if x.strip()])
             finally:
+                await page.close()
                 BROWSER_CACHE[url] = content
-                if context is not None:
-                    await context.close()
+
+        return content
 
 
 async def handle_question_species(
     row,
     species,
     openai_context,
+    openai_semaphore,
     browser_semaphore,
-    browser
+    context
 ):
     column_prefix, question = [x.strip() for x in row.split(':')]
     species_question = question.format(species=species)
@@ -178,12 +199,12 @@ async def handle_question_species(
     search_result_list = await google_custom_search_async(
         API_KEY, CX, species_question, num_results=25
     )
-
     tasks = [
         asyncio.create_task(
             process_one_search_result(
                 browser_semaphore,
-                browser,
+                context,
+                openai_semaphore,
                 openai_context,
                 question,
                 species_question,
@@ -193,52 +214,10 @@ async def handle_question_species(
         for sr in search_result_list
     ]
     # (snippet, answer) tuples in answer list
-    answer_list = await asyncio.gather(*tasks)
-    aggregate_answer = aggregate_answers(openai_context, answer_list)
+    answer_list = await asyncio.gather(*tasks, return_exceptions=True)
+    aggregate_answer = await aggregate_answers(openai_semaphore, openai_context, answer_list)
 
     return column_prefix, question, species, aggregate_answer, search_result_list, answer_list
-
-
-def filter_by_query_and_subject(query_tokens, subject_tokens, candidate_text):
-    text_tokens = set([
-        token.lemma_
-        for token in spacy_tokenizer(candidate_text)
-        if not token.is_stop and token.lemma_.strip() != ''])
-    if (query_tokens & text_tokens) and (subject_tokens & text_tokens):
-        return candidate_text
-    return None
-
-
-def find_relevant_snippets_nlp(text_elements, question, subject):
-    cache_key = json.dumps({
-        'text_elements': text_elements,
-        'question': question,
-        'subject': subject
-    }, sort_keys=True)
-
-    if cache_key in NLP_CACHE:
-        return NLP_CACHE[cache_key]
-    try:
-        query_tokens = set(
-            [token.lemma_
-             for token in spacy_tokenizer(question)
-             if not token.is_stop and token.lemma_.strip() != ''])
-        subject_tokens = set(
-            [token.lemma_
-             for token in spacy_tokenizer(subject)
-             if not token.is_stop and token.lemma_.strip() != ''])
-
-        task_list = [
-            filter_by_query_and_subject(query_tokens, subject_tokens, candidate_text)
-            for candidate_text in text_elements
-        ]
-        result_str = ' '.join([
-            filtered_text for filtered_text in task_list
-            if filtered_text is not None])
-        NLP_CACHE[cache_key] = result_str
-        return result_str
-    except Exception:
-        LOGGER.exception('bad stuff')
 
 
 def extract_text_elements(html_content):
@@ -253,70 +232,31 @@ def extract_text_elements(html_content):
             extracted_text_list.append(local_text)
         return extracted_text_list
     except Exception as e:
-        print(f'MASSIVE ERROR {e}')
-
-
-async def fetch_relevant_snippet(browser_semaphore, browser, url, question, subject):
-    try:
-        html_content = await fetch_page_content(browser_semaphore, browser, url)
-        text_elements = extract_text_elements(html_content)
-        relevant_snippets = find_relevant_snippets_nlp(
-            text_elements, question, subject)
-        return relevant_snippets
-    except Exception as e:
-        return 'got exception: ' + str(e)
-
-
-def normalize_answer(answer):
-    tokens = spacy_tokenizer(answer.lower())
-    return " ".join([token.lemma_ for token in tokens if not token.is_stop])
-
-
-def split_contexts_into_chunks(context, max_length, tokenizer, question):
-    chunks = []
-    question_length = len(encode_text(question, tokenizer))
-    max_context_length = max_length - question_length - 3
-    context_tokens = encode_text(context, tokenizer)
-    context_length = len(context_tokens)
-    if context_length <= max_context_length:
-        chunks.append(context)
-    else:
-        # Context is too long, need to split it into smaller chunks
-        for i in range(0, context_length, max_context_length):
-            chunk_tokens = context_tokens[i:i + max_context_length]
-            chunk_text = tokenizer.decode(
-                chunk_tokens,
-                skip_special_tokens=True,
-                clean_up_tokenization_spaces=True
-            )
-            chunks.append(chunk_text)
-    return chunks
+        LOGGER.exception(f'MASSIVE ERROR {e}')
 
 
 def cache_key(data):
     return hashlib.md5(json.dumps(data, sort_keys=True).encode("utf-8")).hexdigest()
 
 
-MAX_BACKOFF = 10
-
-
-def make_request_with_backoff(openai_context, chat_args, max_retries=20):
+async def make_request_with_backoff(openai_semaphore, openai_context, chat_args, max_retries=5):
     backoff = 1
     for attempt in range(1, max_retries + 1):
         try:
-            response = openai_context['client'].chat.completions.create(**chat_args)
+            async with openai_semaphore:
+                response = openai_context['client'].chat.completions.create(**chat_args)
             return response
         except Exception as e:
-            LOGGER.warn(f'attempt {attempt} failed on openai exception {e} on {chat_args}')
+            LOGGER.exception(f'attempt {attempt} failed on openai exception {e} on {chat_args}')
             if attempt == max_retries:
                 raise
-            time.sleep(backoff + random.uniform(0, 1))
+            await asyncio.sleep(backoff + random.uniform(0, 1))
             backoff *= 2
-            if backoff > MAX_BACKOFF:
-                backoff = MAX_BACKOFF
+            if backoff > MAX_BACKOFF_WAIT:
+                backoff = MAX_BACKOFF_WAIT
 
 
-def get_webpage_answers(openai_context, answer_context, query_template, full_query):
+async def get_webpage_answers(openai_semaphore, openai_context, answer_context, query_template, full_query, source_url):
     messages = [
         {'role': 'developer',
          'content': 'You are given a snippet of text from a webpage that showed up in a Google search after querying the user question below. If you can find a specific succinct answer to that question return that answer with no other text. If there are multiple answers, return them all, comma separated. If no answer is found return UNKNOWN. Respond with no additional text besides the brief answer (s) or UNKNOWN.'},
@@ -326,20 +266,21 @@ def get_webpage_answers(openai_context, answer_context, query_template, full_que
          'content': f'RELEVANT WEBPAGE SNIPPET: {answer_context}'}
     ]
 
-    response_text = generate_text(openai_context, 'gpt-4o-mini', messages)
+    response_text = await generate_text(openai_semaphore, openai_context, 'gpt-4o-mini', messages, source_url)
     return response_text
 
 
-def generate_text(openai_context, model, messages):
+async def generate_text(openai_semaphore, openai_context, model, messages, source_url=None):
     chat_args = {'model': model, 'messages': messages}
     key = cache_key(chat_args)
     if key in PROMPT_CACHE:
-        print('CACHED openai')
+        LOGGER.info('CACHED openai')
         response_text = PROMPT_CACHE[key]
+        LOGGER.info(f'source url: {source_url} -- got that CACHED response {response_text[:100]}')
     else:
-        print('NOT CACHED openai')
-        print(messages)
-        response = make_request_with_backoff(openai_context, chat_args)
+        LOGGER.info('NOT CACHED openai')
+        LOGGER.info(messages)
+        response = await make_request_with_backoff(openai_semaphore, openai_context, chat_args)
         response_text = response.choices[0].message.content
         PROMPT_CACHE[key] = response_text
     return response_text
@@ -351,7 +292,7 @@ def validate_query_template(value):
     return value
 
 
-def aggregate_answers(openai_context, answer_list):
+async def aggregate_answers(openai_semaphore, openai_context, answer_list):
     combined_answers = '; '.join([answer[1] for answer in answer_list])
     messages = [
         {
@@ -377,27 +318,24 @@ def aggregate_answers(openai_context, answer_list):
             'content': f'Combined answers: {combined_answers}'
         }
     ]
-    consolidated_answer = generate_text(openai_context, 'gpt-4o-mini', messages)
+    consolidated_answer = await generate_text(openai_semaphore, openai_context, 'gpt-4o-mini', messages)
     return consolidated_answer
 
 
 async def process_one_search_result(
         browser_semaphore,
-        browser,
+        context,
+        openai_semaphore,
         openai_context,
         question,
         species_question,
         search_result,
         species):
     async with browser_semaphore:
-        snippet = await fetch_relevant_snippet(
-            browser_semaphore,
-            browser,
-            search_result['link'],
-            species_question,
-            species
-        )
-    return snippet, get_webpage_answers(openai_context, snippet, question, species_question)
+        text_content = await fetch_page_content(
+            browser_semaphore, context, search_result['link'])
+
+    return text_content, await get_webpage_answers(openai_semaphore, openai_context, text_content, question, species_question, search_result['link'])
 
 
 async def main():
@@ -413,6 +351,7 @@ async def main():
     args = parser.parse_args()
 
     browser_semaphore = asyncio.Semaphore(MAX_TABS)
+    openai_semaphore = asyncio.Semaphore(MAX_OPENAI)
 
     species_list = [
         line for line in args.species_list_file.read().splitlines()
@@ -426,7 +365,16 @@ async def main():
 
     openai_context = create_openai_context()
     async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=not args.headless_off)
+        browser = await playwright.chromium.launch(headless=args.headless_off)
+        context = await browser.new_context(
+            accept_downloads=False,
+            user_agent=(
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                'AppleWebKit/537.36 (KHTML, like Gecko) '
+                'Chrome/122.0.0.0 Safari/537.36'
+            ),
+            viewport={'width': 1280, 'height': 800},
+            locale='en-US')
 
         question_answers = collections.defaultdict(list)
         tasks = []
@@ -438,20 +386,22 @@ async def main():
                             row,
                             species,
                             openai_context,
+                            openai_semaphore,
                             browser_semaphore,
-                            browser
+                            context
                         )
                     )
                 )
 
         # Run them all in parallel
-        all_results = await asyncio.gather(*tasks)
+        all_results = await asyncio.gather(*tasks, return_exceptions=True)
+        await context.close()
 
-        # Aggregate final results
-        for column_prefix, question, species, aggregate_answer, search_result_list, answer_list in all_results:
-            question_answers[f'{column_prefix} - {question}'].append(
-                (question, species, search_result_list, aggregate_answer, answer_list)
-            )
+    # Aggregate final results
+    for column_prefix, question, species, aggregate_answer, search_result_list, answer_list in all_results:
+        question_answers[f'{column_prefix} - {question}'].append(
+            (question, species, search_result_list, aggregate_answer, answer_list)
+        )
 
     LOGGER.info('all done with trait search pipeline, making table')
     main_data = {}
@@ -468,9 +418,10 @@ async def main():
                     'answer': answer_str,
                     'url': search_item['link'],
                     'webpage title': search_item['title'],
-                    'context (up to 5000 chars)': snippet[:5000]
+                    'context': snippet
                 })
 
+    LOGGER.info('details all set, building tables now')
     species_set = sorted(list(main_data.keys()))
     questions_set = sorted(list({q for s in main_data for q in main_data[s].keys()}))
     rows = []
@@ -491,10 +442,40 @@ async def main():
     detail_filename = f'trait_search_detailed_results_{timestamp}.csv'
 
     # Save to CSV
+    LOGGER.info('about to save tables')
     main_df.to_csv(main_filename, index=False)
     detail_df.to_csv(detail_filename, index=False)
     LOGGER.info(f'tables saved to {main_filename} and {detail_filename}')
 
+
+async def test():
+    browser_semaphore = asyncio.Semaphore(MAX_TABS)
+    openai_semaphore = asyncio.Semaphore(MAX_OPENAI)
+
+    # url = 'https://vtfishandwildlife.com/sites/fishandwildlife/files/documents/About%20Us/Budget%20and%20Planning/WAP2015/5.-SGCN-Lists-Taxa-Summaries-%282015%29.pdf'
+    # url = 'https://www.columbiatribune.com/story/lifestyle/family/2016/05/18/amazing-adaptations/21809648007/'
+    url = 'https://cropwatch.unl.edu/2016/aphids-active-nebraska-spring-alfalfa/'
+    async with async_playwright() as playwright:
+        browser = await playwright.chromium.launch(headless=False)
+        context = await browser.new_context(
+            accept_downloads=False,
+            user_agent=(
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                'AppleWebKit/537.36 (KHTML, like Gecko) '
+                'Chrome/122.0.0.0 Safari/537.36'
+            ),
+            viewport={'width': 1280, 'height': 800},
+            locale='en-US')
+        content = await fetch_page_content(browser_semaphore, context, url)
+        openai_context = create_openai_context()
+        question = 'What species does acyrthosiphon pisum eat?'
+        answers = await get_webpage_answers(openai_semaphore, openai_context, content, question, question, url)
+        # result = await fetch_relevant_snippet(browser_semaphore, context, url, question, 'acyrthosiphon pisum')
+
+        print(f'result: {answers}')
+
+
 if __name__ == '__main__':
     print('about to search')
     asyncio.run(main())
+    # asyncio.run(test())
