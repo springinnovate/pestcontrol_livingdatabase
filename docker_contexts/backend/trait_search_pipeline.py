@@ -15,6 +15,7 @@ import sys
 import traceback
 import warnings
 
+import tiktoken
 import aiohttp
 import PyPDF2
 from bs4 import BeautifulSoup
@@ -31,6 +32,9 @@ HTTP_TIMEOUT = 5.0
 MAX_TABS = 25
 MAX_OPENAI = 20
 MAX_BACKOFF_WAIT = 8
+
+
+GPT4O_MINI_ENCODER = tiktoken.encoding_for_model("gpt-4o-mini")
 
 
 class SemaphoreWithTimeout:
@@ -252,6 +256,7 @@ async def fetch_page_content(browser_semaphore, browser_context, url):
                 pass
             async with browser_semaphore:
                 content = ""
+                page = None
                 try:
                     page = await asyncio.wait_for(
                         browser_context.new_page(), timeout=HTTP_TIMEOUT
@@ -274,6 +279,8 @@ async def fetch_page_content(browser_semaphore, browser_context, url):
                     )
                 finally:
                     BROWSER_CACHE[url] = sanitize_text(content)
+                    if page is not None:
+                        await page.close()
 
             return content
     # except Exception as e:
@@ -402,55 +409,88 @@ def _shrink_largest_message_in_half(chat_args):
     return chat_args
 
 
+def count_message_tokens(messages):
+    total_tokens = 0
+    for m in messages:
+        # role and content both count; adjust as needed for your exact usage
+        total_tokens += len(GPT4O_MINI_ENCODER.encode(m["content"]))
+    return total_tokens
+
+
+def chunk_text_by_tokens(text, max_chunk_tokens, tokenizer):
+    tokens = tokenizer.encode(text)
+    chunks = []
+    start = 0
+    while start < len(tokens):
+        end = min(start + max_chunk_tokens, len(tokens))
+        chunk_tokens = tokens[start:end]
+        chunk_text = tokenizer.decode(chunk_tokens)
+        chunks.append(chunk_text)
+        start = end
+    return chunks
+
+
 async def make_request_with_backoff(
     openai_semaphore, openai_context, chat_args, max_retries=5
 ):
-    LOGGER.info(f"making a new openai request")
-    backoff = 1
-    for attempt in range(1, max_retries + 1):
-        try:
-            async with openai_semaphore:
-                response = openai_context["client"].chat.completions.create(
-                    **chat_args
-                )
-            return response
+    LOGGER.info("making a new openai request")
+    context_window = 120000
+    max_output_tokens = 16384
+    overhead_tokens = 1000
+    max_chunk_tokens = context_window - max_output_tokens - overhead_tokens
+    if max_chunk_tokens < 1:
+        raise ValueError(
+            "context_window minus overhead is too small for any chunk."
+        )
 
-        except BadRequestError:
-            # Specifically check if it's a context length error
-            # The code can be 'context_length_exceeded' or we can parse the error message
-            # assume too long, error messages are always changing from OpenAI
-            LOGGER.exception(
-                f"OPENAI NOT RAISED: request might be too big, backing it off"
-            )
-            chat_args = _shrink_largest_message_in_half(chat_args)
-            continue
-        except RateLimitError:
-            # If we have a rate limit error, apply backoff
-            LOGGER.exception(
-                f"OPENAI NOT RAISED: rate limit error, backing it off"
-            )
-            if attempt == max_retries:
-                raise
-            await asyncio.wait_for(
-                asyncio.sleep(backoff + random.uniform(0, 1)),
-                timeout=MAX_TIMEOUT,
-            )
-            backoff = min(backoff * 2, MAX_BACKOFF_WAIT)
+    messages = chat_args["messages"]
 
-        except Exception:
-            # Other errors: log + backoff
-            LOGGER.exception(
-                f"OPENAI NOT RAISED: but openai exception, backing it off"
-            )
-            traceback.print_exc()
-            if attempt == max_retries:
-                raise
-            await asyncio.wait_for(
-                asyncio.sleep(backoff + random.uniform(0, 1)),
-                timeout=MAX_TIMEOUT,
-            )
-            backoff = min(backoff * 2, MAX_BACKOFF_WAIT)
-    raise ValueError(f"no response after {max_retries}. chat args: {chat_args}")
+    dev_message = next((m for m in messages if m["role"] == "developer"), None)
+    user_message = next((m for m in messages if m["role"] == "user"), None)
+    assistant_message = next(
+        (m for m in messages if m["role"] == "assistant"), None
+    )
+    if not assistant_message:
+        raise ValueError("Developer, user, or assistant message not found.")
+
+    assistant_chunks = chunk_text_by_tokens(
+        assistant_message["content"], max_chunk_tokens, GPT4O_MINI_ENCODER
+    )
+
+    full_response = []
+    for chunk in assistant_chunks:
+        for chunk in assistant_chunks:
+            backoff = 1
+            chunked_messages = [
+                {"role": "assistant", "content": chunk},
+            ]
+            for message in [dev_message, user_message]:
+                if message:
+                    chunked_messages.append(dev_message)
+            args = {
+                "messages": chunked_messages,
+                "model": chat_args["model"],
+            }
+            for attempt in range(1, max_retries + 1):
+                try:
+                    async with openai_semaphore:
+                        response = openai_context[
+                            "client"
+                        ].chat.completions.create(**args)
+                    full_response.append(response.choices[0].message.content)
+                except Exception:
+                    LOGGER.exception(
+                        "OPENAI NOT RAISED: but openai exception, backing it off"
+                    )
+                    traceback.print_exc()
+                    if attempt == max_retries:
+                        raise
+                    await asyncio.wait_for(
+                        asyncio.sleep(backoff + random.uniform(0, 1)),
+                        timeout=MAX_TIMEOUT,
+                    )
+                    backoff = min(backoff * 2, MAX_BACKOFF_WAIT)
+    return sanitize_text(", ".join(full_response))
 
 
 async def get_webpage_answers(
@@ -529,13 +569,12 @@ async def generate_text(
         LOGGER.info(
             f"NOT CACHED openai message submitted: {messages[1]['content'][-5000:]}"
         )
-        response = await asyncio.wait_for(
+        response_text = await asyncio.wait_for(
             make_request_with_backoff(
                 openai_semaphore, openai_context, chat_args
             ),
             timeout=MAX_TIMEOUT,
         )
-        response_text = sanitize_text(response.choices[0].message.content)
         LOGGER.info(f"got response back: {response_text}")
         PROMPT_CACHE[key] = response_text
     return response_text
@@ -669,7 +708,7 @@ async def main():
     openai_context = create_openai_context()
     async with async_playwright() as playwright:
         browser = await asyncio.wait_for(
-            playwright.chromium.launch(headless=not args.headless_off),
+            playwright.chromium.launch(headless=args.headless_off),
             timeout=MAX_TIMEOUT,
         )
         question_answers = collections.defaultdict(list)
