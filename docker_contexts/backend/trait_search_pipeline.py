@@ -28,6 +28,9 @@ from openai import BadRequestError, RateLimitError
 LOGGER = logging.getLogger(__name__)
 MAX_TIMEOUT = 60.0
 HTTP_TIMEOUT = 5.0
+MAX_TABS = 25
+MAX_OPENAI = 20
+MAX_BACKOFF_WAIT = 8
 
 
 class SemaphoreWithTimeout:
@@ -109,10 +112,6 @@ def encode_text(text, tokenizer, max_length=512):
         )
         return tokens
 
-
-MAX_TABS = 1
-MAX_OPENAI = 1
-MAX_BACKOFF_WAIT = 8
 
 if sys.platform.startswith("win"):
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
