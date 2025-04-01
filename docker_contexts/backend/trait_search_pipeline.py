@@ -24,7 +24,6 @@ from openai import OpenAI
 from playwright.async_api import async_playwright
 import pandas as pd
 import requests
-from openai import BadRequestError, RateLimitError
 
 LOGGER = logging.getLogger(__name__)
 MAX_TIMEOUT = 60.0
@@ -314,12 +313,27 @@ async def handle_question_species(
         column_prefix, question = [x.strip() for x in row.split(":")]
         species_question = question.format(species=species)
 
+        # get google search results
         search_result_list = await asyncio.wait_for(
             google_custom_search_async(
                 API_KEY, CX, species_question, num_results=25
             ),
             timeout=MAX_TIMEOUT,
         )
+        # for each search result:
+        for search_result in search_result_list:
+            # get webpage google search text
+            text_content = await asyncio.wait_for(
+                fetch_page_content(
+                    browser_semaphore, browser_context, search_result["link"]
+                ),
+                timeout=MAX_TIMEOUT * 10,
+            )
+            # clean up the search text
+            pass
+
+        # use NLP to answer the question on one search text
+        # aggregate all the answers into one answer
         tasks = [
             asyncio.create_task(
                 process_one_search_result(
@@ -711,23 +725,67 @@ async def main():
             playwright.chromium.launch(headless=args.headless_off),
             timeout=MAX_TIMEOUT,
         )
+        browser_context = await asyncio.wait_for(
+            browser.new_context(
+                accept_downloads=False,
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/122.0.0.0 Safari/537.36"
+                ),
+                viewport={"width": 1280, "height": 800},
+                locale="en-US",
+            ),
+            timeout=MAX_TIMEOUT,
+        )
         question_answers = collections.defaultdict(list)
         all_results = []
+
+        question_species_to_search_result_map = {}
+
+        # get google search results
         for question_with_header in question_list:
             for species in species_list:
-                browser_context = await asyncio.wait_for(
-                    browser.new_context(
-                        accept_downloads=False,
-                        user_agent=(
-                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                            "AppleWebKit/537.36 (KHTML, like Gecko) "
-                            "Chrome/122.0.0.0 Safari/537.36"
-                        ),
-                        viewport={"width": 1280, "height": 800},
-                        locale="en-US",
+                column_prefix, question = [
+                    x.strip() for x in question_with_header.split(":")
+                ]
+                species_question = question.format(species=species)
+                LOGGER.info(f"Googling question: {species_question}.")
+                search_result_list = await asyncio.wait_for(
+                    google_custom_search_async(
+                        API_KEY, CX, species_question, num_results=25
                     ),
                     timeout=MAX_TIMEOUT,
                 )
+                question_species_to_search_result_map[
+                    (question_with_header, species)
+                ] = {
+                    "question": species_question,
+                    "search_result_list": search_result_list,
+                }
+
+        # get the webpwebpage google search text
+        webpage_content = {}
+        for (
+            key,
+            search_result_map,
+        ) in question_species_to_search_result_map.items():
+            for search_result in search_result_list:
+                text_content = await asyncio.wait_for(
+                    fetch_page_content(
+                        browser_semaphore,
+                        browser_context,
+                        search_result["link"],
+                    ),
+                    timeout=MAX_TIMEOUT * 10,
+                )
+                # TODO: clean up the search text
+                webpage_content[key] = text_content
+
+                # for each search result:
+                # use NLP to answer the question on one search text
+                # aggregate all the answers into one answer
+
                 task = asyncio.create_task(
                     handle_question_species(
                         question_with_header,
