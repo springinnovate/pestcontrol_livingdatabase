@@ -26,7 +26,6 @@ from openai import OpenAI
 from playwright.async_api import async_playwright
 import pandas as pd
 import requests
-from openai import BadRequestError, RateLimitError
 
 LOGGER = logging.getLogger(__name__)
 MAX_TIMEOUT = 60.0
@@ -360,6 +359,7 @@ async def handle_question_species(
         column_prefix, question = [x.strip() for x in row.split(":")]
         species_question = question.format(species=species)
 
+        # get google search results
         search_result_list = await asyncio.wait_for(
             google_custom_search_async(
                 rate_limit_semaphore,
@@ -370,6 +370,20 @@ async def handle_question_species(
             ),
             timeout=MAX_TIMEOUT,
         )
+        # for each search result:
+        for search_result in search_result_list:
+            # get webpage google search text
+            text_content = await asyncio.wait_for(
+                fetch_page_content(
+                    browser_semaphore, browser_context, search_result["link"]
+                ),
+                timeout=MAX_TIMEOUT * 10,
+            )
+            # clean up the search text
+            pass
+
+        # use NLP to answer the question on one search text
+        # aggregate all the answers into one answer
         tasks = [
             asyncio.create_task(
                 process_one_search_result(
@@ -880,8 +894,6 @@ async def main():
                 )
         df = pd.DataFrame(table_rows)
         df.to_csv("output.csv", index=False)
-        return
-
         return
 
         # for question_with_header in question_list:
