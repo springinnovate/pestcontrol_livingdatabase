@@ -335,114 +335,6 @@ async def fetch_page_content(browser_semaphore, browser_context, url):
         raise
 
 
-async def run_task_with_timeout(coro, timeout):
-    """
-    Wrap a coroutine so it can't exceed `timeout` seconds.
-    Returns the result or an Exception if raised (including TimeoutError).
-    """
-    try:
-        return await asyncio.wait_for(coro, timeout=timeout)
-    except Exception as e:
-        return e
-
-
-async def handle_question_species(
-    row,
-    species,
-    openai_context,
-    openai_semaphore,
-    browser_semaphore,
-    browser_context,
-):
-    try:
-        LOGGER.info(f"Asking question: {row} of species {species}.")
-        column_prefix, question = [x.strip() for x in row.split(":")]
-        species_question = question.format(species=species)
-
-        # get google search results
-        search_result_list = await asyncio.wait_for(
-            google_custom_search_async(
-                rate_limit_semaphore,
-                API_KEY,
-                CX,
-                species_question,
-                num_results=25,
-            ),
-            timeout=MAX_TIMEOUT,
-        )
-        # for each search result:
-        for search_result in search_result_list:
-            # get webpage google search text
-            text_content = await asyncio.wait_for(
-                fetch_page_content(
-                    browser_semaphore, browser_context, search_result["link"]
-                ),
-                timeout=MAX_TIMEOUT * 10,
-            )
-            # clean up the search text
-            pass
-
-        # use NLP to answer the question on one search text
-        # aggregate all the answers into one answer
-        tasks = [
-            asyncio.create_task(
-                process_one_search_result(
-                    browser_semaphore,
-                    browser_context,
-                    openai_semaphore,
-                    openai_context,
-                    question,
-                    species_question,
-                    sr,
-                    species,
-                )
-            )
-            for sr in search_result_list
-        ]
-        wrapped_tasks = [
-            run_task_with_timeout(task, MAX_TIMEOUT * 2) for task in tasks
-        ]
-        # (snippet, answer) tuples in answer list
-        LOGGER.info(f"gathering answers for {species_question}")
-        results = await asyncio.gather(*wrapped_tasks, return_exceptions=True)
-        answer_list = []
-        for idx, result in enumerate(results):
-            if isinstance(result, Exception):
-                LOGGER.error(f"Task #{idx} failed or timed out: {result}")
-            else:
-                answer_list.append(result)
-        LOGGER.info(
-            f"aggregating answers for {species_question}, these are the asnwers"
-        )
-        try:
-            aggregate_answer = await asyncio.wait_for(
-                aggregate_answers(
-                    openai_semaphore, openai_context, answer_list
-                ),
-                timeout=MAX_TIMEOUT,
-            )
-        except asyncio.TimeoutError:
-            LOGGER.error("Aggregation timed out!")
-            aggregate_answer = None
-
-        LOGGER.info(f"Done with {row} of species {species}.")
-        return (
-            column_prefix,
-            question,
-            species,
-            aggregate_answer,
-            search_result_list,
-            answer_list,
-        )
-    except Exception:
-        LOGGER.exception(
-            f"something bad happened column_prefix: {column_prefix}",
-            f"question: {question}",
-            f"species: {species}",
-        )
-        raise
-
-
 def extract_text_elements(html_content):
     try:
         soup = BeautifulSoup(html_content, "html.parser")
@@ -462,28 +354,6 @@ def cache_key(data):
     return hashlib.md5(
         json.dumps(data, sort_keys=True).encode("utf-8")
     ).hexdigest()
-
-
-def _shrink_largest_message_in_half(chat_args):
-    """Locate the message with the largest 'content' field and cut it in half."""
-    messages = chat_args["messages"]
-    if not messages:
-        return chat_args
-
-    # Find index of the message with the largest content
-    largest_idx = max(
-        range(len(messages)), key=lambda i: len(messages[i].get("content", ""))
-    )
-    largest_msg = messages[largest_idx]
-    content = largest_msg.get("content", "")
-    if not content:
-        return chat_args
-
-    # Slice the message content in half, discarding the second half
-    half_point = len(content) // 2
-    messages[largest_idx]["content"] = content[:half_point]
-
-    return chat_args
 
 
 def count_message_tokens(messages):
@@ -657,14 +527,6 @@ async def generate_text(
     return response_text
 
 
-def validate_query_template(value):
-    if "{subject}" not in value:
-        raise argparse.ArgumentTypeError(
-            "The query template must contain '{subject}'"
-        )
-    return value
-
-
 async def aggregate_answers(openai_semaphore, openai_context, answer_list):
     try:
         combined_answers = "; ".join(answer_list)
@@ -706,47 +568,6 @@ async def aggregate_answers(openai_semaphore, openai_context, answer_list):
             f"failure on aggregate answers this was the asnwer list: {answer_list}"
         )
         raise
-
-
-async def process_one_search_result(
-    browser_semaphore,
-    browser_context,
-    openai_semaphore,
-    openai_context,
-    question,
-    species_question,
-    search_result,
-    species,
-):
-    try:
-        LOGGER.info(f'fetch that page content: {search_result["link"]}')
-        text_content = await asyncio.wait_for(
-            fetch_page_content(
-                browser_semaphore, browser_context, search_result["link"]
-            ),
-            timeout=MAX_TIMEOUT * 10,
-        )
-
-        LOGGER.info("got the page content, now get the answers")
-        answers = await asyncio.wait_for(
-            get_webpage_answers(
-                openai_semaphore,
-                openai_context,
-                text_content,
-                question,
-                species_question,
-                search_result["link"],
-            ),
-            timeout=MAX_TIMEOUT,
-        )
-        LOGGER.info(f"got the asnwers: {answers}")
-
-        return answers
-    except Exception as e:
-        LOGGER.exception(
-            f"exception on process_one_search_result: {search_result['link']}"
-        )
-        return f"FAILED {e}"
 
 
 async def main():
