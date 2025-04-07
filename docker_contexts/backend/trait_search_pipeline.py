@@ -15,6 +15,8 @@ import sys
 import traceback
 import warnings
 
+from tqdm import tqdm
+from itertools import islice
 import tiktoken
 import aiohttp
 import PyPDF2
@@ -29,9 +31,10 @@ from openai import BadRequestError, RateLimitError
 LOGGER = logging.getLogger(__name__)
 MAX_TIMEOUT = 60.0
 HTTP_TIMEOUT = 5.0
-MAX_TABS = 25
-MAX_OPENAI = 20
+MAX_TABS = 1
+MAX_OPENAI = 1
 MAX_BACKOFF_WAIT = 8
+GOOGLE_QUERIES_PER_SECOND = 3
 
 
 GPT4O_MINI_ENCODER = tiktoken.encoding_for_model("gpt-4o-mini")
@@ -48,11 +51,11 @@ class SemaphoreWithTimeout:
     async def __aenter__(self):
         try:
             start = time.time()
-            LOGGER.info(f"about to await on semaphore {self._name}")
+            # LOGGER.debug(f"about to await on semaphore {self._name}")
             await asyncio.wait_for(
                 self._semaphore.acquire(), timeout=self._timeout
             )
-            LOGGER.info(f"released semaphore {self._name}")
+            # LOGGER.debug(f"released semaphore {self._name}")
             return self
         except asyncio.TimeoutError:
             raise RuntimeError(
@@ -65,26 +68,42 @@ class SemaphoreWithTimeout:
 
 
 class DomainCooldown:
-    def __init__(self, cooldown_seconds=5):
+    def __init__(self, domain, cooldown_seconds=5):
         self.cooldown_seconds = cooldown_seconds
         self.last_access = time.time() - cooldown_seconds - 1
         self.lock = asyncio.Lock()
+        self.domain = domain
+        self._domain_count = 0
 
     async def __aenter__(self):
         async with self.lock:
+            self._domain_count += 1
             now = time.time()
             elapsed = now - self.last_access
             if elapsed < self.cooldown_seconds:
-                LOGGER.info("about to wait on cooldown")
+                LOGGER.debug(
+                    f"about to wait on cooldown for {self.domain} {self._domain_count} locks"
+                )
                 await asyncio.wait_for(
                     asyncio.sleep(self.cooldown_seconds - elapsed),
                     timeout=MAX_TIMEOUT,
                 )
-                LOGGER.info("out of cooldown")
+                LOGGER.debug(
+                    f"out of cooldown for {self.domain} {self._domain_count} locks"
+                )
             self.last_access = time.time()
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         pass
+
+
+class DomainSemaphores(defaultdict):
+    def __missing__(self, key):
+        self[key] = DomainCooldown(key, 5.0)
+        return self[key]
+
+
+DOMAIN_SEMAPHORES = DomainSemaphores()
 
 
 SEARCH_CACHE = Cache("google_search_cache")
@@ -92,7 +111,6 @@ PROMPT_CACHE = Cache("openai_cache")
 BROWSER_CACHE = Cache("browser_cache")
 
 # avoid searching the same domain at once
-DOMAIN_SEMAPHORES = defaultdict(lambda: DomainCooldown(5.0))
 
 try:
     API_KEY = open("./secrets/custom_search_api_key.txt", "r").read()
@@ -151,14 +169,32 @@ def create_openai_context():
     return openai_context
 
 
-async def google_custom_search_async(api_key, cx, query, num_results=25):
-    loop = asyncio.get_running_loop()
-    return await asyncio.wait_for(
-        loop.run_in_executor(
-            None, google_custom_search_sync, api_key, cx, query, num_results
-        ),
-        timeout=MAX_TIMEOUT,
-    )
+async def google_custom_search_async(
+    rate_limit_semaphore, api_key, cx, query, num_results=25
+):
+    """
+    Call-through to - google_custom_search_sync that otherwise couldn't be
+    called async because the core requests library is not async compatable.
+    """
+    async with rate_limit_semaphore:
+        try:
+            result_was_cached = False
+            payload, result_was_cached = await asyncio.wait_for(
+                asyncio.get_running_loop().run_in_executor(
+                    None,
+                    google_custom_search_sync,
+                    api_key,
+                    cx,
+                    query,
+                    num_results,
+                ),
+                timeout=MAX_TIMEOUT,
+            )
+            return payload
+        finally:
+            # wait 1 second before the next query
+            if not result_was_cached:
+                await asyncio.sleep(1)
 
 
 def google_custom_search_sync(api_key, cx, query, num_results=25):
@@ -172,16 +208,21 @@ def google_custom_search_sync(api_key, cx, query, num_results=25):
         sort_keys=True,
     )
 
-    if cache_key in SEARCH_CACHE:
-        return SEARCH_CACHE[cache_key]
+    if cache_key in SEARCH_CACHE and (payload := SEARCH_CACHE[cache_key]):
+        # LOGGER.debug(
+        #     f"found {cache_key} in SEARCH_CACHE: {SEARCH_CACHE[cache_key]}"
+        # )
+        return payload, True  # True means result was cached
 
     url = "https://www.googleapis.com/customsearch/v1"
     results = []
     start_index = 1
     while len(results) < num_results:
         params = {"key": api_key, "cx": cx, "q": query, "start": start_index}
+        # LOGGER.debug(f"search {url}")
         resp = requests.get(url, params=params)
         data = resp.json()
+        # LOGGER.debug(f"got response: {resp.json()}")
         if "items" not in data:
             break
         for item in data["items"]:
@@ -197,7 +238,7 @@ def google_custom_search_sync(api_key, cx, query, num_results=25):
         start_index += len(data["items"])
 
     SEARCH_CACHE[cache_key] = results
-    return results
+    return results, False  # False means result was not cached
 
 
 async def _download_pdf(url):
@@ -220,8 +261,8 @@ async def _download_pdf(url):
 
 async def fetch_page_content(browser_semaphore, browser_context, url):
     try:
-        if url in BROWSER_CACHE:
-            return sanitize_text(BROWSER_CACHE[url])
+        if url in BROWSER_CACHE and (content := BROWSER_CACHE[url]):
+            return sanitize_text(content)
 
         domain = urlparse(url).netloc
         domain_sem = DOMAIN_SEMAPHORES[domain]
@@ -249,7 +290,6 @@ async def fetch_page_content(browser_semaphore, browser_context, url):
                                 return text
             except asyncio.TimeoutError:
                 LOGGER.info(f"timeout error waiting for pdf head on {url}")
-                # HEAD request timed out
                 pass
             except Exception:
                 # If HEAD fails or not PDF proceed with regular fetch
@@ -278,14 +318,11 @@ async def fetch_page_content(browser_semaphore, browser_context, url):
                         f"Stack Trace:\n{error_trace}"
                     )
                 finally:
-                    BROWSER_CACHE[url] = sanitize_text(content)
                     if page is not None:
+                        BROWSER_CACHE[url] = sanitize_text(content)
                         await page.close()
 
             return content
-    # except Exception as e:
-    #     LOGGER.exception("fetching webpage exception")
-    #     return f"bad load, Exception: {e}"
     except Exception:
         timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
         log_filename = f"error_log_{timestamp}.txt"
@@ -296,9 +333,18 @@ async def fetch_page_content(browser_semaphore, browser_context, url):
             f.write(f"url: {url}\n")
             f.write("Stack Trace:\n")
             f.write(traceback.format_exc())
+        raise
 
-        # Shut down everything
-        sys.exit(1)
+
+async def run_task_with_timeout(coro, timeout):
+    """
+    Wrap a coroutine so it can't exceed `timeout` seconds.
+    Returns the result or an Exception if raised (including TimeoutError).
+    """
+    try:
+        return await asyncio.wait_for(coro, timeout=timeout)
+    except Exception as e:
+        return e
 
 
 async def handle_question_species(
@@ -316,7 +362,11 @@ async def handle_question_species(
 
         search_result_list = await asyncio.wait_for(
             google_custom_search_async(
-                API_KEY, CX, species_question, num_results=25
+                rate_limit_semaphore,
+                API_KEY,
+                CX,
+                species_question,
+                num_results=25,
             ),
             timeout=MAX_TIMEOUT,
         )
@@ -335,18 +385,31 @@ async def handle_question_species(
             )
             for sr in search_result_list
         ]
+        wrapped_tasks = [
+            run_task_with_timeout(task, MAX_TIMEOUT * 2) for task in tasks
+        ]
         # (snippet, answer) tuples in answer list
         LOGGER.info(f"gathering answers for {species_question}")
-        answer_list = await asyncio.wait_for(
-            asyncio.gather(*tasks), timeout=MAX_TIMEOUT * 10
-        )
+        results = await asyncio.gather(*wrapped_tasks, return_exceptions=True)
+        answer_list = []
+        for idx, result in enumerate(results):
+            if isinstance(result, Exception):
+                LOGGER.error(f"Task #{idx} failed or timed out: {result}")
+            else:
+                answer_list.append(result)
         LOGGER.info(
             f"aggregating answers for {species_question}, these are the asnwers"
         )
-        aggregate_answer = await asyncio.wait_for(
-            aggregate_answers(openai_semaphore, openai_context, answer_list),
-            timeout=MAX_TIMEOUT,
-        )
+        try:
+            aggregate_answer = await asyncio.wait_for(
+                aggregate_answers(
+                    openai_semaphore, openai_context, answer_list
+                ),
+                timeout=MAX_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            LOGGER.error("Aggregation timed out!")
+            aggregate_answer = None
 
         LOGGER.info(f"Done with {row} of species {species}.")
         return (
@@ -455,7 +518,7 @@ async def make_request_with_backoff(
 
     assistant_chunks = chunk_text_by_tokens(
         assistant_message["content"], max_chunk_tokens, GPT4O_MINI_ENCODER
-    )
+    )[:4]
 
     full_response = []
     for chunk in assistant_chunks:
@@ -590,7 +653,7 @@ def validate_query_template(value):
 
 async def aggregate_answers(openai_semaphore, openai_context, answer_list):
     try:
-        combined_answers = "; ".join([answer[1] for answer in answer_list])
+        combined_answers = "; ".join(answer_list)
         messages = [
             {
                 "role": "developer",
@@ -602,8 +665,9 @@ async def aggregate_answers(openai_semaphore, openai_context, answer_list):
                     "1. Remove duplicates.\n"
                     '2. If there are any "UNKNOWN" entries, omit them unless every entry is "UNKNOWN".\n'
                     '3. If after removing UNKNOWN entries there is nothing left, return "UNKNOWN".\n'
-                    "4. The final response can contain multiple words, but keep it succinct.\n"
-                    "5. Do not add extra commentary or explanation, just the concise result."
+                    '4. If there are any "FAILED" entries, omit them.'
+                    "5. The final response can contain multiple words, but keep it succinct.\n"
+                    "6. Do not add extra commentary or explanation, just the concise result."
                 ),
             },
             {
@@ -663,11 +727,12 @@ async def process_one_search_result(
         )
         LOGGER.info(f"got the asnwers: {answers}")
 
-        return (text_content, answers)
-    except Exception:
+        return answers
+    except Exception as e:
         LOGGER.exception(
             f"exception on process_one_search_result: {search_result['link']}"
         )
+        return f"FAILED {e}"
 
 
 async def main():
@@ -685,158 +750,78 @@ async def main():
         help="Path to the file containing query subjects of the form [header]: [question] on each line",
     )
     parser.add_argument(
-        "--max_subjects",
+        "--max_species",
+        type=int,
+        help="limit to this many species for debugging reasons",
+    )
+    parser.add_argument(
+        "--max_questions",
         type=int,
         help="limit to this many subjects for debugging reasons",
     )
     parser.add_argument("--headless_off", action="store_true")
     args = parser.parse_args()
 
+    species_list = list(
+        islice(
+            (
+                stripped_line
+                for line in args.species_list_file.read().splitlines()
+                if (stripped_line := line.strip())
+            ),
+            args.max_species,
+        )
+    )
+
+    # the questions coming in are separated by a ':' representing
+    # SCOPE: QUESTION, so formatting the list like that
+    scope_question_list = list(
+        islice(
+            (
+                stripped_line.split(":")
+                for line in args.question_list.read().splitlines()
+                if (stripped_line := line.strip())
+            ),
+            args.max_questions,
+        )
+    )
+
+    species_question_list = [
+        {
+            "species": species,
+            "question_body": question_body.strip(),
+            "question_scope": question_scope.strip(),
+            "question_formatted": question_body.format(species=species).strip(),
+        }
+        for question_scope, question_body in scope_question_list
+        for species in species_list
+    ]
+    google_search_semaphore = SemaphoreWithTimeout(
+        GOOGLE_QUERIES_PER_SECOND, 120.0, "google search"
+    )
+    species_question_search_list = [
+        {
+            **question_payload,
+            "search_result": await asyncio.wait_for(
+                google_custom_search_async(
+                    google_search_semaphore,
+                    API_KEY,
+                    CX,
+                    question_payload["question_formatted"],
+                    num_results=25,
+                ),
+                timeout=MAX_TIMEOUT,
+            ),
+        }
+        for question_payload in species_question_list
+    ]
+
     browser_semaphore = SemaphoreWithTimeout(MAX_TABS, 120.0, "browser")
-    openai_semaphore = SemaphoreWithTimeout(MAX_OPENAI, 120.0, "openai")
-
-    species_list = [
-        line
-        for line in args.species_list_file.read().splitlines()
-        if line.strip()
-    ]
-
-    question_list = [
-        line for line in args.question_list.read().splitlines() if line.strip()
-    ]
-
-    openai_context = create_openai_context()
+    table_rows = []
     async with async_playwright() as playwright:
         browser = await asyncio.wait_for(
             playwright.chromium.launch(headless=args.headless_off),
             timeout=MAX_TIMEOUT,
-        )
-        question_answers = collections.defaultdict(list)
-        all_results = []
-        for question_with_header in question_list:
-            for species in species_list:
-                browser_context = await asyncio.wait_for(
-                    browser.new_context(
-                        accept_downloads=False,
-                        user_agent=(
-                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                            "AppleWebKit/537.36 (KHTML, like Gecko) "
-                            "Chrome/122.0.0.0 Safari/537.36"
-                        ),
-                        viewport={"width": 1280, "height": 800},
-                        locale="en-US",
-                    ),
-                    timeout=MAX_TIMEOUT,
-                )
-                task = asyncio.create_task(
-                    handle_question_species(
-                        question_with_header,
-                        species,
-                        openai_context,
-                        openai_semaphore,
-                        browser_semaphore,
-                        browser,
-                    )
-                )
-                all_results.extend(
-                    await asyncio.wait_for(
-                        asyncio.gather(task, return_exceptions=True),
-                        timeout=MAX_TIMEOUT * 10,
-                    )
-                )
-                await asyncio.wait_for(
-                    browser_context.close(), timeout=MAX_TIMEOUT
-                )
-        LOGGER.info("ALL DONEEEEE")
-        await asyncio.wait_for(browser.close(), timeout=MAX_TIMEOUT)
-
-    # Aggregate final results
-    for (
-        column_prefix,
-        question,
-        species,
-        aggregate_answer,
-        search_result_list,
-        answer_list,
-    ) in all_results:
-        question_answers[f"{column_prefix} - {question}"].append(
-            (
-                question,
-                species,
-                search_result_list,
-                aggregate_answer,
-                answer_list,
-            )
-        )
-
-    LOGGER.info("all done with trait search pipeline, making table")
-    main_data = {}
-    details_list = []
-    for col_prefix, qa_list in question_answers.items():
-        for (
-            question,
-            species,
-            search_result_list,
-            aggregate_answer,
-            answer_list,
-        ) in qa_list:
-            if species not in main_data:
-                main_data[species] = {}
-            main_data[species][question] = aggregate_answer
-            for search_item, (snippet, answer_str) in zip(
-                search_result_list, answer_list
-            ):
-                details_list.append(
-                    {
-                        "species": species,
-                        "question": question,
-                        "answer": answer_str,
-                        "url": search_item["link"],
-                        "webpage title": search_item["title"],
-                        "context": snippet,
-                    }
-                )
-
-    LOGGER.info("details all set, building tables now")
-    species_set = sorted(list(main_data.keys()))
-    questions_set = sorted(
-        list({q for s in main_data for q in main_data[s].keys()})
-    )
-    rows = []
-    for sp in species_set:
-        row_vals = {}
-        row_vals["species"] = sp
-        for q in questions_set:
-            row_vals[q] = main_data[sp].get(q, "")
-        rows.append(row_vals)
-    main_df = pd.DataFrame(rows)
-
-    # Create detail DataFrame
-    detail_df = pd.DataFrame(details_list)
-
-    # Generate filenames with timestamps
-    timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-    main_filename = f"trait_search_results_{timestamp}.csv"
-    detail_filename = f"trait_search_detailed_results_{timestamp}.csv"
-
-    # Save to CSV
-    LOGGER.info("about to save tables")
-    main_df.to_csv(main_filename, index=False)
-    detail_df.to_csv(detail_filename, index=False)
-    LOGGER.info(f"tables saved to {main_filename} and {detail_filename}")
-
-
-async def test():
-    browser_semaphore = asyncio.Semaphore(MAX_TABS)
-    # openai_semaphore = asyncio.Semaphore(MAX_OPENAI)
-
-    # url = 'https://vtfishandwildlife.com/sites/fishandwildlife/files/documents/About%20Us/Budget%20and%20Planning/WAP2015/5.-SGCN-Lists-Taxa-Summaries-%282015%29.pdf'
-    # url = 'https://www.columbiatribune.com/story/lifestyle/family/2016/05/18/amazing-adaptations/21809648007/'
-    # url = 'https://cropwatch.unl.edu/2016/aphids-active-nebraska-spring-alfalfa/'
-    url = "https://corescholar.libraries.wright.edu/cgi/viewcontent.cgi?article=1305&context=jbm"
-    async with async_playwright() as playwright:
-        browser = await asyncio.wait_for(
-            playwright.chromium.launch(headless=False), timeout=MAX_TIMEOUT
         )
         browser_context = await asyncio.wait_for(
             browser.new_context(
@@ -852,27 +837,249 @@ async def test():
             timeout=MAX_TIMEOUT,
         )
 
-        content = await asyncio.wait_for(
-            fetch_page_content(browser_semaphore, browser_context, url),
-            timeout=MAX_TIMEOUT,
-        )
-        print(content)
-        # openai_context = create_openai_context()
-        # answers = await asyncio.wait_for(handle_question_species(, timeout=MAX_TIMEOUT)
-        #     "DietBreadth - DietTaxa: What species does {species} eat?",
-        #     "acyrthosiphon pisum",
-        #     openai_context,
-        #     openai_semaphore,
-        #     browser_semaphore,
-        #     context,
-        # )
-        # # answers = await asyncio.wait_for(get_webpage_answers(openai_semaphore, openai_context, content, question, question, url), timeout=MAX_TIMEOUT)
-        # # result = await asyncio.wait_for(fetch_relevant_snippet(browser_semaphore, context, url, question, 'acyrthosiphon pisum'), timeout=MAX_TIMEOUT)
+        async def process_question(question_payload):
+            fetch_task_list = []
+            for search_result in question_payload["search_result"]:
+                fetch_task = asyncio.create_task(
+                    fetch_page_content(
+                        browser_semaphore,
+                        browser_context,
+                        search_result["link"],
+                    )
+                )
+                fetch_task_list.append(fetch_task)
+            question_payload["webpage_content"] = await asyncio.wait_for(
+                asyncio.gather(*fetch_task_list), timeout=MAX_TIMEOUT
+            )
 
-        # print(f"result: {answers}")
+        question_tasks = [
+            asyncio.create_task(process_question(payload))
+            for payload in species_question_search_list
+        ]
+
+        await asyncio.gather(*question_tasks)
+        await asyncio.wait_for(browser_context.close(), timeout=MAX_TIMEOUT)
+        for index, question_payload in enumerate(species_question_search_list):
+            for webpage_content, search_result in zip(
+                question_payload["webpage_content"],
+                question_payload["search_result"],
+            ):
+                table_rows.append(
+                    {
+                        "question_scope": question_payload["question_scope"],
+                        "species": question_payload["species"],
+                        "question_body": question_payload["question_body"],
+                        "question_formatted": question_payload[
+                            "question_formatted"
+                        ],
+                        "link": search_result["link"],
+                        "title": search_result["title"],
+                        "snippet": search_result["snippet"],
+                        "webpage_content": webpage_content[:800],
+                    }
+                )
+        df = pd.DataFrame(table_rows)
+        df.to_csv("output.csv", index=False)
+        return
+
+        return
+
+        # for question_with_header in question_list:
+        #     for species in species_list:
+        #         text_content = await asyncio.wait_for(
+        #             fetch_page_content(
+        #                 browser_semaphore,
+        #                 browser_context,
+        #                 search_result["link"],
+        #             ),
+        #             timeout=MAX_TIMEOUT * 10,
+        # )
+        # task = asyncio.create_task(
+        #     handle_question_species(
+        #         question_with_header,
+        #         species,
+        #         openai_context,
+        #         openai_semaphore,
+        #         browser_semaphore,
+        #         browser,
+        #     )
+        # )
+        # all_results.extend(
+        #     await asyncio.wait_for(
+        #         asyncio.gather(task, return_exceptions=True),
+        #         timeout=MAX_TIMEOUT * 10,
+        #     )
+        # )
+        # await asyncio.wait_for(
+        #     browser_context.close(), timeout=MAX_TIMEOUT
+        # )
+
+    fetch_page_content(browser_semaphore, browser_context, url)
+
+    # LOGGER.info(f'fetch that page content: {search_result["link"]}')
+    # text_content = await asyncio.wait_for(
+    #     fetch_page_content(
+    #         browser_semaphore, browser_context, search_result["link"]
+    #     ),
+    #     timeout=MAX_TIMEOUT * 10,
+    # )
+
+    return
+
+    # openai_semaphore = SemaphoreWithTimeout(MAX_OPENAI, 120.0, "openai")
+
+    # # Gather all questions
+    # search_results = []
+    # for question_with_header in question_list:
+    #     sys.exit()
+    #     for species in species_list:
+    #         species_question = question.format(species=species)
+
+    #         search_result_list = await asyncio.wait_for(
+    #             google_custom_search_async(
+    #                 API_KEY, CX, species_question, num_results=25
+    #             ),
+    #             timeout=MAX_TIMEOUT,
+    #         )
+    #         search_results.append(
+    #             {
+    #                 "question_with_header": question_with_header,
+    #                 "species": species,
+    #                 "search_task": search_task,
+    #             }
+    #         )
+
+    # openai_context = create_openai_context()
+    # async with async_playwright() as playwright:
+    #     browser = await asyncio.wait_for(
+    #         playwright.chromium.launch(headless=args.headless_off),
+    #         timeout=MAX_TIMEOUT,
+    #     )
+    #     question_answers = collections.defaultdict(list)
+    #     all_results = []
+    #     search_results = []
+    #     for question_with_header in question_list:
+    #         for species in species_list:
+    #             search_results.append(
+    #                 {
+    #                     "question_with_header": question_with_header,
+    #                     "species": species,
+    #                     "search_task": search_task,
+    #                 }
+    #             )
+
+    #             browser_context = await asyncio.wait_for(
+    #                 browser.new_context(
+    #                     accept_downloads=False,
+    #                     user_agent=(
+    #                         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    #                         "AppleWebKit/537.36 (KHTML, like Gecko) "
+    #                         "Chrome/122.0.0.0 Safari/537.36"
+    #                     ),
+    #                     viewport={"width": 1280, "height": 800},
+    #                     locale="en-US",
+    #                 ),
+    #                 timeout=MAX_TIMEOUT,
+    #             )
+    #             task = asyncio.create_task(
+    #                 handle_question_species(
+    #                     question_with_header,
+    #                     species,
+    #                     openai_context,
+    #                     openai_semaphore,
+    #                     browser_semaphore,
+    #                     browser,
+    #                 )
+    #             )
+    #             all_results.extend(
+    #                 await asyncio.wait_for(
+    #                     asyncio.gather(task, return_exceptions=True),
+    #                     timeout=MAX_TIMEOUT * 10,
+    #                 )
+    #             )
+    #             await asyncio.wait_for(
+    #                 browser_context.close(), timeout=MAX_TIMEOUT
+    #             )
+    #     LOGGER.info("ALL DONEEEEE")
+    #     await asyncio.wait_for(browser.close(), timeout=MAX_TIMEOUT)
+
+    # # Aggregate final results
+    # for (
+    #     column_prefix,
+    #     question,
+    #     species,
+    #     aggregate_answer,
+    #     search_result_list,
+    #     answer_list,
+    # ) in all_results:
+    #     question_answers[f"{column_prefix} - {question}"].append(
+    #         (
+    #             question,
+    #             species,
+    #             search_result_list,
+    #             aggregate_answer,
+    #             answer_list,
+    #         )
+    #     )
+
+    # LOGGER.info("all done with trait search pipeline, making table")
+    # main_data = {}
+    # details_list = []
+    # for col_prefix, qa_list in question_answers.items():
+    #     for (
+    #         question,
+    #         species,
+    #         search_result_list,
+    #         aggregate_answer,
+    #         answer_list,
+    #     ) in qa_list:
+    #         if species not in main_data:
+    #             main_data[species] = {}
+    #         main_data[species][question] = aggregate_answer
+    #         for search_item, (snippet, answer_str) in zip(
+    #             search_result_list, answer_list
+    #         ):
+    #             details_list.append(
+    #                 {
+    #                     "species": species,
+    #                     "question": question,
+    #                     "answer": answer_str,
+    #                     "url": search_item["link"],
+    #                     "webpage title": search_item["title"],
+    #                     "context": snippet,
+    #                 }
+    #             )
+
+    # LOGGER.info("details all set, building tables now")
+    # species_set = sorted(list(main_data.keys()))
+    # questions_set = sorted(
+    #     list({q for s in main_data for q in main_data[s].keys()})
+    # )
+    # rows = []
+    # for sp in species_set:
+    #     row_vals = {}
+    #     row_vals["species"] = sp
+    #     for q in questions_set:
+    #         row_vals[q] = main_data[sp].get(q, "")
+    #     rows.append(row_vals)
+    # main_df = pd.DataFrame(rows)
+
+    # # Create detail DataFrame
+    # detail_df = pd.DataFrame(details_list)
+
+    # # Generate filenames with timestamps
+    # timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+    # main_filename = f"trait_search_results_{timestamp}.csv"
+    # detail_filename = f"trait_search_detailed_results_{timestamp}.csv"
+
+    # # Save to CSV
+    # LOGGER.info("about to save tables")
+    # main_df.to_csv(main_filename, index=False)
+    # detail_df.to_csv(detail_filename, index=False)
+    # LOGGER.info(f"tables saved to {main_filename} and {detail_filename}")
 
 
 if __name__ == "__main__":
-    print("about to search")
+    LOGGER.info("Starting!")
     asyncio.run(main())
-    # asyncio.run(test())
+    LOGGER.info("All done!")
