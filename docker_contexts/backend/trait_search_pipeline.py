@@ -647,26 +647,26 @@ async def main():
         for payload in species_question_list
     ]
 
-    # species_question_search_list = [
-    #     {
-    #         **question_payload,
-    #         "search_result": await google_custom_search_async(
-    #             google_search_semaphore,
-    #             API_KEY,
-    #             CX,
-    #             question_payload["question_formatted"],
-    #             num_results=25,
-    #         ),
-    #     }
-    #     for question_payload in species_question_list
-    # ]
-
     species_question_search_list = await asyncio.gather(*tasks)
     pbar.close()
 
     LOGGER.info("do web browser pulls")
-    browser_semaphore = SemaphoreWithTimeout(MAX_TABS, 120.0, "browser")
-    table_rows = []
+    total_fetches = sum(
+        len(payload["search_result"])
+        for payload in species_question_search_list
+    )
+    fetch_pbar = tqdm(total=total_fetches, desc="Fetching Web Pages")
+
+    async def fetch_page_content_with_progress(
+        browser_semaphore, browser_context, url, pbar
+    ):
+        result = await fetch_page_content(
+            browser_semaphore, browser_context, url
+        )
+        pbar.update(1)
+        return result
+
+    browser_semaphore = asyncio.Semaphore(MAX_TABS)
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=args.headless_off)
         browser_context = await browser.new_context(
@@ -684,10 +684,11 @@ async def main():
             fetch_task_list = []
             for search_result in question_payload["search_result"]:
                 fetch_task = asyncio.create_task(
-                    fetch_page_content(
+                    fetch_page_content_with_progress(
                         browser_semaphore,
                         browser_context,
                         search_result["link"],
+                        fetch_pbar,
                     )
                 )
                 fetch_task_list.append(fetch_task)
@@ -701,26 +702,28 @@ async def main():
         ]
 
         await asyncio.gather(*question_tasks)
-        await asyncio.wait_for(browser_context.close())
-        for index, question_payload in enumerate(species_question_search_list):
-            for webpage_content, search_result in zip(
-                question_payload["webpage_content"],
-                question_payload["search_result"],
-            ):
-                table_rows.append(
-                    {
-                        "question_scope": question_payload["question_scope"],
-                        "species": question_payload["species"],
-                        "question_body": question_payload["question_body"],
-                        "question_formatted": question_payload[
-                            "question_formatted"
-                        ],
-                        "link": search_result["link"],
-                        "title": search_result["title"],
-                        "snippet": search_result["snippet"],
-                        "webpage_content": webpage_content[:800],
-                    }
-                )
+        await browser_context.close()
+
+    table_rows = []
+    for index, question_payload in enumerate(species_question_search_list):
+        for webpage_content, search_result in zip(
+            question_payload["webpage_content"],
+            question_payload["search_result"],
+        ):
+            table_rows.append(
+                {
+                    "question_scope": question_payload["question_scope"],
+                    "species": question_payload["species"],
+                    "question_body": question_payload["question_body"],
+                    "question_formatted": question_payload[
+                        "question_formatted"
+                    ],
+                    "link": search_result["link"],
+                    "title": search_result["title"],
+                    "snippet": search_result["snippet"],
+                    "webpage_content": webpage_content[:800],
+                }
+            )
     df = pd.DataFrame(table_rows)
     df.to_csv("output.csv", index=False)
     return
