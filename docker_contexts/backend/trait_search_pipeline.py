@@ -29,11 +29,11 @@ import requests
 
 LOGGER = logging.getLogger(__name__)
 MAX_TIMEOUT = 60.0
-HTTP_TIMEOUT = 5.0
-MAX_TABS = 1
+HTTP_TIMEOUT = 30.0
+MAX_TABS = 25
 MAX_OPENAI = 1
 MAX_BACKOFF_WAIT = 8
-GOOGLE_QUERIES_PER_SECOND = 3
+GOOGLE_QUERIES_PER_SECOND = 20
 
 
 GPT4O_MINI_ENCODER = tiktoken.encoding_for_model("gpt-4o-mini")
@@ -73,26 +73,35 @@ class DomainCooldown:
         self.lock = asyncio.Lock()
         self.domain = domain
         self._domain_count = 0
+        self._domain_wait = 0
 
     async def __aenter__(self):
+        LOGGER.debug(
+            f"entering {self.domain} lock, {self._domain_wait} other workers waiting"
+        )
+        self._domain_wait += 1
         async with self.lock:
             self._domain_count += 1
+            self._domain_wait -= 1
             now = time.time()
             elapsed = now - self.last_access
             if elapsed < self.cooldown_seconds:
                 LOGGER.debug(
-                    f"about to wait on cooldown for {self.domain} {self._domain_count} locks"
+                    f"about to wait on cooldown for {self.domain}, {self._domain_wait} waiting"
                 )
-                await asyncio.wait_for(
-                    asyncio.sleep(self.cooldown_seconds - elapsed),
-                    timeout=MAX_TIMEOUT,
-                )
+                await asyncio.sleep(self.cooldown_seconds - elapsed)
                 LOGGER.debug(
                     f"out of cooldown for {self.domain} {self._domain_count} locks"
                 )
             self.last_access = time.time()
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
+        LOGGER.debug(
+            f"{self._domain_wait} other workers waiting for {self.domain}"
+        )
+        LOGGER.debug(
+            f"leaving {self.domain} lock, {self._domain_wait} other workers waiting"
+        )
         pass
 
 
@@ -178,16 +187,16 @@ async def google_custom_search_async(
     async with rate_limit_semaphore:
         try:
             result_was_cached = False
-            payload, result_was_cached = await asyncio.wait_for(
-                asyncio.get_running_loop().run_in_executor(
-                    None,
-                    google_custom_search_sync,
-                    api_key,
-                    cx,
-                    query,
-                    num_results,
-                ),
-                timeout=MAX_TIMEOUT,
+            (
+                payload,
+                result_was_cached,
+            ) = await asyncio.get_running_loop().run_in_executor(
+                None,
+                google_custom_search_sync,
+                api_key,
+                cx,
+                query,
+                num_results,
             )
             return payload
         finally:
@@ -208,20 +217,15 @@ def google_custom_search_sync(api_key, cx, query, num_results=25):
     )
 
     if cache_key in SEARCH_CACHE and (payload := SEARCH_CACHE[cache_key]):
-        # LOGGER.debug(
-        #     f"found {cache_key} in SEARCH_CACHE: {SEARCH_CACHE[cache_key]}"
-        # )
-        return payload, True  # True means result was cached
+        return payload, True
 
     url = "https://www.googleapis.com/customsearch/v1"
     results = []
     start_index = 1
     while len(results) < num_results:
         params = {"key": api_key, "cx": cx, "q": query, "start": start_index}
-        # LOGGER.debug(f"search {url}")
         resp = requests.get(url, params=params)
         data = resp.json()
-        # LOGGER.debug(f"got response: {resp.json()}")
         if "items" not in data:
             break
         for item in data["items"]:
@@ -237,25 +241,22 @@ def google_custom_search_sync(api_key, cx, query, num_results=25):
         start_index += len(data["items"])
 
     SEARCH_CACHE[cache_key] = results
-    return results, False  # False means result was not cached
+    return results, False
 
 
-async def _download_pdf(url):
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, allow_redirects=True) as response:
-            if response.status != 200:
-                return ""
-            pdf_data = await asyncio.wait_for(
-                response.read(), timeout=MAX_TIMEOUT
-            )
-            pdf_file = io.BytesIO(pdf_data)
-            reader = PyPDF2.PdfReader(pdf_file)
-            text_pages = []
-            for page in reader.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    text_pages.append(page_text)
-            return "\n".join(text_pages)
+async def _download_pdf(session, url):
+    async with session.get(url, allow_redirects=True) as response:
+        if response.status != 200:
+            return ""
+        pdf_data = await response.read()
+        pdf_file = io.BytesIO(pdf_data)
+        reader = PyPDF2.PdfReader(pdf_file)
+        text_pages = []
+        for page in reader.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text_pages.append(page_text)
+        return "\n".join(text_pages)
 
 
 async def fetch_page_content(browser_semaphore, browser_context, url):
@@ -268,11 +269,9 @@ async def fetch_page_content(browser_semaphore, browser_context, url):
 
         async with domain_sem:
             # see if we have a .pdf
-            head_timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT)
             try:
-                async with aiohttp.ClientSession(
-                    timeout=head_timeout
-                ) as session:
+                head_timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT)
+                async with aiohttp.ClientSession(total=head_timeout) as session:
                     async with session.head(
                         url, allow_redirects=True
                     ) as head_response:
@@ -282,27 +281,22 @@ async def fetch_page_content(browser_semaphore, browser_context, url):
                             ).lower()
                             # If we detect PDF, download and parse
                             if "pdf" in content_type:
-                                text = await asyncio.wait_for(
-                                    _download_pdf(url), timeout=HTTP_TIMEOUT
-                                )
-                                BROWSER_CACHE[url] = sanitize_text(text)
-                                return text
-            except asyncio.TimeoutError:
-                LOGGER.info(f"timeout error waiting for pdf head on {url}")
-                pass
+                                text = await _download_pdf(session, url)
+                                if sanitized_text := sanitize_text(text):
+                                    BROWSER_CACHE[url] = sanitized_text
+                                    return sanitized_text
             except Exception:
                 # If HEAD fails or not PDF proceed with regular fetch
-                pass
+                LOGGER.info(
+                    f"timeout error waiting for pdf head {url}, continuing to "
+                    f"read as http"
+                )
             async with browser_semaphore:
                 content = ""
                 page = None
                 try:
-                    page = await asyncio.wait_for(
-                        browser_context.new_page(), timeout=HTTP_TIMEOUT
-                    )
-                    await asyncio.wait_for(
-                        page.goto(url, timeout=10000), timeout=HTTP_TIMEOUT
-                    )
+                    page = await browser_context.new_page()
+                    await page.goto(url)
                     content = await asyncio.wait_for(
                         page.content(), timeout=HTTP_TIMEOUT
                     )
@@ -434,7 +428,6 @@ async def make_request_with_backoff(
                         raise
                     await asyncio.wait_for(
                         asyncio.sleep(backoff + random.uniform(0, 1)),
-                        timeout=MAX_TIMEOUT,
                     )
                     backoff = min(backoff * 2, MAX_BACKOFF_WAIT)
     return sanitize_text(", ".join(full_response))
@@ -469,7 +462,6 @@ async def get_webpage_answers(
                 messages,
                 source_url,
             ),
-            timeout=MAX_TIMEOUT,
         )
         LOGGER.info(f"got that response text: {response_text}")
         return response_text
@@ -520,7 +512,6 @@ async def generate_text(
             make_request_with_backoff(
                 openai_semaphore, openai_context, chat_args
             ),
-            timeout=MAX_TIMEOUT,
         )
         LOGGER.info(f"got response back: {response_text}")
         PROMPT_CACHE[key] = response_text
@@ -559,7 +550,6 @@ async def aggregate_answers(openai_semaphore, openai_context, answer_list):
             generate_text(
                 openai_semaphore, openai_context, "gpt-4o-mini", messages
             ),
-            timeout=MAX_TIMEOUT,
         )
         LOGGER.info(f"returning consolidated_answer: {consolidated_answer}")
         return consolidated_answer
@@ -597,6 +587,7 @@ async def main():
     parser.add_argument("--headless_off", action="store_true")
     args = parser.parse_args()
 
+    LOGGER.info(f"build up species list")
     species_list = list(
         islice(
             (
@@ -610,6 +601,7 @@ async def main():
 
     # the questions coming in are separated by a ':' representing
     # SCOPE: QUESTION, so formatting the list like that
+    LOGGER.info(f"build up scope list")
     scope_question_list = list(
         islice(
             (
@@ -621,6 +613,7 @@ async def main():
         )
     )
 
+    LOGGER.info("build up species question list")
     species_question_list = [
         {
             "species": species,
@@ -631,45 +624,60 @@ async def main():
         for question_scope, question_body in scope_question_list
         for species in species_list
     ]
-    google_search_semaphore = SemaphoreWithTimeout(
-        GOOGLE_QUERIES_PER_SECOND, 120.0, "google search"
-    )
-    species_question_search_list = [
-        {
-            **question_payload,
-            "search_result": await asyncio.wait_for(
-                google_custom_search_async(
-                    google_search_semaphore,
-                    API_KEY,
-                    CX,
-                    question_payload["question_formatted"],
-                    num_results=25,
-                ),
-                timeout=MAX_TIMEOUT,
-            ),
-        }
-        for question_payload in species_question_list
+    # google_search_semaphore = SemaphoreWithTimeout(
+    #     GOOGLE_QUERIES_PER_SECOND, 120.0, "google search"
+    # )
+    LOGGER.info("do google searches")
+    google_search_semaphore = asyncio.Semaphore(GOOGLE_QUERIES_PER_SECOND)
+
+    async def google_search_with_progress(question_payload, pbar):
+        result = await google_custom_search_async(
+            google_search_semaphore,
+            API_KEY,
+            CX,
+            question_payload["question_formatted"],
+            num_results=25,
+        )
+        pbar.update(1)
+        return {**question_payload, "search_result": result}
+
+    pbar = tqdm(total=len(species_question_list), desc="Google Searches")
+    tasks = [
+        asyncio.create_task(google_search_with_progress(payload, pbar))
+        for payload in species_question_list
     ]
 
+    # species_question_search_list = [
+    #     {
+    #         **question_payload,
+    #         "search_result": await google_custom_search_async(
+    #             google_search_semaphore,
+    #             API_KEY,
+    #             CX,
+    #             question_payload["question_formatted"],
+    #             num_results=25,
+    #         ),
+    #     }
+    #     for question_payload in species_question_list
+    # ]
+
+    species_question_search_list = await asyncio.gather(*tasks)
+    pbar.close()
+
+    LOGGER.info("do web browser pulls")
     browser_semaphore = SemaphoreWithTimeout(MAX_TABS, 120.0, "browser")
     table_rows = []
     async with async_playwright() as playwright:
-        browser = await asyncio.wait_for(
-            playwright.chromium.launch(headless=args.headless_off),
-            timeout=MAX_TIMEOUT,
-        )
-        browser_context = await asyncio.wait_for(
-            browser.new_context(
-                accept_downloads=False,
-                user_agent=(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/122.0.0.0 Safari/537.36"
-                ),
-                viewport={"width": 1280, "height": 800},
-                locale="en-US",
+        browser = await playwright.chromium.launch(headless=args.headless_off)
+        browser_context = await browser.new_context(
+            accept_downloads=False,
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/122.0.0.0 Safari/537.36"
             ),
-            timeout=MAX_TIMEOUT,
+            viewport={"width": 1280, "height": 800},
+            locale="en-US",
         )
 
         async def process_question(question_payload):
@@ -683,8 +691,8 @@ async def main():
                     )
                 )
                 fetch_task_list.append(fetch_task)
-            question_payload["webpage_content"] = await asyncio.wait_for(
-                asyncio.gather(*fetch_task_list), timeout=MAX_TIMEOUT
+            question_payload["webpage_content"] = await asyncio.gather(
+                *fetch_task_list
             )
 
         question_tasks = [
@@ -693,7 +701,7 @@ async def main():
         ]
 
         await asyncio.gather(*question_tasks)
-        await asyncio.wait_for(browser_context.close(), timeout=MAX_TIMEOUT)
+        await asyncio.wait_for(browser_context.close())
         for index, question_payload in enumerate(species_question_search_list):
             for webpage_content, search_result in zip(
                 question_payload["webpage_content"],
@@ -713,41 +721,9 @@ async def main():
                         "webpage_content": webpage_content[:800],
                     }
                 )
-        df = pd.DataFrame(table_rows)
-        df.to_csv("output.csv", index=False)
-        return
-
-        # for question_with_header in question_list:
-        #     for species in species_list:
-        #         text_content = await asyncio.wait_for(
-        #             fetch_page_content(
-        #                 browser_semaphore,
-        #                 browser_context,
-        #                 search_result["link"],
-        #             ),
-        #             timeout=MAX_TIMEOUT * 10,
-        # )
-        # task = asyncio.create_task(
-        #     handle_question_species(
-        #         question_with_header,
-        #         species,
-        #         openai_context,
-        #         openai_semaphore,
-        #         browser_semaphore,
-        #         browser,
-        #     )
-        # )
-        # all_results.extend(
-        #     await asyncio.wait_for(
-        #         asyncio.gather(task, return_exceptions=True),
-        #         timeout=MAX_TIMEOUT * 10,
-        #     )
-        # )
-        # await asyncio.wait_for(
-        #     browser_context.close(), timeout=MAX_TIMEOUT
-        # )
-
-    fetch_page_content(browser_semaphore, browser_context, url)
+    df = pd.DataFrame(table_rows)
+    df.to_csv("output.csv", index=False)
+    return
 
     # LOGGER.info(f'fetch that page content: {search_result["link"]}')
     # text_content = await asyncio.wait_for(
