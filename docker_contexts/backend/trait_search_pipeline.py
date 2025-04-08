@@ -216,7 +216,8 @@ def google_custom_search_sync(api_key, cx, query, num_results=25):
         sort_keys=True,
     )
 
-    if cache_key in SEARCH_CACHE and (payload := SEARCH_CACHE[cache_key]):
+    if cache_key in SEARCH_CACHE:  # and (payload := SEARCH_CACHE[cache_key]):
+        return SEARCH_CACHE[cache_key], True
         return payload, True
 
     url = "https://www.googleapis.com/customsearch/v1"
@@ -261,8 +262,9 @@ async def _download_pdf(session, url):
 
 async def fetch_page_content(browser_semaphore, browser_context, url):
     try:
-        if url in BROWSER_CACHE and (content := BROWSER_CACHE[url]):
-            return sanitize_text(content)
+        if url in BROWSER_CACHE:  # and (content := BROWSER_CACHE[url]):
+            return sanitize_text(BROWSER_CACHE[url])
+            # return sanitize_text(content)
 
         domain = urlparse(url).netloc
         domain_sem = DOMAIN_SEMAPHORES[domain]
@@ -315,7 +317,7 @@ async def fetch_page_content(browser_semaphore, browser_context, url):
                         BROWSER_CACHE[url] = sanitize_text(content)
                         await page.close()
 
-            return content
+            return BROWSER_CACHE[url]
     except Exception:
         timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
         log_filename = f"error_log_{timestamp}.txt"
@@ -683,13 +685,11 @@ async def main():
         async def process_question(question_payload):
             fetch_task_list = []
             for search_result in question_payload["search_result"]:
-                fetch_task = asyncio.create_task(
-                    fetch_page_content_with_progress(
-                        browser_semaphore,
-                        browser_context,
-                        search_result["link"],
-                        fetch_pbar,
-                    )
+                fetch_task = fetch_page_content_with_progress(
+                    browser_semaphore,
+                    browser_context,
+                    search_result["link"],
+                    fetch_pbar,
                 )
                 fetch_task_list.append(fetch_task)
             question_payload["webpage_content"] = await asyncio.gather(
