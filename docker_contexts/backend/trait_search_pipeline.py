@@ -1,3 +1,4 @@
+import string
 import time
 from collections import defaultdict
 from datetime import datetime
@@ -15,6 +16,7 @@ import sys
 import traceback
 import warnings
 
+from docx import Document
 from tqdm import tqdm
 from itertools import islice
 import tiktoken
@@ -28,8 +30,8 @@ import pandas as pd
 import requests
 
 LOGGER = logging.getLogger(__name__)
-MAX_TIMEOUT = 60.0
-HTTP_TIMEOUT = 30.0
+MAX_TIMEOUT = 360.0
+HTTP_TIMEOUT = 360.0
 MAX_TABS = 25
 MAX_OPENAI = 1
 MAX_BACKOFF_WAIT = 8
@@ -69,40 +71,34 @@ class SemaphoreWithTimeout:
 class DomainCooldown:
     def __init__(self, domain, cooldown_seconds=5):
         self.cooldown_seconds = cooldown_seconds
+        # Initalize last access time to be longer than expected cooldown
+        # so we start right away
         self.last_access = time.time() - cooldown_seconds - 1
         self.lock = asyncio.Lock()
         self.domain = domain
         self._domain_count = 0
-        self._domain_wait = 0
+        self._active_workers = 0
 
     async def __aenter__(self):
-        LOGGER.debug(
-            f"entering {self.domain} lock, {self._domain_wait} other workers waiting"
-        )
-        self._domain_wait += 1
+        self._active_workers += 1
         async with self.lock:
             self._domain_count += 1
-            self._domain_wait -= 1
-            now = time.time()
-            elapsed = now - self.last_access
-            if elapsed < self.cooldown_seconds:
-                LOGGER.debug(
-                    f"about to wait on cooldown for {self.domain}, {self._domain_wait} waiting"
-                )
-                await asyncio.sleep(self.cooldown_seconds - elapsed)
-                LOGGER.debug(
-                    f"out of cooldown for {self.domain} {self._domain_count} locks"
-                )
+            time_elapsed_since_last_access = time.time() - self.last_access
+            time_to_wait = (
+                self.cooldown_seconds - time_elapsed_since_last_access
+            )
+            if time_to_wait > 0:
+                await asyncio.sleep(time_to_wait)
+                self._active_workers -= 1
             self.last_access = time.time()
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        LOGGER.debug(
-            f"{self._domain_wait} other workers waiting for {self.domain}"
-        )
-        LOGGER.debug(
-            f"leaving {self.domain} lock, {self._domain_wait} other workers waiting"
-        )
         pass
+        # if self._active_workers > 0:
+        #     LOGGER.debug(
+        #         f"exiting semaphore for {self.domain}, {self._active_workers} "
+        #         f"workers waiting"
+        #     )
 
 
 class DomainSemaphores(defaultdict):
@@ -260,61 +256,203 @@ async def _download_pdf(session, url):
         return "\n".join(text_pages)
 
 
+async def is_pdf(session, url, timeout_value):
+    try:
+        # try to read the head, that might work and if it does it's fastest
+        async with session.head(url, allow_redirects=True) as head_response:
+            if head_response.status == 200:
+                content_type = head_response.headers.get(
+                    "Content-Type", ""
+                ).lower()
+                if "pdf" in content_type:
+                    return True
+    except Exception as e:
+        LOGGER.debug(f"pdf HEAD request failed for {url}: {e}")
+
+    try:
+        # Fallback on GET to try to read the header
+        async with session.get(url, allow_redirects=True) as get_response:
+            if get_response.status == 200:
+                content_type = get_response.headers.get(
+                    "Content-Type", ""
+                ).lower()
+                if "pdf" in content_type:
+                    return True
+    except Exception as e:
+        LOGGER.debug(f"pdf GET request failed for {url}: {e}")
+
+    return False
+
+
+def extract_text_from_pdf(pdf_path):
+    # with open(pdf_file, "rb") as file:
+    #     pdf_data = io.BytesIO(file.read())
+    # pdf_file = io.BytesIO(pdf_data)
+    reader = PyPDF2.PdfReader(pdf_path)
+    text_pages = []
+    for page in reader.pages:
+        page_text = page.extract_text()
+        if page_text:
+            text_pages.append(page_text)
+    return "\n".join(text_pages)
+
+
+def extract_text_from_docx(doc_path):
+    doc = Document(doc_path)
+    paragraphs = [p.text for p in doc.paragraphs if p.text]
+    return "\n".join(paragraphs)
+
+
+def extract_text_from_doc(doc_path):
+    def clean_extracted_text(text):
+        # Keep printable characters plus newline, carriage return, and tab.
+        LOGGER.debug(f"cleaning {len(text)} characters")
+        return "".join(ch for ch in text if ch.isprintable() or ch in "\n\r\t")
+
+    import textract
+
+    text = textract.process(doc_path)
+    return clean_extracted_text(text.decode("utf-8"))
+
+
+def filter_valid_words(phrase):
+    translator = str.maketrans("", "", string.punctuation)
+    cleaned_phrase = phrase.translate(translator)
+    for word in cleaned_phrase.split():
+        if bool(re.fullmatch(r"[A-Za-z]+", word)):
+            yield word
+
+
+def try_raw_text(doc_path):
+    def clean_extracted_text(text):
+        # Keep printable characters plus newline, carriage return, and tab.
+        LOGGER.debug(f"cleaning {len(text)} characters")
+        return "".join(ch for ch in text if ch.isprintable() or ch in "\n\r\t")
+
+    with open(doc_path, "r", encoding="utf-8", errors="ignore") as file:
+        return " ".join(filter_valid_words(clean_extracted_text(file.read())))
+
+
+def filter_valid_words(phrase):
+    translator = str.maketrans("", "", string.punctuation)
+    cleaned_phrase = phrase.translate(translator)
+    for word in cleaned_phrase.split():
+        if bool(re.fullmatch(r"[A-Za-z]+", word)):
+            yield word
+
+
+def extract_text_from_binary_file(file_path):
+    """
+    Try to extract text from file_path by trying a series of extraction methods.
+    If one fails, log the exception and try the next.
+    """
+    methods = [
+        # ("doc", extract_text_from_doc),
+        # ("pdf", extract_text_from_pdf),
+        # ("docx", extract_text_from_docx),
+        ("raw", try_raw_text),
+    ]
+    for file_type, extract_func in methods:
+        try:
+            LOGGER.debug(f"***************Trying to extract as {file_type}...")
+            text = " ".join(filter_valid_words(extract_func(file_path)))
+            # If extraction returns text without raising an exception, return it.
+            if text and text.strip():
+                LOGGER.info(f"Successfully extracted text as {file_type}.")
+                return text
+        except Exception as e:
+            pass
+            LOGGER.exception(f"Failed to extract text as {file_type}: {e}")
+    raise ValueError(
+        "Unable to extract text from binary file using any method."
+    )
+
+
+async def fetch_pdf_if_applicable(url, timeout_value=HTTP_TIMEOUT):
+    head_timeout = aiohttp.ClientTimeout(total=timeout_value)
+    async with aiohttp.ClientSession(timeout=head_timeout) as session:
+        is_pdf_flag = await is_pdf(session, url, timeout_value)
+        if is_pdf_flag:
+            # If the file is a PDF, download and parse using
+            # _download_pdf function.
+            try:
+                text = await _download_pdf(session, url)
+                if sanitized_text := sanitize_text(text):
+                    BROWSER_CACHE[url] = sanitized_text
+                    return sanitized_text
+            except Exception as e:
+                raise RuntimeError(
+                    f"Requested to download download/parse PDF at {url} "
+                    f"but failed"
+                )
+        return None
+
+
+def attempt_download(page, url):
+    with page.expect_download(timeout=5000) as download_info:
+        try:
+            # Attempt navigation with a wait_until that doesn't wait for full load.
+            page.goto(url, wait_until="domcontentloaded")
+        except Exception as e:
+            # Check if the error is due to an aborted navigation.
+            print(f"processing exception: {e}")
+            if "ERR_ABORTED" in str(e):
+                # This error is expected when the download starts.
+                pass
+                # print(
+                #     "Navigation was aborted; likely because a download was triggered."
+                # )
+            else:
+                raise  # If it's another error, re-raise it.
+    LOGGER.debug("Download triggered!")
+    download = download_info.value  # Get the Download object.
+    download_path = download.path()
+    # process this path, if it's a docx open, or pdf open, or...
+    with open(download_path, "r") as file:
+        print(file.read())
+    print(f"Downloaded file at: {download_path}")
+
+
 async def fetch_page_content(browser_semaphore, browser_context, url):
     try:
-        if url in BROWSER_CACHE:  # and (content := BROWSER_CACHE[url]):
-            return sanitize_text(BROWSER_CACHE[url])
-            # return sanitize_text(content)
+        page = None
+        if url in BROWSER_CACHE and (content := BROWSER_CACHE[url]):
+            # return sanitize_text(BROWSER_CACHE[url])
+            return sanitize_text(content)
 
         domain = urlparse(url).netloc
         domain_sem = DOMAIN_SEMAPHORES[domain]
 
         async with domain_sem:
             # see if we have a .pdf
-            try:
-                head_timeout = aiohttp.ClientTimeout(total=HTTP_TIMEOUT)
-                async with aiohttp.ClientSession(total=head_timeout) as session:
-                    async with session.head(
-                        url, allow_redirects=True
-                    ) as head_response:
-                        if head_response.status == 200:
-                            content_type = head_response.headers.get(
-                                "Content-Type", ""
-                            ).lower()
-                            # If we detect PDF, download and parse
-                            if "pdf" in content_type:
-                                text = await _download_pdf(session, url)
-                                if sanitized_text := sanitize_text(text):
-                                    BROWSER_CACHE[url] = sanitized_text
-                                    return sanitized_text
-            except Exception:
-                # If HEAD fails or not PDF proceed with regular fetch
-                LOGGER.info(
-                    f"timeout error waiting for pdf head {url}, continuing to "
-                    f"read as http"
-                )
             async with browser_semaphore:
-                content = ""
-                page = None
+                # Try regular pages
                 try:
-                    page = await browser_context.new_page()
-                    await page.goto(url)
-                    content = await asyncio.wait_for(
-                        page.content(), timeout=HTTP_TIMEOUT
-                    )
+                    content = await fetch_pdf_if_applicable(url, HTTP_TIMEOUT)
+                    if content is None or not (
+                        content := sanitize_text(content)
+                    ):
+                        # Try regular fetching
+                        page = None
+                        page = await browser_context.new_page()
+                        await page.goto(url)
+                        content = await asyncio.wait_for(
+                            page.content(), timeout=HTTP_TIMEOUT
+                        )
                 except Exception as e:
                     error_type = type(e).__name__
                     error_msg = str(e)
                     error_trace = traceback.format_exc()
-                    return (
+                    raise RuntimeError(
                         "Page could not load.\n"
                         f"Exception Type: {error_type}\n"
                         f"Message: {error_msg}\n"
                         f"Stack Trace:\n{error_trace}"
                     )
                 finally:
-                    if page is not None:
+                    if content:
                         BROWSER_CACHE[url] = sanitize_text(content)
+                    if page is not None:
                         await page.close()
 
             return BROWSER_CACHE[url]
@@ -328,6 +466,7 @@ async def fetch_page_content(browser_semaphore, browser_context, url):
             f.write(f"url: {url}\n")
             f.write("Stack Trace:\n")
             f.write(traceback.format_exc())
+        LOGGER.exception(f"fetch page content failed with {url}")
         raise
 
 
