@@ -23,7 +23,7 @@ import tiktoken
 import aiohttp
 import PyPDF2
 from bs4 import BeautifulSoup
-from diskcache import Cache
+from diskcache import Cache, Index
 from openai import OpenAI
 from playwright.async_api import async_playwright
 import pandas as pd
@@ -111,8 +111,8 @@ DOMAIN_SEMAPHORES = DomainSemaphores()
 
 
 SEARCH_CACHE = Cache("google_search_cache")
-PROMPT_CACHE = Cache("openai_cache")
-BROWSER_CACHE = Cache("browser_cache")
+PROMPT_CACHE = Index("openai_cache")
+BROWSER_CACHE = Index("browser_cache")
 
 # avoid searching the same domain at once
 
@@ -347,22 +347,19 @@ def extract_text_from_binary_file(file_path):
     If one fails, log the exception and try the next.
     """
     methods = [
-        # ("doc", extract_text_from_doc),
-        # ("pdf", extract_text_from_pdf),
-        # ("docx", extract_text_from_docx),
+        ("doc", extract_text_from_doc),
+        ("pdf", extract_text_from_pdf),
+        ("docx", extract_text_from_docx),
         ("raw", try_raw_text),
     ]
     for file_type, extract_func in methods:
         try:
-            LOGGER.debug(f"***************Trying to extract as {file_type}...")
             text = " ".join(filter_valid_words(extract_func(file_path)))
             # If extraction returns text without raising an exception, return it.
             if text and text.strip():
-                LOGGER.info(f"Successfully extracted text as {file_type}.")
                 return text
-        except Exception as e:
+        except Exception:
             pass
-            LOGGER.exception(f"Failed to extract text as {file_type}: {e}")
     raise ValueError(
         "Unable to extract text from binary file using any method."
     )
@@ -416,6 +413,7 @@ def attempt_download(page, url):
 async def fetch_page_content(browser_semaphore, browser_context, url):
     try:
         page = None
+        content = None
         if url in BROWSER_CACHE and (content := BROWSER_CACHE[url]):
             # return sanitize_text(BROWSER_CACHE[url])
             return sanitize_text(content)
@@ -424,30 +422,36 @@ async def fetch_page_content(browser_semaphore, browser_context, url):
         domain_sem = DOMAIN_SEMAPHORES[domain]
 
         async with domain_sem:
-            # see if we have a .pdf
             async with browser_semaphore:
-                # Try regular pages
                 try:
-                    content = await fetch_pdf_if_applicable(url, HTTP_TIMEOUT)
-                    if content is None or not (
-                        content := sanitize_text(content)
-                    ):
-                        # Try regular fetching
-                        page = None
-                        page = await browser_context.new_page()
-                        await page.goto(url)
-                        content = await asyncio.wait_for(
-                            page.content(), timeout=HTTP_TIMEOUT
-                        )
+                    # Try to expect a download first
+                    page = await browser_context.new_page()
+                    async with page.expect_download(
+                        timeout=HTTP_TIMEOUT * 100
+                    ) as download_info:
+                        try:
+                            await page.goto(url, wait_until="domcontentloaded")
+                        except Exception as e:
+                            if "ERR_ABORTED" in str(e):
+                                # Expected error due to download, so ignore it.
+                                pass
+                                # LOGGER.debug(
+                                #     "Navigation aborted (expected due "
+                                #     "to download trigger)."
+                                # )
+                            else:
+                                raise
+                        # Get the Download object.
+                        download = await download_info.value
+                        download_path = await download.path()
+                        content = extract_text_from_binary_file(download_path)
                 except Exception as e:
-                    error_type = type(e).__name__
-                    error_msg = str(e)
-                    error_trace = traceback.format_exc()
-                    raise RuntimeError(
-                        "Page could not load.\n"
-                        f"Exception Type: {error_type}\n"
-                        f"Message: {error_msg}\n"
-                        f"Stack Trace:\n{error_trace}"
+                    # LOGGER.exception(
+                    #     f"{url} download did not work, trying regular fetch"
+                    # )
+                    await page.goto(url)
+                    content = await asyncio.wait_for(
+                        page.content(), timeout=HTTP_TIMEOUT * 100
                     )
                 finally:
                     if content:
