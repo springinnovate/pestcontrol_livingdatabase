@@ -35,6 +35,7 @@ from playwright_stealth import stealth_async
 
 LOGGER = logging.getLogger(__name__)
 MAX_TIMEOUT = 360.0
+OPENAI_TIMEOUT = 60
 HTTP_TIMEOUT = 360.0
 MAX_TABS = 25
 MAX_OPENAI = 1
@@ -56,11 +57,9 @@ class SemaphoreWithTimeout:
     async def __aenter__(self):
         try:
             start = time.time()
-            # LOGGER.debug(f"about to await on semaphore {self._name}")
             await asyncio.wait_for(
                 self._semaphore.acquire(), timeout=self._timeout
             )
-            # LOGGER.debug(f"released semaphore {self._name}")
             return self
         except asyncio.TimeoutError:
             raise RuntimeError(
@@ -530,45 +529,46 @@ async def make_request_with_backoff(
     assistant_message = next(
         (m for m in messages if m["role"] == "assistant"), None
     )
-    if not assistant_message:
+    if not any((dev_message, user_message, assistant_message)):
         raise ValueError("Developer, user, or assistant message not found.")
 
     assistant_chunks = chunk_text_by_tokens(
         assistant_message["content"], max_chunk_tokens, GPT4O_MINI_ENCODER
-    )[:4]
+    )[
+        :4
+    ]  # TODO: note the :4 max chunks here
 
     full_response = []
     for chunk in assistant_chunks:
-        for chunk in assistant_chunks:
-            backoff = 1
-            chunked_messages = [
-                {"role": "assistant", "content": chunk},
-            ]
-            for message in [dev_message, user_message]:
-                if message:
-                    chunked_messages.append(dev_message)
-            args = {
-                "messages": chunked_messages,
-                "model": chat_args["model"],
-            }
-            for attempt in range(1, max_retries + 1):
-                try:
-                    async with openai_semaphore:
-                        response = openai_context[
-                            "client"
-                        ].chat.completions.create(**args)
-                    full_response.append(response.choices[0].message.content)
-                except Exception:
-                    LOGGER.exception(
-                        "OPENAI NOT RAISED: but openai exception, backing it off"
+        backoff = 1
+        chunked_messages = [
+            {"role": "assistant", "content": chunk},
+        ]
+        for message in [dev_message, user_message]:
+            if message:
+                chunked_messages.append(message)
+        args = {
+            "messages": chunked_messages,
+            "model": chat_args["model"],
+        }
+        LOGGER.debug(f"about to try this args: {args}")
+        for attempt in range(1, max_retries + 1):
+            try:
+                async with openai_semaphore:
+                    response = openai_context["client"].chat.completions.create(
+                        **args
                     )
-                    traceback.print_exc()
-                    if attempt == max_retries:
-                        raise
-                    await asyncio.wait_for(
-                        asyncio.sleep(backoff + random.uniform(0, 1)),
-                    )
-                    backoff = min(backoff * 2, MAX_BACKOFF_WAIT)
+                full_response.append(response.choices[0].message.content)
+                break
+            except Exception:
+                LOGGER.exception(
+                    "OPENAI NOT RAISED: but openai exception, backing it off"
+                )
+                traceback.print_exc()
+                if attempt == max_retries:
+                    raise
+                await asyncio.sleep(backoff + random.uniform(0, 1))
+                backoff = min(backoff * 2, MAX_BACKOFF_WAIT)
     return sanitize_text(", ".join(full_response))
 
 
@@ -624,9 +624,11 @@ async def get_webpage_answers(
         sys.exit(1)
 
 
-def sanitize_text(text: str) -> str:
+def sanitize_text(text):
     # Encode to ASCII and ignore errors, then decode back to ASCII
     # This drops any characters that cannot be mapped
+    if text is None:
+        return None
     return text.encode("ascii", errors="ignore").decode(
         "ascii", errors="ignore"
     )
@@ -637,9 +639,10 @@ async def generate_text(
 ):
     chat_args = {"model": model, "messages": messages}
     key = cache_key(chat_args)
-    if key in PROMPT_CACHE:
+    if key in PROMPT_CACHE and (
+        response_text := sanitize_text(PROMPT_CACHE[key])
+    ):
         LOGGER.info("CACHED openai")
-        response_text = sanitize_text(PROMPT_CACHE[key])
         LOGGER.info(
             f"source url: {source_url} -- got that CACHED response {response_text[:100]}"
         )
@@ -651,6 +654,7 @@ async def generate_text(
             make_request_with_backoff(
                 openai_semaphore, openai_context, chat_args
             ),
+            timeout=OPENAI_TIMEOUT,
         )
         LOGGER.info(f"got response back: {response_text}")
         PROMPT_CACHE[key] = response_text
