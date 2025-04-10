@@ -551,7 +551,6 @@ async def make_request_with_backoff(
             "messages": chunked_messages,
             "model": chat_args["model"],
         }
-        LOGGER.debug(f"about to try this args: {args}")
         for attempt in range(1, max_retries + 1):
             try:
                 async with openai_semaphore:
