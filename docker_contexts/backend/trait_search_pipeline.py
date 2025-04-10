@@ -1,3 +1,5 @@
+"""Pipeline to google search, follow links, then LLM questions."""
+
 import string
 import time
 from collections import defaultdict
@@ -5,7 +7,6 @@ from datetime import datetime
 from urllib.parse import urlparse
 import argparse
 import asyncio
-import collections
 import hashlib
 import io
 import json
@@ -15,8 +16,10 @@ import re
 import sys
 import traceback
 import warnings
+import httpx
 
 from docx import Document
+import playwright
 from tqdm import tqdm
 from itertools import islice
 import tiktoken
@@ -28,6 +31,7 @@ from openai import OpenAI
 from playwright.async_api import async_playwright
 import pandas as pd
 import requests
+from playwright_stealth import stealth_async
 
 LOGGER = logging.getLogger(__name__)
 MAX_TIMEOUT = 360.0
@@ -214,7 +218,6 @@ def google_custom_search_sync(api_key, cx, query, num_results=25):
 
     if cache_key in SEARCH_CACHE:  # and (payload := SEARCH_CACHE[cache_key]):
         return SEARCH_CACHE[cache_key], True
-        return payload, True
 
     url = "https://www.googleapis.com/customsearch/v1"
     results = []
@@ -333,14 +336,6 @@ def try_raw_text(doc_path):
         return " ".join(filter_valid_words(clean_extracted_text(file.read())))
 
 
-def filter_valid_words(phrase):
-    translator = str.maketrans("", "", string.punctuation)
-    cleaned_phrase = phrase.translate(translator)
-    for word in cleaned_phrase.split():
-        if bool(re.fullmatch(r"[A-Za-z]+", word)):
-            yield word
-
-
 def extract_text_from_binary_file(file_path):
     """
     Try to extract text from file_path by trying a series of extraction methods.
@@ -377,7 +372,7 @@ async def fetch_pdf_if_applicable(url, timeout_value=HTTP_TIMEOUT):
                 if sanitized_text := sanitize_text(text):
                     BROWSER_CACHE[url] = sanitized_text
                     return sanitized_text
-            except Exception as e:
+            except Exception:
                 raise RuntimeError(
                     f"Requested to download download/parse PDF at {url} "
                     f"but failed"
@@ -412,8 +407,8 @@ def attempt_download(page, url):
 
 async def fetch_page_content(browser_semaphore, browser_context, url):
     try:
-        page = None
         content = None
+        page = None
         if url in BROWSER_CACHE and (content := BROWSER_CACHE[url]):
             # return sanitize_text(BROWSER_CACHE[url])
             return sanitize_text(content)
@@ -424,42 +419,41 @@ async def fetch_page_content(browser_semaphore, browser_context, url):
         async with domain_sem:
             async with browser_semaphore:
                 try:
-                    # Try to expect a download first
                     page = await browser_context.new_page()
+                    await stealth_async(page)
                     async with page.expect_download(
-                        timeout=HTTP_TIMEOUT * 100
+                        timeout=5000  # timeout in ms
                     ) as download_info:
-                        try:
-                            await page.goto(url, wait_until="domcontentloaded")
-                        except Exception as e:
-                            if "ERR_ABORTED" in str(e):
-                                # Expected error due to download, so ignore it.
-                                pass
-                                # LOGGER.debug(
-                                #     "Navigation aborted (expected due "
-                                #     "to download trigger)."
-                                # )
-                            else:
-                                raise
-                        # Get the Download object.
+                        await page.goto(url, wait_until="domcontentloaded")
                         download = await download_info.value
                         download_path = await download.path()
                         content = extract_text_from_binary_file(download_path)
-                except Exception as e:
-                    # LOGGER.exception(
-                    #     f"{url} download did not work, trying regular fetch"
-                    # )
+                        BROWSER_CACHE[url] = sanitize_text(content)
+                except playwright.async_api.TimeoutError:
                     await page.goto(url)
                     content = await asyncio.wait_for(
-                        page.content(), timeout=HTTP_TIMEOUT * 100
+                        page.content(), timeout=5000  # timeout in ms
                     )
-                finally:
-                    if content:
+                    BROWSER_CACHE[url] = sanitize_text(content)
+                except playwright.async_api.Error as e:
+                    if "ERR_ABORTED" in str(e):
+                        download = await download_info.value
+                        download_path = await download.path()
+                        content = extract_text_from_binary_file(download_path)
                         BROWSER_CACHE[url] = sanitize_text(content)
+                    else:
+                        async with httpx.AsyncClient(timeout=5) as client:
+
+                            resp = await client.get(url)
+                            resp.raise_for_status()
+                            content = extract_text_from_binary_file(
+                                resp.content
+                            )
+                            BROWSER_CACHE[url] = sanitize_text(content)
+                finally:
                     if page is not None:
                         await page.close()
-
-            return BROWSER_CACHE[url]
+                return BROWSER_CACHE[url]
     except Exception:
         timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
         log_filename = f"error_log_{timestamp}.txt"
@@ -470,7 +464,7 @@ async def fetch_page_content(browser_semaphore, browser_context, url):
             f.write(f"url: {url}\n")
             f.write("Stack Trace:\n")
             f.write(traceback.format_exc())
-        LOGGER.exception(f"fetch page content failed with {url}")
+        # LOGGER.exception(f"fetch page content failed with {url}")
         raise
 
 
@@ -732,7 +726,7 @@ async def main():
     parser.add_argument("--headless_off", action="store_true")
     args = parser.parse_args()
 
-    LOGGER.info(f"build up species list")
+    LOGGER.info("build up species list")
     species_list = list(
         islice(
             (
@@ -746,7 +740,7 @@ async def main():
 
     # the questions coming in are separated by a ':' representing
     # SCOPE: QUESTION, so formatting the list like that
-    LOGGER.info(f"build up scope list")
+    LOGGER.info("build up scope list")
     scope_question_list = list(
         islice(
             (
