@@ -46,8 +46,8 @@ GOOGLE_QUERIES_PER_SECOND = 20
 SEARCH_CACHE = Cache("google_search_cache")
 PROMPT_CACHE = Index("openai_cache")
 BROWSER_CACHE = Index("browser_cache")
-PROCESS_URL_CACHE = Index("process_url_cache")
-SCRUBBED_OPENAI_CACHE = Index("scrubbed_by_4o_mini")
+PROCESS_URL_CACHE = Index("process_url_cache_v3")
+SCRUBBED_OPENAI_CACHE = Index("scrubbed_by_4o_mini_v2")
 
 GPT4O_MINI_ENCODER = tiktoken.encoding_for_model("gpt-4o-mini")
 
@@ -368,7 +368,7 @@ async def fetch_pdf_if_applicable(url, timeout_value=HTTP_TIMEOUT):
             # _download_pdf function.
             try:
                 text = await _download_pdf(session, url)
-                if sanitized_text := await sanitize_text(text):
+                if sanitized_text := sanitize_text(text):
                     BROWSER_CACHE[url] = sanitized_text
                     return sanitized_text
             except Exception:
@@ -409,7 +409,7 @@ async def fetch_page_content(browser_semaphore, browser_context, url):
         content = None
         page = None
         if url in BROWSER_CACHE:
-            return await sanitize_text(BROWSER_CACHE[url])
+            return sanitize_text(BROWSER_CACHE[url])
 
         domain = urlparse(url).netloc
         domain_sem = DOMAIN_SEMAPHORES[domain]
@@ -426,19 +426,19 @@ async def fetch_page_content(browser_semaphore, browser_context, url):
                         download = await download_info.value
                         download_path = await download.path()
                         content = extract_text_from_binary_file(download_path)
-                        BROWSER_CACHE[url] = await sanitize_text(content)
+                        BROWSER_CACHE[url] = sanitize_text(content)
                 except playwright.async_api.TimeoutError:
                     await page.goto(url)
                     content = await asyncio.wait_for(
                         page.content(), timeout=5000  # timeout in ms
                     )
-                    BROWSER_CACHE[url] = await sanitize_text(content)
+                    BROWSER_CACHE[url] = sanitize_text(content)
                 except playwright.async_api.Error as e:
                     if "ERR_ABORTED" in str(e):
                         download = await download_info.value
                         download_path = await download.path()
                         content = extract_text_from_binary_file(download_path)
-                        BROWSER_CACHE[url] = await sanitize_text(content)
+                        BROWSER_CACHE[url] = sanitize_text(content)
                     else:
                         async with httpx.AsyncClient(timeout=5) as client:
 
@@ -447,7 +447,7 @@ async def fetch_page_content(browser_semaphore, browser_context, url):
                             content = extract_text_from_binary_file(
                                 resp.content
                             )
-                            BROWSER_CACHE[url] = await sanitize_text(content)
+                            BROWSER_CACHE[url] = sanitize_text(content)
                 finally:
                     if page is not None:
                         await page.close()
@@ -508,9 +508,10 @@ def chunk_text_by_tokens(text, max_chunk_tokens, tokenizer):
     return chunks
 
 
-async def make_request_with_backoff(
-    openai_semaphore, openai_context, chat_args, max_retries=5
-):
+def _make_request_with_backoff(chat_args, max_retries=5):
+    LOGGER.info("get ai context")
+    openai_context = create_openai_context()
+    LOGGER.info("got ai context")
     context_window = 120000
     max_output_tokens = 16384
     overhead_tokens = 1000
@@ -580,12 +581,20 @@ async def make_request_with_backoff(
             "messages": messages,
             "model": chat_args["model"],
         }
+
         for attempt in range(1, max_retries + 1):
             try:
-                async with openai_semaphore:
-                    response = await asyncio.to_thread(
-                        openai_context["client"].chat.completions.create, **args
-                    )
+                # LOGGER.debug(args)
+                # LOGGER.info(
+                #     f"trying with {len(args['messages'][1]['content'])} "
+                #     f"characters"
+                # )
+                LOGGER.info("waiting that thread")
+                logging.basicConfig(level=logging.DEBUG)
+                response = openai_context["client"].chat.completions.create(
+                    **args
+                )
+                LOGGER.info("got a response")
                 full_response.append(response.choices[0].message.content)
                 break
             except Exception:
@@ -595,16 +604,18 @@ async def make_request_with_backoff(
                 traceback.print_exc()
                 if attempt == max_retries:
                     raise
-                await asyncio.sleep(backoff + random.uniform(0, 1))
+                time.sleep(backoff + random.uniform(0, 1))
                 backoff = min(backoff * 2, MAX_BACKOFF_WAIT)
-    return await sanitize_text(", ".join(full_response))
+    LOGGER.info("cleaning text!")
+    clean_text = sanitize_text(", ".join(full_response))
+    LOGGER.info("cleaned text!")
+    openai_context["client"].close()
+    return clean_text
 
 
 async def get_webpage_answers(
     openai_semaphore,
-    openai_context,
     answer_context,
-    query_template,
     full_query,
     source_url,
 ):
@@ -621,38 +632,20 @@ async def get_webpage_answers(
             },
         ]
 
-        response_text = await asyncio.wait_for(
-            generate_text(
-                openai_semaphore,
-                openai_context,
-                "gpt-4o-mini",
-                messages,
-                source_url,
-            ),
+        response_text = await generate_text(
+            openai_semaphore,
+            "gpt-4o-mini",
+            messages,
+            source_url,
         )
+
         LOGGER.info(f"got that response text: {response_text}")
         return response_text
-    # except Exception as e:
-    #     return f"UNKNOWN: exception {e}"
     except Exception:
-        timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-        log_filename = f"error_log_{timestamp}.txt"
-        with open(log_filename, "w") as f:
-            f.write("Arguments:\n")
-            f.write(f"  openai_semaphore: {openai_semaphore}\n")
-            f.write(f"  openai_context: {openai_context}\n")
-            f.write(f"  answer_context: {answer_context}\n")
-            f.write(f"  query_template: {query_template}\n")
-            f.write(f"  full_query: {full_query}\n")
-            f.write(f"  source_url: {source_url}\n\n")
-            f.write("Stack Trace:\n")
-            f.write(traceback.format_exc())
-
-        # Shut down everything
-        sys.exit(1)
+        LOGGER.exception(f"error on {full_query}")
 
 
-async def sanitize_text(text):
+def sanitize_text(text):
     # Encode to ASCII and ignore errors, then decode back to ASCII
     # This drops any characters that cannot be mapped
     if text is None:
@@ -662,26 +655,29 @@ async def sanitize_text(text):
     )
 
 
-async def generate_text(
-    openai_semaphore, openai_context, model, messages, source_url=None
-):
+async def generate_text(openai_semaphore, model, messages, source_url=None):
     chat_args = {"model": model, "messages": messages}
     key = cache_key(chat_args)
     if key in PROMPT_CACHE and (
-        response_text := await sanitize_text(PROMPT_CACHE[key])
+        response_text := sanitize_text(PROMPT_CACHE[key])
     ):
-        # LOGGER.info(f"{key} is precached")
         pass
     else:
-        response_text = await make_request_with_backoff(
-            openai_semaphore, openai_context, chat_args
-        )
+
+        async with openai_semaphore:
+            # LOGGER.info("to thread")
+            response_text = await asyncio.to_thread(
+                _make_request_with_backoff, chat_args
+            )
+            # LOGGER.info("got response")
+        # LOGGER.info("out of _semaphore")
 
         PROMPT_CACHE[key] = response_text
+        LOGGER.info(f"{key}: {response_text}")
     return response_text
 
 
-async def aggregate_answers(openai_semaphore, openai_context, answer_list):
+async def aggregate_answers(openai_semaphore, answer_list):
     try:
         combined_answers = "; ".join(answer_list)
         messages = [
@@ -709,12 +705,9 @@ async def aggregate_answers(openai_semaphore, openai_context, answer_list):
                 "content": f"Combined answers: {combined_answers}",
             },
         ]
-        consolidated_answer = await asyncio.wait_for(
-            generate_text(
-                openai_semaphore, openai_context, "gpt-4o-mini", messages
-            ),
+        consolidated_answer = await generate_text(
+            openai_semaphore, "gpt-4o-mini", messages
         )
-        LOGGER.info(f"returning consolidated_answer: {consolidated_answer}")
         return consolidated_answer
     except Exception:
         LOGGER.exception(
@@ -841,11 +834,14 @@ async def main():
         async def fetch_page_content_with_progress(
             browser_semaphore, browser_context, url, pbar
         ):
-            result = await fetch_page_content(
-                browser_semaphore, browser_context, url
-            )
-            pbar.update(1)
-            return result
+            if url in BROWSER_CACHE:
+                pbar.update(1)
+                return sanitize_text(BROWSER_CACHE[url])
+            # result = await fetch_page_content(
+            #     browser_semaphore, browser_context, url
+            # )
+            # pbar.update(1)
+            # return result
 
         browser_semaphore = asyncio.Semaphore(MAX_TABS)
         async with async_playwright() as playwright:
@@ -888,43 +884,47 @@ async def main():
     if args.do_llm_scrub:
         LOGGER.info("LLM scrub of webpages")
 
-        async def scrub_url_result(
-            url, openai_semaphore, openai_context, progress_bar
-        ):
+        async def scrub_url_result(url, openai_semaphore, progress_bar):
             try:
+                if url in SCRUBBED_OPENAI_CACHE:
+                    progress_bar.update(1)
+                    return SCRUBBED_OPENAI_CACHE[url]
                 if url in PROCESS_URL_CACHE:
                     messages = PROCESS_URL_CACHE[url]
                 else:
-                    if url in SCRUBBED_OPENAI_CACHE and False:
-                        progress_bar.update(1)
-                        return SCRUBBED_OPENAI_CACHE[url]
                     raw_text = BROWSER_CACHE[url].strip()
                     scrubbed_text = extract_text_elements(raw_text)
-                    messages = [
-                        {
-                            "role": "developer",
-                            "content": (
-                                "Carefully remove any HTML tags, stray symbols, random"
-                                "sequences of characters, or invalid text while keeping all"
-                                "properly spelled words and punctuation intact. Do not remove or"
-                                "alter legitimate words or punctuation. Return only the cleaned"
-                                "text. Do not make up new text."
-                            ),
-                        },
-                        {
-                            "role": "user",
-                            # limit us to 10,000 characters, that's about 8 pages of text
-                            "content": f"{scrubbed_text[:10000]}",
-                        },
-                        {
-                            "role": "assistant",
-                            "content": "..",
-                        },
-                    ]
-                    PROCESS_URL_CACHE[url] = messages
+                    if scrubbed_text:
+                        messages = [
+                            {
+                                "role": "developer",
+                                "content": (
+                                    "Carefully remove any HTML tags, stray symbols, random"
+                                    "sequences of characters, or invalid text while keeping all"
+                                    "properly spelled words and punctuation intact. Do not remove or"
+                                    "alter legitimate words or punctuation. Return only the cleaned"
+                                    "text. Do not make up new text."
+                                ),
+                            },
+                            {
+                                "role": "user",
+                                # limit us to 8,000 characters, that's about 4 pages of single spaced text
+                                "content": f"{scrubbed_text[:8000]}",
+                            },
+                            {
+                                "role": "assistant",
+                                "content": "..",
+                            },
+                        ]
+                        PROCESS_URL_CACHE[url] = messages
+                    else:
+                        # there's no text, just skip
+                        SCRUBBED_OPENAI_CACHE[url] = ""
+                        progress_bar.update(1)
+                        return ""
 
                 cleaned_text = await generate_text(
-                    openai_semaphore, openai_context, "gpt-4o-mini", messages
+                    openai_semaphore, "gpt-4o-mini", messages
                 )
                 SCRUBBED_OPENAI_CACHE[url] = cleaned_text
                 progress_bar.update(1)
@@ -933,222 +933,120 @@ async def main():
                 LOGGER.exception(f"error on {url}")
                 raise
 
-        openai_context = create_openai_context()
         openai_semaphore = asyncio.Semaphore(25)
         urls = list(BROWSER_CACHE.keys())
         LOGGER.debug(f"process {len(urls)}")
         progress_bar = tqdm(total=len(urls), desc="OpenAI queries")
         tasks = [
             asyncio.create_task(
-                scrub_url_result(
-                    url, openai_semaphore, openai_context, progress_bar
-                )
+                scrub_url_result(url, openai_semaphore, progress_bar)
             )
             for url in urls
         ]
         LOGGER.info("about to gather")
         _ = await asyncio.gather(*tasks)
 
-    table_rows = []
+    openai_semaphore = asyncio.Semaphore(25)
+    answer_task_list = []
+    answer_scope_list = []
     for index, question_payload in enumerate(species_question_search_list):
         for webpage_content, search_result in zip(
             question_payload["webpage_content"],
             question_payload["search_result"],
         ):
             url = search_result["link"]
-            # messages = PROCESS_URL_CACHE[url]
-            # cleaned_text = await generate_text(
-            #     openai_semaphore, openai_context, "gpt-4o-mini", messages
-            # )
-            table_rows.append(
-                {
-                    "question_scope": question_payload["question_scope"],
-                    "species": question_payload["species"],
-                    "question_body": question_payload["question_body"],
-                    "question_formatted": question_payload[
-                        "question_formatted"
-                    ],
-                    "link": search_result["link"],
-                    "title": search_result["title"],
-                    "snippet": search_result["snippet"],
-                    "scrubbed_webpage_content": (
-                        "COULD NOT READ"
-                        if url not in SCRUBBED_OPENAI_CACHE
-                        else SCRUBBED_OPENAI_CACHE[url]
-                    ),
-                    "webpage_content": (
-                        "COULD NOT READ"
-                        if url not in BROWSER_CACHE
-                        else BROWSER_CACHE[url]
-                    ),
-                }
+            answer_task = get_webpage_answers(
+                openai_semaphore,
+                (
+                    f"SNIPPET: {search_result['snippet']}. FETCHED WEBPAGE "
+                    f"(MIGHT BE IRRELEVANT): {SCRUBBED_OPENAI_CACHE[url]}"
+                ),
+                f"{question_payload['question_formatted']}",
+                url,
             )
-    df = pd.DataFrame(table_rows)
-    df.to_csv("output.csv", index=False)
+            answer_task_list.append(answer_task)
 
-    return
+            answer_scope = {
+                "question_scope": question_payload["question_scope"],
+                "species": question_payload["species"],
+                "question_body": question_payload["question_body"],
+                "question_formatted": question_payload["question_formatted"],
+                "link": search_result["link"],
+                "title": search_result["title"],
+                "snippet": search_result["snippet"],
+                "scrubbed_webpage_content": (
+                    "COULD NOT READ"
+                    if url not in SCRUBBED_OPENAI_CACHE
+                    else SCRUBBED_OPENAI_CACHE[url][:500]
+                ),
+            }
+            answer_scope_list.append(answer_scope)
 
-    # LOGGER.info(f'fetch that page content: {search_result["link"]}')
-    # text_content = await asyncio.wait_for(
-    #     fetch_page_content(
-    #         browser_semaphore, browser_context, search_result["link"]
-    #     ),
-    #     timeout=MAX_TIMEOUT * 10,
-    # )
+    answers = await asyncio.gather(*answer_task_list)
+    answers_by_scope_species_question = defaultdict(list)
+    for answer, scope in zip(answers, answer_scope_list):
+        answers_by_scope_species_question[
+            (
+                scope["question_scope"],
+                scope["species"],
+                scope["question_formatted"],
+            )
+        ].append(answer)
 
-    return
+    answer_task_lookup = {}
+    for key, answer_list in answers_by_scope_species_question.items():
+        aggregate_answers_task = aggregate_answers(
+            openai_semaphore, answer_list
+        )
+        answer_task_lookup[key + (tuple(answer_list),)] = aggregate_answers_task
 
-    # openai_semaphore = SemaphoreWithTimeout(MAX_OPENAI, 120.0, "openai")
+    def remove_punctuation(text):
+        return text.translate(str.maketrans("", "", string.punctuation))
 
-    # # Gather all questions
-    # search_results = []
-    # for question_with_header in question_list:
-    #     sys.exit()
-    #     for species in species_list:
-    #         species_question = question.format(species=species)
+    def rank_answers(answer, answer_list):
+        answers = [a.strip() for a in answer.split(",")]
+        ranked = []
+        for ans in answers:
+            norm_ans = remove_punctuation(ans.lower())
+            count = 0
+            for potential in answer_list:
+                potential_answers = [
+                    remove_punctuation(x.strip().lower())
+                    for x in potential.split(",")
+                ]
+                count += potential_answers.count(norm_ans)
+            ranked.append((ans, count))
+        ranked.sort(key=lambda x: x[1], reverse=True)
+        return ", ".join(
+            f"{remove_punctuation(ans.lower())} ({count})"
+            for ans, count in ranked
+        )
 
-    #         search_result_list = await asyncio.wait_for(
-    #             google_custom_search_async(
-    #                 API_KEY, CX, species_question, num_results=25
-    #             ),
-    #             timeout=MAX_TIMEOUT,
-    #         )
-    #         search_results.append(
-    #             {
-    #                 "question_with_header": question_with_header,
-    #                 "species": species,
-    #                 "search_task": search_task,
-    #             }
-    #         )
+    answer_table = []
+    for key, answer in zip(
+        answer_task_lookup,
+        await asyncio.gather(*answer_task_lookup.values()),
+    ):
+        scope, species, question, answer_list = key
+        LOGGER.debug(
+            f"{scope},{species},{question},{answer_list}: "
+            f"{answer} / "
+            f"{rank_answers(answer, answer_list)}"
+        )
+        answer_table.append(
+            {
+                "scope": scope,
+                "species": species,
+                "question": question,
+                "answer": rank_answers(answer, answer_list),
+            }
+        )
 
-    # openai_context = create_openai_context()
-    # async with async_playwright() as playwright:
-    #     browser = await asyncio.wait_for(
-    #         playwright.chromium.launch(headless=args.headless_off),
-    #         timeout=MAX_TIMEOUT,
-    #     )
-    #     question_answers = collections.defaultdict(list)
-    #     all_results = []
-    #     search_results = []
-    #     for question_with_header in question_list:
-    #         for species in species_list:
-    #             search_results.append(
-    #                 {
-    #                     "question_with_header": question_with_header,
-    #                     "species": species,
-    #                     "search_task": search_task,
-    #                 }
-    #             )
+    answer_df = pd.DataFrame(answer_table)
+    answer_df.to_csv("answers.csv", index=False)
 
-    #             browser_context = await asyncio.wait_for(
-    #                 browser.new_context(
-    #                     accept_downloads=False,
-    #                     user_agent=(
-    #                         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    #                         "AppleWebKit/537.36 (KHTML, like Gecko) "
-    #                         "Chrome/122.0.0.0 Safari/537.36"
-    #                     ),
-    #                     viewport={"width": 1280, "height": 800},
-    #                     locale="en-US",
-    #                 ),
-    #                 timeout=MAX_TIMEOUT,
-    #             )
-    #             task = asyncio.create_task(
-    #                 handle_question_species(
-    #                     question_with_header,
-    #                     species,
-    #                     openai_context,
-    #                     openai_semaphore,
-    #                     browser_semaphore,
-    #                     browser,
-    #                 )
-    #             )
-    #             all_results.extend(
-    #                 await asyncio.wait_for(
-    #                     asyncio.gather(task, return_exceptions=True),
-    #                     timeout=MAX_TIMEOUT * 10,
-    #                 )
-    #             )
-    #             await asyncio.wait_for(
-    #                 browser_context.close(), timeout=MAX_TIMEOUT
-    #             )
-    #     LOGGER.info("ALL DONEEEEE")
-    #     await asyncio.wait_for(browser.close(), timeout=MAX_TIMEOUT)
-
-    # # Aggregate final results
-    # for (
-    #     column_prefix,
-    #     question,
-    #     species,
-    #     aggregate_answer,
-    #     search_result_list,
-    #     answer_list,
-    # ) in all_results:
-    #     question_answers[f"{column_prefix} - {question}"].append(
-    #         (
-    #             question,
-    #             species,
-    #             search_result_list,
-    #             aggregate_answer,
-    #             answer_list,
-    #         )
-    #     )
-
-    # LOGGER.info("all done with trait search pipeline, making table")
-    # main_data = {}
-    # details_list = []
-    # for col_prefix, qa_list in question_answers.items():
-    #     for (
-    #         question,
-    #         species,
-    #         search_result_list,
-    #         aggregate_answer,
-    #         answer_list,
-    #     ) in qa_list:
-    #         if species not in main_data:
-    #             main_data[species] = {}
-    #         main_data[species][question] = aggregate_answer
-    #         for search_item, (snippet, answer_str) in zip(
-    #             search_result_list, answer_list
-    #         ):
-    #             details_list.append(
-    #                 {
-    #                     "species": species,
-    #                     "question": question,
-    #                     "answer": answer_str,
-    #                     "url": search_item["link"],
-    #                     "webpage title": search_item["title"],
-    #                     "context": snippet,
-    #                 }
-    #             )
-
-    # LOGGER.info("details all set, building tables now")
-    # species_set = sorted(list(main_data.keys()))
-    # questions_set = sorted(
-    #     list({q for s in main_data for q in main_data[s].keys()})
-    # )
-    # rows = []
-    # for sp in species_set:
-    #     row_vals = {}
-    #     row_vals["species"] = sp
-    #     for q in questions_set:
-    #         row_vals[q] = main_data[sp].get(q, "")
-    #     rows.append(row_vals)
-    # main_df = pd.DataFrame(rows)
-
-    # # Create detail DataFrame
-    # detail_df = pd.DataFrame(details_list)
-
-    # # Generate filenames with timestamps
-    # timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-    # main_filename = f"trait_search_results_{timestamp}.csv"
-    # detail_filename = f"trait_search_detailed_results_{timestamp}.csv"
-
-    # # Save to CSV
-    # LOGGER.info("about to save tables")
-    # main_df.to_csv(main_filename, index=False)
-    # detail_df.to_csv(detail_filename, index=False)
-    # LOGGER.info(f"tables saved to {main_filename} and {detail_filename}")
+    scope_df = pd.DataFrame(answer_scope_list)
+    scope_df.to_csv("answer_scope.csv", index=False)
 
 
 if __name__ == "__main__":
