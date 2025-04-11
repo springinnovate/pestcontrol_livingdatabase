@@ -32,6 +32,7 @@ from playwright.async_api import async_playwright
 import pandas as pd
 import requests
 from playwright_stealth import stealth_async
+from bs4 import BeautifulSoup
 
 LOGGER = logging.getLogger(__name__)
 MAX_TIMEOUT = 360.0
@@ -42,6 +43,11 @@ MAX_OPENAI = 1
 MAX_BACKOFF_WAIT = 8
 GOOGLE_QUERIES_PER_SECOND = 20
 
+SEARCH_CACHE = Cache("google_search_cache")
+PROMPT_CACHE = Index("openai_cache")
+BROWSER_CACHE = Index("browser_cache")
+PROCESS_URL_CACHE = Index("process_url_cache")
+SCRUBBED_OPENAI_CACHE = Index("scrubbed_by_4o_mini")
 
 GPT4O_MINI_ENCODER = tiktoken.encoding_for_model("gpt-4o-mini")
 
@@ -110,14 +116,9 @@ class DomainSemaphores(defaultdict):
         return self[key]
 
 
+# avoid searching the same domain at once
 DOMAIN_SEMAPHORES = DomainSemaphores()
 
-
-SEARCH_CACHE = Cache("google_search_cache")
-PROMPT_CACHE = Index("openai_cache")
-BROWSER_CACHE = Index("browser_cache")
-
-# avoid searching the same domain at once
 
 try:
     API_KEY = open("./secrets/custom_search_api_key.txt", "r").read()
@@ -189,8 +190,7 @@ async def google_custom_search_async(
             (
                 payload,
                 result_was_cached,
-            ) = await asyncio.get_running_loop().run_in_executor(
-                None,
+            ) = await asyncio.to_thread(
                 google_custom_search_sync,
                 api_key,
                 cx,
@@ -368,7 +368,7 @@ async def fetch_pdf_if_applicable(url, timeout_value=HTTP_TIMEOUT):
             # _download_pdf function.
             try:
                 text = await _download_pdf(session, url)
-                if sanitized_text := sanitize_text(text):
+                if sanitized_text := await sanitize_text(text):
                     BROWSER_CACHE[url] = sanitized_text
                     return sanitized_text
             except Exception:
@@ -408,9 +408,8 @@ async def fetch_page_content(browser_semaphore, browser_context, url):
     try:
         content = None
         page = None
-        if url in BROWSER_CACHE and (content := BROWSER_CACHE[url]):
-            # return sanitize_text(BROWSER_CACHE[url])
-            return sanitize_text(content)
+        if url in BROWSER_CACHE:
+            return await sanitize_text(BROWSER_CACHE[url])
 
         domain = urlparse(url).netloc
         domain_sem = DOMAIN_SEMAPHORES[domain]
@@ -427,19 +426,19 @@ async def fetch_page_content(browser_semaphore, browser_context, url):
                         download = await download_info.value
                         download_path = await download.path()
                         content = extract_text_from_binary_file(download_path)
-                        BROWSER_CACHE[url] = sanitize_text(content)
+                        BROWSER_CACHE[url] = await sanitize_text(content)
                 except playwright.async_api.TimeoutError:
                     await page.goto(url)
                     content = await asyncio.wait_for(
                         page.content(), timeout=5000  # timeout in ms
                     )
-                    BROWSER_CACHE[url] = sanitize_text(content)
+                    BROWSER_CACHE[url] = await sanitize_text(content)
                 except playwright.async_api.Error as e:
                     if "ERR_ABORTED" in str(e):
                         download = await download_info.value
                         download_path = await download.path()
                         content = extract_text_from_binary_file(download_path)
-                        BROWSER_CACHE[url] = sanitize_text(content)
+                        BROWSER_CACHE[url] = await sanitize_text(content)
                     else:
                         async with httpx.AsyncClient(timeout=5) as client:
 
@@ -448,7 +447,7 @@ async def fetch_page_content(browser_semaphore, browser_context, url):
                             content = extract_text_from_binary_file(
                                 resp.content
                             )
-                            BROWSER_CACHE[url] = sanitize_text(content)
+                            BROWSER_CACHE[url] = await sanitize_text(content)
                 finally:
                     if page is not None:
                         await page.close()
@@ -467,19 +466,19 @@ async def fetch_page_content(browser_semaphore, browser_context, url):
         raise
 
 
-def extract_text_elements(html_content):
+def extract_text_elements(content):
     try:
-        soup = BeautifulSoup(html_content, "html.parser")
-        text_elements = soup.find_all(["p", "h1", "h2", "h3", "li"])
-        extracted_text_list = []
-        for element in text_elements:
-            local_text = element.get_text(strip=True)
-            local_text = re.sub(r"\s+", " ", local_text)
-            local_text = re.sub(r"[^\x20-\x7E]+", "", local_text)
-            extracted_text_list.append(local_text)
-        return extracted_text_list
-    except Exception as e:
-        LOGGER.exception(f"MASSIVE ERROR {e}")
+        soup = BeautifulSoup(content, "html.parser")
+        for script_or_style in soup(["script", "style"]):
+            script_or_style.decompose()
+        text = soup.get_text(separator=" ", strip=True)
+        clean_text = " ".join(text.split())
+        if clean_text:
+            return clean_text
+    except Exception:
+        pass
+    # fallback if HTML parsing doesn't yield results
+    return "".join(ch if ch.isprintable() else " " for ch in content).strip()
 
 
 def cache_key(data):
@@ -512,7 +511,6 @@ def chunk_text_by_tokens(text, max_chunk_tokens, tokenizer):
 async def make_request_with_backoff(
     openai_semaphore, openai_context, chat_args, max_retries=5
 ):
-    LOGGER.info("making a new openai request")
     context_window = 120000
     max_output_tokens = 16384
     overhead_tokens = 1000
@@ -532,30 +530,61 @@ async def make_request_with_backoff(
     if not any((dev_message, user_message, assistant_message)):
         raise ValueError("Developer, user, or assistant message not found.")
 
-    assistant_chunks = chunk_text_by_tokens(
-        assistant_message["content"], max_chunk_tokens, GPT4O_MINI_ENCODER
-    )[
-        :4
-    ]  # TODO: note the :4 max chunks here
+    token_counts = {}
+    if dev_message:
+        token_counts["developer"] = len(
+            GPT4O_MINI_ENCODER.encode(dev_message["content"])
+        )
+    if user_message:
+        token_counts["user"] = len(
+            GPT4O_MINI_ENCODER.encode(user_message["content"])
+        )
+    if assistant_message:
+        token_counts["assistant"] = len(
+            GPT4O_MINI_ENCODER.encode(assistant_message["content"])
+        )
+
+    longest_role = max(token_counts, key=token_counts.get)
+    if longest_role == "developer":
+        longest_message = dev_message
+    elif longest_role == "user":
+        longest_message = user_message
+    else:
+        longest_message = assistant_message
+
+    chunks = chunk_text_by_tokens(
+        longest_message["content"], max_chunk_tokens, GPT4O_MINI_ENCODER
+    )
+    chunked_messages = []
+    for chunk in chunks:
+        message = []
+        # Maintain original ordering: developer, user, assistant.
+        if longest_role == "developer":
+            message.append({"role": "developer", "content": chunk})
+        else:
+            message.append(dev_message)
+        if longest_role == "user":
+            message.append({"role": "user", "content": chunk})
+        else:
+            message.append(user_message)
+        if longest_role == "assistant":
+            message.append({"role": "assistant", "content": chunk})
+        else:
+            message.append(assistant_message)
+        chunked_messages.append(message)
 
     full_response = []
-    for chunk in assistant_chunks:
+    for messages in chunked_messages:
         backoff = 1
-        chunked_messages = [
-            {"role": "assistant", "content": chunk},
-        ]
-        for message in [dev_message, user_message]:
-            if message:
-                chunked_messages.append(message)
         args = {
-            "messages": chunked_messages,
+            "messages": messages,
             "model": chat_args["model"],
         }
         for attempt in range(1, max_retries + 1):
             try:
                 async with openai_semaphore:
-                    response = openai_context["client"].chat.completions.create(
-                        **args
+                    response = await asyncio.to_thread(
+                        openai_context["client"].chat.completions.create, **args
                     )
                 full_response.append(response.choices[0].message.content)
                 break
@@ -568,7 +597,7 @@ async def make_request_with_backoff(
                     raise
                 await asyncio.sleep(backoff + random.uniform(0, 1))
                 backoff = min(backoff * 2, MAX_BACKOFF_WAIT)
-    return sanitize_text(", ".join(full_response))
+    return await sanitize_text(", ".join(full_response))
 
 
 async def get_webpage_answers(
@@ -623,7 +652,7 @@ async def get_webpage_answers(
         sys.exit(1)
 
 
-def sanitize_text(text):
+async def sanitize_text(text):
     # Encode to ASCII and ignore errors, then decode back to ASCII
     # This drops any characters that cannot be mapped
     if text is None:
@@ -639,23 +668,15 @@ async def generate_text(
     chat_args = {"model": model, "messages": messages}
     key = cache_key(chat_args)
     if key in PROMPT_CACHE and (
-        response_text := sanitize_text(PROMPT_CACHE[key])
+        response_text := await sanitize_text(PROMPT_CACHE[key])
     ):
-        LOGGER.info("CACHED openai")
-        LOGGER.info(
-            f"source url: {source_url} -- got that CACHED response {response_text[:100]}"
-        )
+        # LOGGER.info(f"{key} is precached")
+        pass
     else:
-        LOGGER.info(
-            f"NOT CACHED openai message submitted: {messages[1]['content'][-5000:]}"
+        response_text = await make_request_with_backoff(
+            openai_semaphore, openai_context, chat_args
         )
-        response_text = await asyncio.wait_for(
-            make_request_with_backoff(
-                openai_semaphore, openai_context, chat_args
-            ),
-            timeout=OPENAI_TIMEOUT,
-        )
-        LOGGER.info(f"got response back: {response_text}")
+
         PROMPT_CACHE[key] = response_text
     return response_text
 
@@ -726,6 +747,24 @@ async def main():
         type=int,
         help="limit to this many subjects for debugging reasons",
     )
+    parser.add_argument(
+        "--google_search",
+        action="store_true",
+        help="If set, does the google search, else exclusively uses the cache",
+    )
+    parser.add_argument(
+        "--web_fetch",
+        action="store_true",
+        help=(
+            "If set, does the browser fetch with links, else exclusively "
+            "uses the cache",
+        ),
+    )
+    parser.add_argument(
+        "--do_llm_scrub",
+        action="store_true",
+        help="Scrub the browser results so they can be read.",
+    )
     parser.add_argument("--headless_off", action="store_true")
     args = parser.parse_args()
 
@@ -766,83 +805,149 @@ async def main():
         for question_scope, question_body in scope_question_list
         for species in species_list
     ]
-    # google_search_semaphore = SemaphoreWithTimeout(
-    #     GOOGLE_QUERIES_PER_SECOND, 120.0, "google search"
-    # )
-    LOGGER.info("do google searches")
-    google_search_semaphore = asyncio.Semaphore(GOOGLE_QUERIES_PER_SECOND)
 
-    async def google_search_with_progress(question_payload, pbar):
-        result = await google_custom_search_async(
-            google_search_semaphore,
-            API_KEY,
-            CX,
-            question_payload["question_formatted"],
-            num_results=25,
-        )
-        pbar.update(1)
-        return {**question_payload, "search_result": result}
+    if args.google_search:
+        LOGGER.info("do google searches")
+        google_search_semaphore = asyncio.Semaphore(GOOGLE_QUERIES_PER_SECOND)
 
-    pbar = tqdm(total=len(species_question_list), desc="Google Searches")
-    tasks = [
-        asyncio.create_task(google_search_with_progress(payload, pbar))
-        for payload in species_question_list
-    ]
-
-    species_question_search_list = await asyncio.gather(*tasks)
-    pbar.close()
-
-    LOGGER.info("do web browser pulls")
-    total_fetches = sum(
-        len(payload["search_result"])
-        for payload in species_question_search_list
-    )
-    fetch_pbar = tqdm(total=total_fetches, desc="Fetching Web Pages")
-
-    async def fetch_page_content_with_progress(
-        browser_semaphore, browser_context, url, pbar
-    ):
-        result = await fetch_page_content(
-            browser_semaphore, browser_context, url
-        )
-        pbar.update(1)
-        return result
-
-    browser_semaphore = asyncio.Semaphore(MAX_TABS)
-    async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=args.headless_off)
-        browser_context = await browser.new_context(
-            accept_downloads=False,
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/122.0.0.0 Safari/537.36"
-            ),
-            viewport={"width": 1280, "height": 800},
-            locale="en-US",
-        )
-
-        async def process_question(question_payload):
-            fetch_task_list = []
-            for search_result in question_payload["search_result"]:
-                fetch_task = fetch_page_content_with_progress(
-                    browser_semaphore,
-                    browser_context,
-                    search_result["link"],
-                    fetch_pbar,
-                )
-                fetch_task_list.append(fetch_task)
-            question_payload["webpage_content"] = await asyncio.gather(
-                *fetch_task_list
+        async def google_search_with_progress(question_payload, pbar):
+            result = await google_custom_search_async(
+                google_search_semaphore,
+                API_KEY,
+                CX,
+                question_payload["question_formatted"],
+                num_results=25,
             )
+            pbar.update(1)
+            return {**question_payload, "search_result": result}
 
-        question_tasks = [
-            asyncio.create_task(process_question(payload))
-            for payload in species_question_search_list
+        pbar = tqdm(total=len(species_question_list), desc="Google Searches")
+        tasks = [
+            asyncio.create_task(google_search_with_progress(payload, pbar))
+            for payload in species_question_list
         ]
 
-        await asyncio.gather(*question_tasks)
-        await browser_context.close()
+        species_question_search_list = await asyncio.gather(*tasks)
+        pbar.close()
+
+    if args.web_fetch:
+        LOGGER.info("do web fetch")
+        total_fetches = sum(
+            len(payload["search_result"])
+            for payload in species_question_search_list
+        )
+        fetch_pbar = tqdm(total=total_fetches, desc="Fetching Web Pages")
+
+        async def fetch_page_content_with_progress(
+            browser_semaphore, browser_context, url, pbar
+        ):
+            result = await fetch_page_content(
+                browser_semaphore, browser_context, url
+            )
+            pbar.update(1)
+            return result
+
+        browser_semaphore = asyncio.Semaphore(MAX_TABS)
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(
+                headless=not args.headless_off
+            )
+            browser_context = await browser.new_context(
+                accept_downloads=False,
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/122.0.0.0 Safari/537.36"
+                ),
+                viewport={"width": 1280, "height": 800},
+                locale="en-US",
+            )
+
+            async def search_links_from_question(question_payload):
+                fetch_task_list = []
+                for search_result in question_payload["search_result"]:
+                    fetch_task = fetch_page_content_with_progress(
+                        browser_semaphore,
+                        browser_context,
+                        search_result["link"],
+                        fetch_pbar,
+                    )
+                    fetch_task_list.append(fetch_task)
+                question_payload["webpage_content"] = await asyncio.gather(
+                    *fetch_task_list
+                )
+
+            question_tasks = [
+                asyncio.create_task(search_links_from_question(payload))
+                for payload in species_question_search_list
+            ]
+
+            await asyncio.gather(*question_tasks)
+            await browser_context.close()
+
+    if args.do_llm_scrub:
+        LOGGER.info("LLM scrub of webpages")
+
+        async def scrub_url_result(
+            url, openai_semaphore, openai_context, progress_bar
+        ):
+            try:
+                if url in PROCESS_URL_CACHE:
+                    messages = PROCESS_URL_CACHE[url]
+                else:
+                    if url in SCRUBBED_OPENAI_CACHE and False:
+                        progress_bar.update(1)
+                        return SCRUBBED_OPENAI_CACHE[url]
+                    raw_text = BROWSER_CACHE[url].strip()
+                    scrubbed_text = extract_text_elements(raw_text)
+                    messages = [
+                        {
+                            "role": "developer",
+                            "content": (
+                                "Carefully remove any HTML tags, stray symbols, random"
+                                "sequences of characters, or invalid text while keeping all"
+                                "properly spelled words and punctuation intact. Do not remove or"
+                                "alter legitimate words or punctuation. Return only the cleaned"
+                                "text. Do not make up new text."
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            # limit us to 10,000 characters, that's about 8 pages of text
+                            "content": f"{scrubbed_text[:10000]}",
+                        },
+                        {
+                            "role": "assistant",
+                            "content": "..",
+                        },
+                    ]
+                    PROCESS_URL_CACHE[url] = messages
+
+                cleaned_text = await generate_text(
+                    openai_semaphore, openai_context, "gpt-4o-mini", messages
+                )
+                SCRUBBED_OPENAI_CACHE[url] = cleaned_text
+                progress_bar.update(1)
+                return cleaned_text
+            except Exception:
+                LOGGER.exception(f"error on {url}")
+                raise
+
+        openai_context = create_openai_context()
+        openai_semaphore = asyncio.Semaphore(25)
+        urls = list(BROWSER_CACHE.keys())
+        LOGGER.debug(f"process {len(urls)}")
+        progress_bar = tqdm(total=len(urls), desc="OpenAI queries")
+        tasks = [
+            asyncio.create_task(
+                scrub_url_result(
+                    url, openai_semaphore, openai_context, progress_bar
+                )
+            )
+            for url in urls
+        ]
+        LOGGER.info("about to gather")
+        _ = await asyncio.gather(*tasks)
 
     table_rows = []
     for index, question_payload in enumerate(species_question_search_list):
@@ -850,6 +955,11 @@ async def main():
             question_payload["webpage_content"],
             question_payload["search_result"],
         ):
+            url = search_result["link"]
+            # messages = PROCESS_URL_CACHE[url]
+            # cleaned_text = await generate_text(
+            #     openai_semaphore, openai_context, "gpt-4o-mini", messages
+            # )
             table_rows.append(
                 {
                     "question_scope": question_payload["question_scope"],
@@ -861,11 +971,21 @@ async def main():
                     "link": search_result["link"],
                     "title": search_result["title"],
                     "snippet": search_result["snippet"],
-                    "webpage_content": webpage_content[:800],
+                    "scrubbed_webpage_content": (
+                        "COULD NOT READ"
+                        if url not in SCRUBBED_OPENAI_CACHE
+                        else SCRUBBED_OPENAI_CACHE[url]
+                    ),
+                    "webpage_content": (
+                        "COULD NOT READ"
+                        if url not in BROWSER_CACHE
+                        else BROWSER_CACHE[url]
+                    ),
                 }
             )
     df = pd.DataFrame(table_rows)
     df.to_csv("output.csv", index=False)
+
     return
 
     # LOGGER.info(f'fetch that page content: {search_result["link"]}')
