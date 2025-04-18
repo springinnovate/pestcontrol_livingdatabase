@@ -1,45 +1,41 @@
 """Pipeline to google search, follow links, then LLM questions."""
 
-import string
-import time
 from collections import defaultdict
 from datetime import datetime
 from urllib.parse import urlparse
 import argparse
 import asyncio
 import hashlib
+import httpx
 import io
 import json
 import logging
 import random
 import re
+import string
 import sys
+import time
 import traceback
 import warnings
-import httpx
 
-from docx import Document
-import playwright
-from tqdm import tqdm
-from itertools import islice
-import tiktoken
-import aiohttp
-import PyPDF2
 from bs4 import BeautifulSoup
 from diskcache import Cache, Index
+from docx import Document
+from itertools import islice
 from openai import OpenAI
 from playwright.async_api import async_playwright
-import pandas as pd
-import requests
 from playwright_stealth import stealth_async
-from bs4 import BeautifulSoup
+from tqdm import tqdm
+import aiohttp
+import pandas as pd
+import playwright
+import PyPDF2
+import requests
+import tiktoken
 
 LOGGER = logging.getLogger(__name__)
-MAX_TIMEOUT = 360.0
-OPENAI_TIMEOUT = 60
 HTTP_TIMEOUT = 360.0
 MAX_TABS = 25
-MAX_OPENAI = 1
 MAX_BACKOFF_WAIT = 8
 GOOGLE_QUERIES_PER_SECOND = 20
 
@@ -509,9 +505,7 @@ def chunk_text_by_tokens(text, max_chunk_tokens, tokenizer):
 
 
 def _make_request_with_backoff(chat_args, max_retries=5):
-    LOGGER.info("get ai context")
     openai_context = create_openai_context()
-    LOGGER.info("got ai context")
     context_window = 120000
     max_output_tokens = 16384
     overhead_tokens = 1000
@@ -589,12 +583,12 @@ def _make_request_with_backoff(chat_args, max_retries=5):
                 #     f"trying with {len(args['messages'][1]['content'])} "
                 #     f"characters"
                 # )
-                LOGGER.info("waiting that thread")
+                # LOGGER.info("waiting that thread")
                 logging.basicConfig(level=logging.DEBUG)
                 response = openai_context["client"].chat.completions.create(
                     **args
                 )
-                LOGGER.info("got a response")
+                # LOGGER.info("got a response")
                 full_response.append(response.choices[0].message.content)
                 break
             except Exception:
@@ -606,9 +600,9 @@ def _make_request_with_backoff(chat_args, max_retries=5):
                     raise
                 time.sleep(backoff + random.uniform(0, 1))
                 backoff = min(backoff * 2, MAX_BACKOFF_WAIT)
-    LOGGER.info("cleaning text!")
+    # LOGGER.info("cleaning text!")
     clean_text = sanitize_text(", ".join(full_response))
-    LOGGER.info("cleaned text!")
+    # LOGGER.info("cleaned text!")
     openai_context["client"].close()
     return clean_text
 
@@ -639,7 +633,7 @@ async def get_webpage_answers(
             source_url,
         )
 
-        LOGGER.info(f"got that response text: {response_text}")
+        # LOGGER.info(f"got that response text: {response_text}")
         return response_text
     except Exception:
         LOGGER.exception(f"error on {full_query}")
@@ -673,7 +667,7 @@ async def generate_text(openai_semaphore, model, messages, source_url=None):
         # LOGGER.info("out of _semaphore")
 
         PROMPT_CACHE[key] = response_text
-        LOGGER.info(f"{key}: {response_text}")
+        # LOGGER.info(f"{key}: {response_text}")
     return response_text
 
 
@@ -834,9 +828,14 @@ async def main():
         async def fetch_page_content_with_progress(
             browser_semaphore, browser_context, url, pbar
         ):
-            if url in BROWSER_CACHE:
-                pbar.update(1)
-                return sanitize_text(BROWSER_CACHE[url])
+            async with browser_semaphore:
+                if url in BROWSER_CACHE:
+                    pbar.update(1)
+                    return BROWSER_CACHE[url]
+                else:
+                    # LOGGER.warning(f"Missing {url}")
+                    pbar.update(1)
+                    return ""
             # result = await fetch_page_content(
             #     browser_semaphore, browser_context, url
             # )
@@ -955,11 +954,17 @@ async def main():
             question_payload["search_result"],
         ):
             url = search_result["link"]
+            if url in SCRUBBED_OPENAI_CACHE:
+                webpage_content = (
+                    f"(MIGHT BE IRRELEVANT): {SCRUBBED_OPENAI_CACHE[url]}"
+                )
+            else:
+                webpage_content = "IRRELEVANT FROM HERE -- NO WEBPAGE IN CACHE"
             answer_task = get_webpage_answers(
                 openai_semaphore,
                 (
                     f"SNIPPET: {search_result['snippet']}. FETCHED WEBPAGE "
-                    f"(MIGHT BE IRRELEVANT): {SCRUBBED_OPENAI_CACHE[url]}"
+                    f"{webpage_content}"
                 ),
                 f"{question_payload['question_formatted']}",
                 url,
@@ -992,6 +997,7 @@ async def main():
                 scope["question_formatted"],
             )
         ].append(answer)
+        scope["answer"] = answer
 
     answer_task_lookup = {}
     for key, answer_list in answers_by_scope_species_question.items():
@@ -1028,11 +1034,6 @@ async def main():
         await asyncio.gather(*answer_task_lookup.values()),
     ):
         scope, species, question, answer_list = key
-        LOGGER.debug(
-            f"{scope},{species},{question},{answer_list}: "
-            f"{answer} / "
-            f"{rank_answers(answer, answer_list)}"
-        )
         answer_table.append(
             {
                 "scope": scope,
