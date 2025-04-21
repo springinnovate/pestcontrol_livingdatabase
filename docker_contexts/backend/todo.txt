@@ -1,27 +1,17 @@
-todo for EO data:
-    * template/validate csv based off of global JINJA values that are set in the app
-    * this gets enabled if the CSV is valid:
-        * boxes for defining datasets and pixel transforms
-    * subtmit does:
-        * GEE backend processsing
-        * uploading results back to user in a webpage / download as CSV?
+* Why don't the votes add up to 25
+    * probably because of LLM, use something more manual
+* Explore why "unknown"
+    * script where i can put the question and it dumps me:
+        * link, title, snippet, scrubbed, answer
+        * possibly what got sent to openAI?
+    * perhaps come up with classes of unknown
+        * no webpage
+        * no answer in webpage
+        * unknown
+can you write me a script to load a CSV as a table then for one field and a list of values that are in that field, can you pull out all the values in a set of the other fields listed that correspond to that original value?
 
+input: 'query_value_list', 'field_name', 'output_field_list'
 
-todo for pest control:
-    * column documentation for user facing stuff
-    * becky will send a new set of orders of columns
-    * EO data, user uploads query types and no more than 100 lat/lng and kicks it back to user
-        * integrate with viewer (hi Becky!)
-    * for the future
-        * someone might send more points along
-    * install framework on lilling machine
-    * check periodically to clean out the results dir
+expect that there are multiple identical matches in field_name for any one element of query_value_list
 
-
-
-useful python commands:
-python ingest_table.py base_data\filled_template_metadata_RAIF.csv base_data\RAIF_dataset_072924_1808.csv
-python ingest_table.py .\base_data\BioControlDatabaseMetadata.csv .\base_data\SESYNC_Abundance_072924_1654.csv
-
-docker-compose run -p 80:5000 --entrypoint /bin/bash backend
-waitress-serve --host=0.0.0.0 --port=5000 app:app
+I would like the output to be easily reformattable, like in a template but for now

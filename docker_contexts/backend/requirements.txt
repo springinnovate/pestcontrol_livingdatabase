@@ -14,3 +14,5 @@ chardet
 parsimonious
 celery
 redis
+diskcache
+tdqm
