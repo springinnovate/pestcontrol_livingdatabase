@@ -1567,14 +1567,16 @@ TRAIT_FIELD_LOOKUP = defaultdict(set)
 
 with open("answers.csv", newline="", encoding="utf-8") as f:
     trait_to_question_mapping = {
-        "scope": "question_scope",
+        # "scope": "question_scope",
         "question": "question_formatted",
+        "species": "species",
     }
     reader = csv.DictReader(f, delimiter=",")
     for row in reader:
         for k, v in row.items():
-            if k in trait_to_question_mapping:
-                k = trait_to_question_mapping[k]
+            if k not in trait_to_question_mapping:
+                continue
+            k = trait_to_question_mapping[k]
             TRAIT_FIELD_LOOKUP[k].add(v)
 
 
