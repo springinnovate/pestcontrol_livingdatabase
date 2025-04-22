@@ -1,3 +1,5 @@
+import threading
+import shutil
 import time
 from datetime import datetime
 from io import StringIO, BytesIO
@@ -1580,6 +1582,21 @@ with open("answers.csv", newline="", encoding="utf-8") as f:
             TRAIT_FIELD_LOOKUP[k].add(v)
 
 
+FILE_LIFETIME_SEC = 60 * 60
+
+
+def _schedule_dir_removal(path, delay):
+    """
+    Spawn a daemon thread that waits `delay` seconds, then removes `path`.
+    """
+
+    def _remove_after_sleep() -> None:
+        time.sleep(delay)
+        shutil.rmtree(path, ignore_errors=True)
+
+    threading.Thread(target=_remove_after_sleep, daemon=True).start()
+
+
 @app.route("/explore_traits_answers", methods=["GET", "POST"])
 def explore_traits_answers() -> Response:
     global TRAIT_FIELD_LOOKUP
@@ -1603,6 +1620,7 @@ def explore_traits_answers() -> Response:
     run_dir = Path(app.static_folder) / f"result_explorer_{ts}"
     run_dir.mkdir(parents=True, exist_ok=True)
     html = build_index(field, value, requested_fields, run_dir)
+    _schedule_dir_removal(run_dir)
     return Response(html, mimetype="text/html")
 
 
