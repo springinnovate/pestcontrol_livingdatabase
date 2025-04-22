@@ -1620,7 +1620,7 @@ def explore_traits_answers() -> Response:
     run_dir = Path(app.static_folder) / f"result_explorer_{ts}"
     run_dir.mkdir(parents=True, exist_ok=True)
     html = build_index(field, value, requested_fields, run_dir)
-    _schedule_dir_removal(run_dir)
+    _schedule_dir_removal(run_dir, FILE_LIFETIME_SEC)
     return Response(html, mimetype="text/html")
 
 
