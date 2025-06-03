@@ -1,10 +1,10 @@
 services:
-  backend:
-    container_name: backend
-    hostname: backend_api
-    build: docker_contexts/backend
+  app:
+    container_name: app
+    hostname: app_api
+    build: app
     volumes:
-      - ./docker_contexts/backend:/usr/local/pcld_api
+      - ./app:/usr/local/pcld_api
       - pcld_data:/usr/local/data
     logging:
       driver: local
@@ -32,19 +32,19 @@ services:
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.backend.rule=Host(`pcld.ecoshard.org`)"
-      - "traefik.http.routers.backend.entrypoints=websecure"
-      - "traefik.http.routers.backend.tls=true"
-      - "traefik.http.routers.backend.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.backend-http.rule=Host(`pcld.ecoshard.org`)"
-      - "traefik.http.routers.backend-http.entrypoints=web"
-      - "traefik.http.routers.backend-http.middlewares=redirect-https"
+      - "traefik.http.routers.app.rule=Host(`pcld.ecoshard.org`)"
+      - "traefik.http.routers.app.entrypoints=websecure"
+      - "traefik.http.routers.app.tls=true"
+      - "traefik.http.routers.app.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.app-http.rule=Host(`pcld.ecoshard.org`)"
+      - "traefik.http.routers.app-http.entrypoints=web"
+      - "traefik.http.routers.app-http.middlewares=redirect-https"
       - "traefik.http.middlewares.redirect-https.redirectscheme.scheme=https"
-      - "traefik.http.services.backend.loadbalancer.server.port=5000"
+      - "traefik.http.services.app.loadbalancer.server.port=5000"
 
-  backend_dev:
+  app_dev:
     extends:
-      service: backend
+      service: app
     ports:
       - "5000:5000"
     profiles:
@@ -56,9 +56,9 @@ services:
   celery_worker:
     container_name: celery_worker
     hostname: celery_worker
-    build: docker_contexts/backend
+    build: app
     volumes:
-      - ./docker_contexts/backend:/usr/local/pcld_api
+      - ./app:/usr/local/pcld_api
       - pcld_data:/usr/local/data
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
