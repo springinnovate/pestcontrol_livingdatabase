@@ -100,18 +100,6 @@ QUERY_RESULTS_DIR = os.path.join(INSTANCE_DIR, "results_to_download")
 os.makedirs(QUERY_RESULTS_DIR, exist_ok=True)
 MAX_SAMPLE_DISPLAY_SIZE = 1000
 
-# print("processing browswer pkl cache")
-# with open("browser_cache.pkl", "rb") as f:
-#     BROWSER_CACHE = pickle.load(f)
-
-# print("processing url cache")
-# with open("process_url_cache_v3.pkl", "rb") as f:
-#     PROCESS_URL_CACHE = pickle.load(f)
-
-# print("scrubbed cache")
-# with open("scrubbed_by_4o_mini_v2.pkl", "rb") as f:
-#     SCRUBBED_OPENAI_CACHE = pickle.load(f)
-
 BROWSER_CACHE = Index("browser_cache")
 PROCESS_URL_CACHE = Index("process_url_cache_v3")
 SCRUBBED_OPENAI_CACHE = Index("scrubbed_by_4o_mini_v2")
@@ -1565,23 +1553,6 @@ def build_index(field, query_value, output_field_list, run_dir):
     return "\n".join(html_parts)
 
 
-TRAIT_FIELD_LOOKUP = defaultdict(set)
-
-with open("answers.csv", newline="", encoding="utf-8") as f:
-    trait_to_question_mapping = {
-        # "scope": "question_scope",
-        "question": "question_formatted",
-        "species": "species",
-    }
-    reader = csv.DictReader(f, delimiter=",")
-    for row in reader:
-        for k, v in row.items():
-            if k not in trait_to_question_mapping:
-                continue
-            k = trait_to_question_mapping[k]
-            TRAIT_FIELD_LOOKUP[k].add(v)
-
-
 FILE_LIFETIME_SEC = 60 * 60
 
 
@@ -1595,33 +1566,6 @@ def _schedule_dir_removal(path, delay):
         shutil.rmtree(path, ignore_errors=True)
 
     threading.Thread(target=_remove_after_sleep, daemon=True).start()
-
-
-@app.route("/explore_traits_answers", methods=["GET", "POST"])
-def explore_traits_answers() -> Response:
-    global TRAIT_FIELD_LOOKUP
-    if request.method == "GET":
-        return render_template(
-            "explore_traits_answers.html",
-            unique_field_values=TRAIT_FIELD_LOOKUP,
-        )
-
-    field = request.form["field"].strip()
-    print(field)
-    value = request.form["value"].strip()
-    print(value)
-    print(f"***** {field}: {value}")
-    requested_fields = [
-        "answer",
-        "link",
-        "snippet",
-    ]
-    ts = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-    run_dir = Path(app.static_folder) / f"result_explorer_{ts}"
-    run_dir.mkdir(parents=True, exist_ok=True)
-    html = build_index(field, value, requested_fields, run_dir)
-    _schedule_dir_removal(run_dir, FILE_LIFETIME_SEC)
-    return Response(html, mimetype="text/html")
 
 
 @app.route("/static/<path:filename>")
