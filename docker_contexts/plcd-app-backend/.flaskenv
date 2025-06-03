@@ -1,3 +1,0 @@
-FLASK_APP=api.py
-FLASK_DEBUG=true
-UPLOAD_FOLDER=uploads
