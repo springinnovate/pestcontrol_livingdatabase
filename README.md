@@ -6,7 +6,7 @@ The Pest Control Living Database (PCLD) is a USDA-funded initiative ([project #1
 
 The Pest Control Living Database provides:
 
-- **Over 10,000 pest-related observations** capturing insect activity, abundance, and impacts on crop yields.
+- **Over 100,000 pest-related observations** capturing insect activity, abundance, and impacts on crop yields.
 - **Integrated remote sensing datasets** tailored for agricultural sampling locations.
 - **Detailed insect traits data** to facilitate ecological and agricultural research.
 - **Visualizations** of remote sensing datasets and agricultural data.
