@@ -3,4 +3,4 @@ __pycache__
 secrets
 *.lock
 *.pkl
-docker_contexts/backend/live_database/*
+app/live_database/*
