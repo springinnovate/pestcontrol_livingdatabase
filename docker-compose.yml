@@ -4,9 +4,7 @@ services:
     hostname: backend_api
     build: docker_contexts/backend
     volumes:
-      # Application code and local install of database
       - ./docker_contexts/backend:/usr/local/pcld_api
-      # Volume that sqlite database is copied to and that .pkl file is sampled from
       - pcld_data:/usr/local/data
     logging:
       driver: local
@@ -51,9 +49,7 @@ services:
     hostname: celery_worker
     build: docker_contexts/backend
     volumes:
-      # Bind mount for application code (development)
       - ./docker_contexts/backend:/usr/local/pcld_api
-      # Named volume for SQLite database (performance)
       - pcld_data:/usr/local/data
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
