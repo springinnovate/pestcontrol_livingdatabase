@@ -1,12 +1,11 @@
 from celery import Celery
 
+
 def make_celery(app):
-    # Instantiate Celery with the new settings
-    celery = Celery(app.import_name, broker=app.config['broker_url'])
-    # Update configuration to use the new keys
+    celery = Celery(app.import_name, broker=app.config["broker_url"])
     celery.conf.update(
-        broker_url=app.config['broker_url'],
-        result_backend=app.config['result_backend']
+        broker_url=app.config["broker_url"],
+        result_backend=app.config["result_backend"],
     )
 
     class ContextTask(celery.Task):
