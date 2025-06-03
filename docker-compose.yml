@@ -49,9 +49,11 @@ services:
       - "5000:5000"
     profiles:
       - development
+    labels: []
     depends_on:
       - redis
       - celery_worker
+
 
   celery_worker:
     container_name: celery_worker
