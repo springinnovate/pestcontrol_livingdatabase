@@ -501,9 +501,6 @@ def process_data_table(dataset_table_path, n_rows=None):
             )
         lexer = SpatioTemporalFunctionProcessor()
         output = lexer.visit(grammar_tree)
-        LOGGER.info(SP_TM_AGG_OP)
-        LOGGER.info(dataset_table)
-        LOGGER.info(output)
         dataset_table.at[row_index, SP_TM_AGG_OP] = output
     try:
         dataset_table.to_csv("test.csv")
@@ -551,9 +548,6 @@ def get_spatial_resolution(dataset_id):
 def get_year_julian_range(current_year, spatiotemporal_commands):
     """Returns offset of year in [min, max+1) range"""
     # Initialize current_year as the first day of this year
-    LOGGER.debug(
-        f"about to process these spatiodemporal commands: {spatiotemporal_commands}"
-    )
     year_range = (current_year, current_year + 1)
     julian_range = (1, 365)
     for spatiotemp_flag, op_type, args in spatiotemporal_commands:
@@ -808,6 +802,7 @@ def apply_spatiotemporal_ops(
     active_collection,
     spatiotemporal_commands,
     collection_temporal_resolution,
+    year_range,
     current_year,
     point_fc,
     bounding_buffer,
@@ -857,7 +852,7 @@ def apply_spatiotemporal_ops(
                     ).set("system:time_start", t_start)
 
                 active_collection = ee.ImageCollection.fromImages(
-                    ee.List(list(range(current_year, current_year + 1))).map(
+                    ee.List(list(range(year_range[0], year_range[1]))).map(
                         _op_by_julian_range
                     )
                 )
@@ -1015,6 +1010,7 @@ def process_gee_dataset(
             active_collection,
             spatiotemporal_commands,
             collection_temporal_resolution,
+            year_range,
             current_year,
             point_fc,
             bounding_buffer,
@@ -1024,13 +1020,11 @@ def process_gee_dataset(
         # Now batch and accumulate if we have a FeatureCollection
         if isinstance(active_collection, ee.FeatureCollection):
             active_collection_size = active_size
-            # If we further reduce the size, you could recalc. For simplicity, reuse active_size.
             results = chunk_and_accumulate(
                 active_collection, BATCH_SIZE, active_collection_size
             )
             results_by_year[current_year_batch_id].extend(results)
         else:
-            # If it's still an ImageCollection, you may handle it differently.
             results_by_year[current_year_batch_id].extend([])
 
     # Flatten results
@@ -1145,8 +1139,6 @@ def main():
             )
             if key not in point_table.columns:
                 point_table[key] = None  # Ensure column exists
-            LOGGER.debug(f"************** {dataset_row[TRANSFORM_FUNC]}")
-
             point_id_value_list = process_gee_dataset(
                 dataset_row[DATASET_ID],
                 dataset_row[BAND_NAME],
@@ -1163,8 +1155,6 @@ def main():
             for row_id, value in point_id_value_list:
                 if row_id in point_table.index:
                     point_table.at[row_id, key] = value
-
-            LOGGER.debug(point_id_value_list)
 
         # Save the updated point table with a timestamped filename
         timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")

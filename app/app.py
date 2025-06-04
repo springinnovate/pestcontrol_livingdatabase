@@ -1310,7 +1310,6 @@ def processing_page(task_id):
 def validate_csv():
     csv_data = request.form["csv_data"]
     invalid_message = ""
-    LOGGER.debug(csv_data)
     try:
         # Read first few bytes to validate headers
         first_line = next(iter(csv_data.split("\n")))
@@ -1352,99 +1351,111 @@ def download_csv_template():
     return response
 
 
-LOGGER.debug(os.getenv("INIT_COVARIATES"))
 if os.getenv("INIT_COVARIATES") == "True":
+    LOGGER.info("initializing covariates")
     initialize_covariates(False)
 
 
 @celery.task(bind=True)
 def gee_data_pull_task(self, form_data, csv_content, original_filename):
-    csv_buffer = BytesIO(csv_content)
-
-    point_features_by_year, point_unique_id_per_year, point_table = (
-        gee_database_point_sampler.point_table_to_point_batch(csv_buffer)
-    )
-
     try:
-        dataset_id, band_name = form_data.get("data_source").split(":")
-    except ValueError:
-        dataset_id = form_data.get("data_source")
-        band_name = ""
+        csv_buffer = BytesIO(csv_content)
 
-    num_years_avg = int(form_data.get("num_years_avg"))
-    seasonality_aggregation_fn = form_data.get("seasonality_aggregation_fn")
-    julian_start_day = int(form_data.get("julian_start_day"))
-    julian_end_day = int(form_data.get("julian_end_day"))
-    spatial_aggregation = form_data.get("spatial_aggregation_fn")
-    spatial_radius = int(form_data.get("spatial_radius"))
-
-    enable_masking = form_data.get("enable_masking")
-    mask_payload = form_data.get("masking_data_source", "").strip()
-    if enable_masking and mask_payload:
-        mask_dataset_id, mask_band_name = form_data.get(
-            "masking_data_source"
-        ).split(":")
-        mask_codes = [
-            int(x) for x in form_data.get("masking_rule").strip().split(",")
-        ]
-    else:
-        mask_dataset_id = None
-        mask_band_name = None
-        mask_codes = None
-
-    sp_tm_agg_op_str = (
-        f"spatial_{spatial_aggregation}({spatial_radius};"
-        f"years_mean(-{num_years_avg},0;"
-        f"julian_{seasonality_aggregation_fn}({julian_start_day},{julian_end_day})))"
-    )
-    sp_tm_agg_op = parse_spatiotemporal_fn(sp_tm_agg_op_str)
-
-    if not dataset_id.startswith("*"):
-        result = gee_database_point_sampler.parse_gee_dataset_info(dataset_id)
-        point_id_value_list = gee_database_point_sampler.process_gee_dataset(
-            dataset_id,
-            band_name,
-            result[START_DATE],
-            result[END_DATE],
-            result[COLLECTION_TEMPORAL_RESOLUTION],
-            result[NOMINAL_SCALE],
-            point_features_by_year,
-            point_unique_id_per_year,
-            None,
-            sp_tm_agg_op,
-            mask_dataset_id=mask_dataset_id,
-            mask_band_name=mask_band_name,
-            mask_codes=mask_codes,
+        point_features_by_year, point_unique_id_per_year, point_table = (
+            gee_database_point_sampler.point_table_to_point_batch(csv_buffer)
         )
-        LOGGER.info("processed a regular dataset {dataset_id}")
-        column_to_point_dict = {
-            f"{dataset_id}_{sp_tm_agg_op_str}": point_id_value_list
-        }
-    else:
-        column_to_point_dict = (
-            gee_database_point_sampler.process_custom_dataset(
-                dataset_id,
-                point_features_by_year,
-                point_unique_id_per_year,
-                sp_tm_agg_op,
+
+        try:
+            dataset_id, band_name = form_data.get("data_source").split(":")
+        except ValueError:
+            dataset_id = form_data.get("data_source")
+            band_name = ""
+
+        num_years_avg = int(form_data.get("num_years_avg"))
+        seasonality_aggregation_fn = form_data.get("seasonality_aggregation_fn")
+        julian_start_day = int(form_data.get("julian_start_day"))
+        julian_end_day = int(form_data.get("julian_end_day"))
+        spatial_aggregation = form_data.get("spatial_aggregation_fn")
+        spatial_radius = int(form_data.get("spatial_radius"))
+
+        enable_masking = form_data.get("enable_masking")
+        mask_payload = form_data.get("masking_data_source", "").strip()
+        if enable_masking and mask_payload:
+            mask_dataset_id, mask_band_name = form_data.get(
+                "masking_data_source"
+            ).split(":")
+            mask_codes = [
+                int(x) for x in form_data.get("masking_rule").strip().split(",")
+            ]
+        else:
+            mask_dataset_id = None
+            mask_band_name = None
+            mask_codes = None
+
+        sp_tm_agg_op_str = (
+            f"spatial_{spatial_aggregation}({spatial_radius};"
+            f"years_mean(-{num_years_avg},0;"
+            f"julian_{seasonality_aggregation_fn}({julian_start_day},{julian_end_day})))"
+        )
+        sp_tm_agg_op = parse_spatiotemporal_fn(sp_tm_agg_op_str)
+
+        if not dataset_id.startswith("*"):
+            result = gee_database_point_sampler.parse_gee_dataset_info(
+                dataset_id
             )
-        )
-        LOGGER.info(f"processed a custom dataset {dataset_id}")
+            point_id_value_list = (
+                gee_database_point_sampler.process_gee_dataset(
+                    dataset_id,
+                    band_name,
+                    result[START_DATE],
+                    result[END_DATE],
+                    result[COLLECTION_TEMPORAL_RESOLUTION],
+                    result[NOMINAL_SCALE],
+                    point_features_by_year,
+                    point_unique_id_per_year,
+                    None,
+                    sp_tm_agg_op,
+                    mask_dataset_id=mask_dataset_id,
+                    mask_band_name=mask_band_name,
+                    mask_codes=mask_codes,
+                )
+            )
+            LOGGER.info(f"YYY processed a regular dataset {dataset_id}")
+            column_to_point_dict = {
+                f"{dataset_id}_{sp_tm_agg_op_str}": point_id_value_list
+            }
+            LOGGER.info("YYY column to point done")
+        else:
+            column_to_point_dict = (
+                gee_database_point_sampler.process_custom_dataset(
+                    dataset_id,
+                    point_features_by_year,
+                    point_unique_id_per_year,
+                    sp_tm_agg_op,
+                )
+            )
+            LOGGER.info(f"processed a custom dataset {dataset_id}")
 
-    # 2025-03-04 19:43:12,186: WARNING/ForkPoolWorker-1] the next line crashes: {0: 274.6029357910156, 1: 274.6029357910156, 2: 274.6029357910156}
+        # 2025-03-04 19:43:12,186: WARNING/ForkPoolWorker-1] the next line crashes: {0: 274.6029357910156, 1: 274.6029357910156, 2: 274.6029357910156}
+        LOGGER.info("****about to do column to point dict")
+        for column_name, list_of_tuples in column_to_point_dict.items():
+            LOGGER.info(f"processing {column_name}")
+            data_dict = dict(list_of_tuples)
+            point_table[column_name] = point_table.index.map(data_dict)
+            point_table[column_name] = pd.to_numeric(
+                point_table[column_name], errors="ignore"
+            )
 
-    for column_name, list_of_tuples in column_to_point_dict.items():
-        data_dict = dict(list_of_tuples)
-        point_table[column_name] = point_table.index.map(data_dict)
-        point_table[column_name] = pd.to_numeric(
-            point_table[column_name], errors="ignore"
-        )
-
-    csv_output = StringIO()
-    point_table.to_csv(csv_output, index=False)
-    csv_output.seek(0)
-    final_csv = "\ufeff" + csv_output.getvalue()
-    return {"csv": final_csv, "original_filename": original_filename}
+        LOGGER.info(f"got here")
+        csv_output = StringIO()
+        point_table.to_csv(csv_output, index=False)
+        csv_output.seek(0)
+        final_csv = "\ufeff" + csv_output.getvalue()
+        LOGGER.info(f"returning the final CSV {original_filename}")
+        return {"csv": final_csv, "original_filename": original_filename}
+    except Exception as e:
+        LOGGER.exception(f"exception with {original_filename}")
+        raise
 
 
 @app.route("/gee_eo_pull_status/<task_id>")
@@ -1455,9 +1466,6 @@ def gee_eo_pull_status(task_id):
     elif task.state == "STARTED":
         return jsonify({"status": "PROCESSING"}), 200
     elif task.state == "SUCCESS":
-        LOGGER.debug(
-            f"in gee eo p ull status here is the result: {task.result}"
-        )
         return (
             jsonify(
                 {
@@ -1480,13 +1488,16 @@ def gee_eo_pull_status(task_id):
 
 @app.route("/download/<task_id>")
 def download_result(task_id):
+    LOGGER.info(f"getting the result for {task_id}")
     task = gee_data_pull_task.AsyncResult(task_id)
+    LOGGER.info(f"got the task: {task}")
     if task.state == "SUCCESS":
         result = task.result
         csv_str = result["csv"]
         original_filename = result["original_filename"]
 
         prefix = os.path.basename(os.path.splitext(original_filename)[0])
+        LOGGER.info(f"about to send file as {csv_str}")
         return send_file(
             BytesIO(csv_str.encode("utf-8", "replace")),
             as_attachment=True,

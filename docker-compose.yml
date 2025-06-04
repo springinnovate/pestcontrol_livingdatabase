@@ -1,6 +1,5 @@
 services:
   app:
-    container_name: app
     hostname: app_api
     build: app
     volumes:
