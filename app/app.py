@@ -1204,13 +1204,17 @@ def data_extractor():
         return redirect(url_for("processing_page", task_id=task.id))
 
     data_sources = {
-        "*GOOGLE/DYNAMICWORLD/V1 crop and landcover table": {
+        "*GOOGLE/DYNAMICWORLD/V1 landcover table": {
             "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/GOOGLE_DYNAMICWORLD_V1",
             "date_range": "2015-06-27 to 2025-03-04",
         },
         "*MODIS/061/MCD12Q1 landcover table": {
             "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q1",
             "date_range": "2001-01-01 to 2023-01-01",
+        },
+        "GOOGLE/DYNAMICWORLD/V1:crops": {
+            "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/GOOGLE_DYNAMICWORLD_V1",
+            "date_range": "2015-06-27 to 2025-03-04",
         },
         "ECMWF/ERA5/MONTHLY:dewpoint_2m_temperature": {
             "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY",

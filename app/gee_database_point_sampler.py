@@ -632,8 +632,8 @@ def load_collection_or_image(dataset_id):
 def process_custom_dataset(
     dataset_id, point_features_by_year, point_unique_id_per_year, sp_tm_agg_op
 ):
-    if dataset_id == "*GOOGLE/DYNAMICWORLD/V1 crop and landcover table":
-        return process_dynamicworld_crop_and_landcover_table(
+    if dataset_id == "*GOOGLE/DYNAMICWORLD/V1 landcover table":
+        return process_dynamicworld_landcover_table(
             point_features_by_year, point_unique_id_per_year, sp_tm_agg_op
         )
     elif dataset_id == "*MODIS/061/MCD12Q1 landcover table":
@@ -642,44 +642,25 @@ def process_custom_dataset(
         )
 
 
-def process_dynamicworld_crop_and_landcover_table(
+def process_dynamicworld_landcover_table(
     point_features_by_year, point_unique_id_per_year, sp_tm_agg_op
 ):
     results_by_key_class = {}
-    print(f"processing dynamic world dataset: {get_time():.2f}s")
-    result = parse_gee_dataset_info("GOOGLE/DYNAMICWORLD/V1")
-    crop_point_id_value_list = process_gee_dataset(
-        "GOOGLE/DYNAMICWORLD/V1",
-        "crops",
-        result[START_DATE],
-        result[END_DATE],
-        result[COLLECTION_TEMPORAL_RESOLUTION],
-        result[NOMINAL_SCALE],
-        point_features_by_year,
-        point_unique_id_per_year,
-        None,
-        sp_tm_agg_op,
-    )
-    print(f"got the crops: {get_time():.2f}s")
-    results_by_key_class["GOOGLE/DYNAMICWORLD/V1_crop_prop"] = (
-        crop_point_id_value_list
-    )
+    dataset_info = parse_gee_dataset_info("GOOGLE/DYNAMICWORLD/V1")
     for lulc_class in range(9):
         key = f"GOOGLE/DYNAMICWORLD/V1_lulc_prop_{lulc_class}"
         lulc_point_id_value_list = process_gee_dataset(
             "GOOGLE/DYNAMICWORLD/V1",
             "label",
-            "2015-06-27",
-            "2025-02-07",
-            JULIAN_FN,
-            10,
+            dataset_info[START_DATE],
+            dataset_info[END_DATE],
+            dataset_info[COLLECTION_TEMPORAL_RESOLUTION],
+            dataset_info[NOMINAL_SCALE],
             point_features_by_year,
             point_unique_id_per_year,
             (MASK_FN, [lulc_class]),
             sp_tm_agg_op,
         )
-        LOGGER.debug(f"got the lulc class: {lulc_class} {get_time():.2f}s")
-        # save to point table
         results_by_key_class[key] = lulc_point_id_value_list
     return results_by_key_class
 
@@ -690,34 +671,21 @@ def process_MODIS_landcover_table(
     results_by_lulc_class = {}
     for lulc_class in range(16):
         key = f"MODIS/061/MCD12Q1_lulc_prop_{lulc_class}"
-        result = parse_gee_dataset_info("MODIS/061/MCD12Q1")
+        dataset_info = parse_gee_dataset_info("MODIS/061/MCD12Q1")
         lulc_point_id_value_list = process_gee_dataset(
             "MODIS/061/MCD12Q1",
             "LC_Type2",
-            result[START_DATE],
-            result[END_DATE],
-            result[COLLECTION_TEMPORAL_RESOLUTION],
-            result[NOMINAL_SCALE],
+            dataset_info[START_DATE],
+            dataset_info[END_DATE],
+            dataset_info[COLLECTION_TEMPORAL_RESOLUTION],
+            dataset_info[NOMINAL_SCALE],
             point_features_by_year,
             point_unique_id_per_year,
             (MASK_FN, [lulc_class]),
             sp_tm_agg_op,
         )
-        # save to point table
         results_by_lulc_class[key] = lulc_point_id_value_list
     return results_by_lulc_class
-
-
-TIME = 0
-
-
-def get_time():
-    global TIME
-    if TIME == 0:
-        TIME = time.time()
-        return 0
-    else:
-        return time.time() - TIME
 
 
 def apply_time_filter(image_collection, year_range, julian_range, bounding_box):
