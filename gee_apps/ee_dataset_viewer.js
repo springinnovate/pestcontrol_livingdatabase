@@ -7,6 +7,15 @@ function generateDatasets(endYear) {
     return yearCollection.max().select(bandName).set('year', year);
   };
 
+  var yearlyMode = function(year, collection, bandName) {
+    /// I hacked this in on 11/12/2024 because Becky & Colleen were on the
+    // phone and needed it rightaway
+    var startDate = ee.Date.fromYMD(year, 1, 1);
+    var endDate = startDate.advance(1, 'year');
+    var yearCollection = collection.filterDate(startDate, endDate);
+    return yearCollection.mode().select(bandName).set('year', year);
+  };
+
   var local_datasets = {
     '(*clear*)': '',
   };
@@ -87,6 +96,33 @@ function generateDatasets(endYear) {
 
   local_datasets['Global SRTM Topographic Diversity'] = (
     ee.Image('CSP/ERGo/1_0/Global/SRTM_topoDiversity').select('constant').rename('B0'));
+
+  local_datasets['GFSAD1000: Cropland Extent 1km Multi-Study Crop Mask'] = (
+    ee.Image('USGS/GFSAD1000_V1').select('landcover').rename('B0'));
+
+
+  // I hacked this in on 11/12/2024 because Becky & Colleen were on the
+  // phone and needed it rightaway
+  var localYear = null;
+  if (endYear < 2016) {
+    localYear = 2016;
+  } else if (endYear > 2023) {
+    localYear = 2023;
+  } else {
+    localYear = endYear
+  }
+
+  var croplabel = 'Dynamic World V1 -- Crop probability (only defined between 2016-2023)';
+  local_datasets[croplabel] = yearlyMax(
+    localYear,
+    ee.ImageCollection('GOOGLE/DYNAMICWORLD/V1'),
+    'crops').rename('B0');
+
+  var classificationlabel = 'Dynamic World V1 -- Most likely label in that year (only defined between 2016-2023)';
+  local_datasets[classificationlabel] = yearlyMode(
+    localYear,
+    ee.ImageCollection('GOOGLE/DYNAMICWORLD/V1'),
+    'label').rename('B0');
 
   return local_datasets;
 }
@@ -383,11 +419,15 @@ panel_list.forEach(function (panel_array) {
   var map = panel_array[3].map;
   map.onClick(function (obj) {
     var point = ee.Geometry.Point([obj.lon, obj.lat]);
+
     [panel_list[0][3], panel_list[1][3]].forEach(function (active_context) {
       if (active_context.last_layer !== null) {
+
         active_context.point_val.setValue('sampling...')
         var point_sample = active_context.raster.sampleRegions({
-          collection: point,
+          collection: ee.FeatureCollection(point),
+          geometries: true,
+          scale: 10,
         });
         ee.data.computeValue(point_sample, function (val) {
           if (val.features.length > 0) {
