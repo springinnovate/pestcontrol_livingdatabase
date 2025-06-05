@@ -1138,6 +1138,7 @@ def main():
                 f"{dataset_row[SP_TM_AGG_FUNC]}_"
                 f"{dataset_row[TRANSFORM_FUNC]}"
             )
+            LOGGER.debug(f"************ this is the key: {key}")
             if key not in point_table.columns:
                 point_table[key] = None  # Ensure column exists
             point_id_value_list = process_gee_dataset(

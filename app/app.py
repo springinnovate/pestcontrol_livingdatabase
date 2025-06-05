@@ -1406,7 +1406,7 @@ def gee_data_pull_task(self, form_data, csv_content, original_filename):
             )
             LOGGER.info(f"YYY processed a regular dataset {dataset_id}")
             column_to_point_dict = {
-                f"{dataset_id}_{sp_tm_agg_op_str}": point_id_value_list
+                f"{dataset_id}:{band_name}_{sp_tm_agg_op_str}": point_id_value_list
             }
             LOGGER.info("YYY column to point done")
         else:

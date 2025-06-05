@@ -25,6 +25,8 @@ services:
       - "5000"
     depends_on:
       - redis
+      - reverse-proxy
+      - celery_worker
     environment:
       - INIT_COVARIATES=True
       - CELERY_BROKER_URL=redis://redis:6379/0
@@ -35,24 +37,17 @@ services:
       - "traefik.http.routers.app.entrypoints=websecure"
       - "traefik.http.routers.app.tls=true"
       - "traefik.http.routers.app.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.app-http.rule=Host(`pcld.ecoshard.org`)"
-      - "traefik.http.routers.app-http.entrypoints=web"
-      - "traefik.http.routers.app-http.middlewares=redirect-https"
-      - "traefik.http.middlewares.redirect-https.redirectscheme.scheme=https"
-      - "traefik.http.services.app.loadbalancer.server.port=5000"
 
   app_dev:
     extends:
       service: app
-    ports:
-      - "5000:5000"
     profiles:
       - development
-    labels: []
-    depends_on:
-      - redis
-      - celery_worker
-
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.app_dev.rule=Host(`localhost`)"
+      - "traefik.http.routers.app_dev.entrypoints=websecure"
+      - "traefik.http.routers.app_dev.tls=true"
 
   celery_worker:
     container_name: celery_worker
@@ -84,9 +79,12 @@ services:
   reverse-proxy:
     image: traefik:v2.11
     command:
+      # --- providers ----------------------------
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
       - "--entryPoints.web.address=:80"
+      - "--entryPoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entryPoints.web.http.redirections.entryPoint.scheme=https"
       - "--entryPoints.websecure.address=:443"
       - "--certificatesResolvers.letsencrypt.acme.httpChallenge=true"
       - "--certificatesResolvers.letsencrypt.acme.httpChallenge.entryPoint=web"
