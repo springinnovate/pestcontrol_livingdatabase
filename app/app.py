@@ -1,10 +1,11 @@
+"""Entrypoint to the PCLD app."""
+
 import threading
 import shutil
 import time
 from datetime import datetime
 from io import StringIO, BytesIO
 import collections
-import configparser
 import csv
 import hashlib
 import json
@@ -37,11 +38,13 @@ from database_model_definitions import (
 from flask import Flask
 from flask import jsonify
 from flask import make_response
+from flask import redirect
 from flask import render_template
 from flask import request
 from flask import send_file
+from flask import send_from_directory
 from flask import url_for
-from flask import redirect
+
 from gee_database_point_sampler import initialize_gee
 from gee_database_point_sampler import SPATIOTEMPORAL_FN_GRAMMAR
 from gee_database_point_sampler import SpatioTemporalFunctionProcessor
@@ -57,18 +60,6 @@ import numpy
 import pandas as pd
 import redis
 
-from tqdm import tqdm
-import uuid
-from collections import defaultdict
-from html import escape
-from pathlib import Path
-
-import platform
-
-from diskcache import Index, Disk
-
-from flask import Flask, Response, request, send_from_directory
-
 
 CSV_PATH = "/usr/local/pcld_api/answer_scope.csv"
 
@@ -83,8 +74,6 @@ logging.basicConfig(
 logging.getLogger("taskgraph").setLevel(logging.INFO)
 LOGGER = logging.getLogger(__name__)
 
-config = configparser.ConfigParser()
-
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.config["SECRET_KEY"] = "your_secret_key"
 app.config.update(
@@ -98,11 +87,6 @@ redis_client = redis.Redis(host="redis", port=6379, db=0)
 INSTANCE_DIR = "/usr/local/data/"
 QUERY_RESULTS_DIR = os.path.join(INSTANCE_DIR, "results_to_download")
 os.makedirs(QUERY_RESULTS_DIR, exist_ok=True)
-MAX_SAMPLE_DISPLAY_SIZE = 1000
-
-BROWSER_CACHE = Index("browser_cache")
-PROCESS_URL_CACHE = Index("process_url_cache_v3")
-SCRUBBED_OPENAI_CACHE = Index("scrubbed_by_4o_mini_v2")
 
 initialize_gee()
 
@@ -1446,14 +1430,13 @@ def gee_data_pull_task(self, form_data, csv_content, original_filename):
                 point_table[column_name], errors="ignore"
             )
 
-        LOGGER.info(f"got here")
         csv_output = StringIO()
         point_table.to_csv(csv_output, index=False)
         csv_output.seek(0)
         final_csv = "\ufeff" + csv_output.getvalue()
         LOGGER.info(f"returning the final CSV {original_filename}")
         return {"csv": final_csv, "original_filename": original_filename}
-    except Exception as e:
+    except Exception:
         LOGGER.exception(f"exception with {original_filename}")
         raise
 
@@ -1505,66 +1488,6 @@ def download_result(task_id):
             download_name=f'{prefix}_remote_sensed_point_table_{datetime.now().strftime("%Y_%m_%d_%H_%M_%S")}.csv',
         )
     return "File not ready or task failed", 400
-
-
-def build_index(field, query_value, output_field_list, run_dir):
-    rows_by_val = defaultdict(list)
-    with open(CSV_PATH, newline="") as fp:
-        reader = csv.DictReader(fp)
-        for row in reader:
-            if query_value == row.get(field):
-                rows_by_val[query_value].append(row)
-
-    html_parts: list[str] = [
-        "<!DOCTYPE html>",
-        '<html><head><meta charset="utf-8"><title>Result Explorer</title>',
-        "<style>body{font-family:sans-serif;margin:2rem}ul{list-style:none;padding:0}"
-        "li{margin:0.3rem 0}code{background:#eee;padding:0 0.2rem}</style>",
-        "</head><body>",
-        f"<h1>Result Explorer — <code>{escape(str(CSV_PATH))}</code></h1>",
-    ]
-
-    html_parts.append(f"<h2>Query: {escape(query_value)}</h2><ul>")
-    for row in rows_by_val.get(query_value, []):
-        record_items = []
-        for k in output_field_list:
-            v = row.get(k, "")
-            if k.lower() == "link" and v:
-                val_html = (
-                    f'<a href="{escape(v)}" target="_blank">{escape(v)}</a>'
-                )
-            else:
-                val_html = escape(v)
-            record_items.append(f"<strong>{escape(k)}</strong>: {val_html}")
-
-        link = row.get("link")
-        if link:
-            uid = uuid.uuid4().hex
-            if link in SCRUBBED_OPENAI_CACHE:
-                op_path = run_dir / f"{uid}_openai.txt"
-                op_path.write_text(
-                    SCRUBBED_OPENAI_CACHE[link], encoding="utf-8"
-                )
-                rel = op_path.relative_to(run_dir.parent).as_posix()
-                record_items.append(
-                    f'<a href="{url_for("static", filename=rel)}" target="_blank">OpenAI Cache</a>'
-                )
-            if link in BROWSER_CACHE:
-                br_path = run_dir / f"{uid}_browser.txt"
-                br_path.write_text(BROWSER_CACHE[link], encoding="utf-8")
-                rel = br_path.relative_to(run_dir.parent).as_posix()
-                record_items.append(
-                    f'<a href="{url_for("static", filename=rel)}" target="_blank">Browser Cache</a>'
-                )
-
-        html_parts.append("<li>" + " | ".join(record_items) + "</li>")
-    html_parts.append("</ul>")
-
-    html_parts.append("</body></html>")
-    return "\n".join(html_parts)
-
-
-FILE_LIFETIME_SEC = 60 * 60
 
 
 def _schedule_dir_removal(path, delay):

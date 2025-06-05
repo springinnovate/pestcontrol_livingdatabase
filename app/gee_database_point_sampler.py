@@ -128,6 +128,7 @@ EXPECTED_POINTTABLE_COLUMNS = [LAT_FIELD, LNG_FIELD, YEAR_FIELD]
 
 
 def parse_spatiotemporal_fn(spatiotemporal_fn):
+    """Parse the `spatiotemporal_fn` as a string into the function grammar."""
     spatiotemporal_fn = spatiotemporal_fn.replace(" ", "")
     grammar_tree = SPATIOTEMPORAL_FN_GRAMMAR.parse(spatiotemporal_fn)
     lexer = SpatioTemporalFunctionProcessor()
@@ -546,7 +547,7 @@ def get_spatial_resolution(dataset_id):
 
 
 def get_year_julian_range(current_year, spatiotemporal_commands):
-    """Returns offset of year in [min, max+1) range"""
+    """Returns offset of year in [min, max+1) range."""
     # Initialize current_year as the first day of this year
     year_range = (current_year, current_year + 1)
     julian_range = (1, 365)
