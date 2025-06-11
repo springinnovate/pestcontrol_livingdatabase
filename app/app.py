@@ -1207,58 +1207,127 @@ def data_extractor():
         "*GOOGLE/DYNAMICWORLD/V1 landcover table": {
             "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/GOOGLE_DYNAMICWORLD_V1",
             "date_range": "2015-06-27 to 2025-03-04",
+            "agg_funcs": [("mean", "Proportional Area")],
         },
         "*MODIS/061/MCD12Q1 landcover table": {
             "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q1",
             "date_range": "2001-01-01 to 2023-01-01",
+            "agg_funcs": [("mean", "Proportional Area")],
         },
         "GOOGLE/DYNAMICWORLD/V1:crops": {
             "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/GOOGLE_DYNAMICWORLD_V1",
             "date_range": "2015-06-27 to 2025-03-04",
+            "agg_funcs": [("mean", "Proportional Area")],
         },
         "ECMWF/ERA5/MONTHLY:dewpoint_2m_temperature": {
             "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY",
             "date_range": "1979-01-01 to 2020-06-01",
+            "agg_funcs": [
+                ("min", "Min"),
+                ("mean", "Mean"),
+                ("max", "Max"),
+                ("sd", "Standard Deviation"),  # noqa: E131
+            ],
         },
         "ECMWF/ERA5/MONTHLY:maximum_2m_air_temperature": {
             "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY",
             "date_range": "1979-01-01 to 2020-06-01",
+            "agg_funcs": [
+                ("min", "Min"),
+                ("mean", "Mean"),
+                ("max", "Max"),
+                ("sd", "Standard Deviation"),
+            ],
         },
         "ECMWF/ERA5/MONTHLY:mean_2m_air_temperature": {
             "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY",
             "date_range": "1979-01-01 to 2020-06-01",
+            "agg_funcs": [
+                ("min", "Min"),
+                ("mean", "Mean"),
+                ("max", "Max"),
+                ("sd", "Standard Deviation"),
+            ],
         },
         "ECMWF/ERA5/MONTHLY:minimum_2m_air_temperature": {
             "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY",
             "date_range": "1979-01-01 to 2020-06-01",
+            "agg_funcs": [
+                ("min", "Min"),
+                ("mean", "Mean"),
+                ("max", "Max"),
+                ("sd", "Standard Deviation"),
+            ],
         },
         "ECMWF/ERA5/MONTHLY:total_precipitation": {
             "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY",
             "date_range": "1979-01-01 to 2020-06-01",
+            "agg_funcs": [
+                ("min", "Min"),
+                ("mean", "Mean"),
+                ("max", "Max"),
+                ("sd", "Standard Deviation"),
+            ],
         },
         "MODIS/061/MCD12Q2:EVI_Amplitude_1": {
             "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2",
             "date_range": "2001-01-01 to 2023-01-01",
+            "agg_funcs": [
+                ("min", "Min"),
+                ("mean", "Mean"),
+                ("max", "Max"),
+                ("sd", "Standard Deviation"),
+            ],
         },
         "MODIS/061/MCD12Q2:EVI_Area_1": {
             "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2",
             "date_range": "2001-01-01 to 2023-01-01",
+            "agg_funcs": [
+                ("min", "Min"),
+                ("mean", "Mean"),
+                ("max", "Max"),
+                ("sd", "Standard Deviation"),
+            ],
         },
         "MODIS/061/MCD12Q2:Dormancy_1": {
             "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2",
             "date_range": "2001-01-01 to 2023-01-01",
+            "agg_funcs": [
+                ("min", "Min"),
+                ("mean", "Mean"),
+                ("max", "Max"),
+                ("sd", "Standard Deviation"),
+            ],
         },
         "MODIS/061/MCD12Q2:Greenup_1": {
             "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2",
             "date_range": "2001-01-01 to 2023-01-01",
+            "agg_funcs": [
+                ("min", "Min"),
+                ("mean", "Mean"),
+                ("max", "Max"),
+                ("sd", "Standard Deviation"),
+            ],
         },
         "MODIS/061/MCD12Q2:Peak_1": {
             "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MCD12Q2",
             "date_range": "2001-01-01 to 2023-01-01",
+            "agg_funcs": [
+                ("min", "Min"),
+                ("mean", "Mean"),
+                ("max", "Max"),
+                ("sd", "Standard Deviation"),
+            ],
         },
         "CSP/ERGo/1_0/Global/SRTM_topoDiversity:constant": {
             "doc_url": "https://developers.google.com/earth-engine/datasets/catalog/CSP_ERGo_1_0_Global_SRTM_topoDiversity",
             "date_range": "2001-01-01 to 2023-01-01",
+            "agg_funcs": [
+                ("min", "Min"),
+                ("mean", "Mean"),
+                ("max", "Max"),
+                ("sd", "Standard Deviation"),
+            ],
         },
     }
 
@@ -1422,6 +1491,11 @@ def gee_data_pull_task(self, form_data, csv_content, original_filename):
                     sp_tm_agg_op,
                 )
             )
+            # attach the original spatial aggregation function here too
+            column_to_point_dict = {
+                f"{key}_{sp_tm_agg_op_str}": value
+                for key, value in column_to_point_dict.items()
+            }
             LOGGER.info(f"processed a custom dataset {dataset_id}")
 
         # 2025-03-04 19:43:12,186: WARNING/ForkPoolWorker-1] the next line crashes: {0: 274.6029357910156, 1: 274.6029357910156, 2: 274.6029357910156}

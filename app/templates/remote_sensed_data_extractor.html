@@ -88,11 +88,8 @@
                 <div class="row">
                     <div class="col">
                         <label for="spatial_aggregation_fn" class="form-label">Spatial aggregation function</label>
-                        <select class="form-select" id="spatial_aggregation_fn" name="spatial_aggregation_fn" required>
-                            <option value="min">Min</option>
-                            <option value="mean" selected>Mean</option>
-                            <option value="max">Max</option>
-                            <option value="sd">Standard Deviation</option>
+                        <select class="form-select" id="spatial_aggregation_fn" name="spatial_aggregation_fn" required disabled>
+                          <option value="" selected hidden>Select a dataset first</option>
                         </select>
                     </div>
                     <div class="col">
@@ -135,6 +132,24 @@
         <button id="submitBtn" type="submit" class="btn btn-primary">Submit</button>
         </form>
     </div>
+
+    <script>
+      const dataSources = {{ data_sources_json|safe }};
+
+      document.getElementById('data_source').addEventListener('change', function() {
+        const selectedDataset = this.value;
+        const aggSelect = document.getElementById('spatial_aggregation_fn');
+        aggSelect.innerHTML = '';
+        const aggFuncs = dataSources[selectedDataset]['agg_funcs'];
+        dataSources[selectedDataset]['agg_funcs'].forEach(([value, label]) => {
+            const opt = document.createElement('option');
+            opt.value = value;
+            opt.textContent = label;
+            aggSelect.appendChild(opt);
+        });
+        aggSelect.disabled = false;
+      });
+    </script>
 
     <script>
         $(document).ready(function() {

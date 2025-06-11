@@ -648,7 +648,7 @@ def process_dynamicworld_landcover_table(
     results_by_key_class = {}
     dataset_info = parse_gee_dataset_info("GOOGLE/DYNAMICWORLD/V1")
     for lulc_class in range(9):
-        key = f"GOOGLE/DYNAMICWORLD/V1_lulc_prop_{lulc_class}"
+        key = f"GOOGLE/DYNAMICWORLD/V1_lulc_prop_area_{lulc_class}"
         lulc_point_id_value_list = process_gee_dataset(
             "GOOGLE/DYNAMICWORLD/V1",
             "label",
@@ -670,7 +670,7 @@ def process_MODIS_landcover_table(
 ):
     results_by_lulc_class = {}
     for lulc_class in range(16):
-        key = f"MODIS/061/MCD12Q1_lulc_prop_{lulc_class}"
+        key = f"MODIS/061/MCD12Q1_lulc_prop_area_{lulc_class}"
         dataset_info = parse_gee_dataset_info("MODIS/061/MCD12Q1")
         lulc_point_id_value_list = process_gee_dataset(
             "MODIS/061/MCD12Q1",
