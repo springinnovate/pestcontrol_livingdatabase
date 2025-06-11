@@ -127,6 +127,25 @@ function generateDatasets(endYear) {
   return local_datasets;
 }
 
+var discreteBands = {
+  'Dynamic World V1 -- Most likely label in that year (only defined between 2016-2023)': true,
+  'GFSAD1000: Cropland Extent 1km Multi-Study Crop Mask': true
+};
+var discretePalettes = {
+  'Dynamic World V1 -- Most likely label in that year (only defined between 2016-2023)': {
+    palette: ['#aec3d4', '#152106', '#225129', '#369b47', '#30eb5b', '#387242',
+              '#6a2325', '#c3aa69', '#b76031'],
+    labels: ['Water', 'Trees', 'Grass', 'Flooded vegetation', 'Crops',
+             'Shrub & scrub', 'Built area', 'Bare ground', 'Snow & ice'],
+    values: [0,1,2,3,4,5,6,7,8]
+  },
+  'GFSAD1000: Cropland Extent 1km Multi-Study Crop Mask': {
+    palette: ['#ffffff', '#ffff64', '#aaf0f0', '#dcf064', '#c4c464',
+              '#006400'],
+    labels: ['Water', 'Cropland', 'Cropland (irrigated)', 'Cropland (rainfed)', 'Mixed Cropland', 'Non-cropland'],
+    values: [0,1,2,3,4,5]
+  }
+};
 
 var legend_styles = {
   'black_to_red': ['000000', '005aff', '43c8c8', 'fff700', 'ff0000'],
@@ -139,6 +158,30 @@ var legend_styles = {
 };
 var default_legend_style = 'blue_to_green';
 
+
+function applyPalette(datasetName, active_context) {
+  if (discreteBands[datasetName]) {
+    var discreteScheme = discretePalettes[datasetName];
+    active_context.visParams = {
+      min: Math.min.apply(null, discreteScheme.values),
+      max: Math.max.apply(null, discreteScheme.values),
+      palette: discreteScheme.palette
+    };
+    active_context.legend_panel.clear();
+    active_context.legend_panel.add(ui.Label({value: datasetName, style: {fontWeight: 'bold'}}));
+    discreteScheme.labels.forEach(function(label, idx) {
+      active_context.legend_panel.add(ui.Label({
+        value: label,
+        style: {backgroundColor: discreteScheme.palette[idx], padding: '4px'}
+      }));
+    });
+  } else {
+    active_context.visParams.palette = legend_styles[default_legend_style];
+    active_context.build_legend_panel();
+  }
+  active_context.updateVisParams();
+}
+
 function changeColorScheme(key, active_context) {
   active_context.visParams.palette = legend_styles[key];
   active_context.build_legend_panel();
@@ -147,7 +190,7 @@ function changeColorScheme(key, active_context) {
 
 var linkedMap = ui.Map();
 var linker = ui.Map.Linker([ui.root.widgets().get(0), linkedMap]);
-// Create a SplitPanel which holds the linked maps side-by-side.
+
 var splitPanel = ui.SplitPanel({
   firstPanel: linker.get(0),
   secondPanel: linker.get(1),
@@ -168,6 +211,7 @@ var panel_list = [];
       'map': mapside[0],
       'legend_panel': null,
       'visParams': null,
+      'datasetName': null,
     };
 
     active_context.map.style().set('cursor', 'crosshair');
@@ -194,8 +238,9 @@ var panel_list = [];
     });
     var select = ui.Select({
       items: Object.keys(active_context.datasets),
-      onChange: function(key, self) {
+      onChange: function(datasetName, self) {
           self.setDisabled(true);
+          active_context.map.setZoom(10);
           var original_value = self.getValue();
           self.setPlaceholder('loading (this may mean the app is crashed, reload the page if you think so)...');
           self.setValue(null, false);
@@ -204,44 +249,59 @@ var panel_list = [];
             min_val.setDisabled(true);
             max_val.setDisabled(true);
           }
-          if (active_context.datasets[key] == '') {
+          if (active_context.datasets[datasetName] == '') {
             self.setValue(original_value, false);
             self.setDisabled(false);
             return
           }
+          active_context.raster = active_context.datasets[datasetName];
 
-          active_context.raster = active_context.datasets[key];
-
-          var mean_reducer = ee.Reducer.percentile([10, 90], ['p10', 'p90']);
-          var meanDictionary = active_context.raster.reduceRegion({
-            reducer: mean_reducer,
-            geometry: active_context.map.getBounds(true),
-            bestEffort: true,
-          });
-
-          ee.data.computeValue(meanDictionary, function (val) {
-            if (val['B0_p10'] != val['B0_p90']) {
-              active_context.visParams = {
-                min: val['B0_p10'],
-                max: val['B0_p90'],
-                palette: active_context.visParams.palette,
-              };
-            } else {
-              active_context.visParams = {
-                min: 0,
-                max: val['B0_p90'],
-                palette: active_context.visParams.palette,
-              };
-            }
+          console.log(datasetName);
+          active_context.datasetName = datasetName
+          if (datasetName in discretePalettes) {
+            console.log('discrete');
+            applyPalette(datasetName, active_context);
+            min_val.setValue("n/a", false);
+            max_val.setValue("n/a", false);
+            min_val.setDisabled(true);
+            max_val.setDisabled(true);
             active_context.last_layer = active_context.map.addLayer(
-              active_context.raster, active_context.visParams);
-            min_val.setValue(active_context.visParams.min, false);
-            max_val.setValue(active_context.visParams.max, false);
-            min_val.setDisabled(false);
-            max_val.setDisabled(false);
-            self.setValue(original_value, false);
-            self.setDisabled(false);
-          });
+                active_context.raster, active_context.visParams);
+          } else {
+            active_context.visParams.palette = legend_styles[default_legend_style];
+            var mean_reducer = ee.Reducer.percentile([10, 90], ['p10', 'p90']);
+            var meanDictionary = active_context.raster.reduceRegion({
+              reducer: mean_reducer,
+              geometry: active_context.map.getBounds(true),
+              bestEffort: true,
+            });
+
+            ee.data.computeValue(meanDictionary, function (val) {
+              if (val['B0_p10'] != val['B0_p90']) {
+                active_context.visParams = {
+                  min: val['B0_p10'],
+                  max: val['B0_p90'],
+                  palette: active_context.visParams.palette,
+                };
+              } else {
+                active_context.visParams = {
+                  min: 0,
+                  max: val['B0_p90'],
+                  palette: active_context.visParams.palette,
+                };
+              }
+              active_context.last_layer = active_context.map.addLayer(
+                active_context.raster, active_context.visParams);
+              min_val.setValue(active_context.visParams.min, false);
+              max_val.setValue(active_context.visParams.max, false);
+              min_val.setDisabled(false);
+              max_val.setDisabled(false);
+
+            });
+            build_legend_panel();
+          }
+          self.setValue(original_value, false);
+          self.setDisabled(false);
       }
     });
 
@@ -261,7 +321,6 @@ var panel_list = [];
       }
     };
 
-    // Create the ui.Textbox element
     var active_year = ui.Textbox({
       value: DEFAULTYEAR.toString(),
       style: {width: '200px'},
@@ -391,7 +450,6 @@ var panel_list = [];
         active_context.map.add(active_context.legend_panel);
       }
       active_context.legend_panel.add(active_context.legend_select);
-      // Add color and and names
       for (var i = 0; i<5; i++) {
         var row = makeRow(active_context.visParams.palette[i], names[i]);
         active_context.legend_panel.add(row);
@@ -435,10 +493,23 @@ panel_list.forEach(function (panel_array) {
             var properties = feature.properties;
             var firstPropertyKey = Object.keys(properties)[0];
             var firstPropertyValue = properties[firstPropertyKey];
-            active_context.point_val.setValue(firstPropertyValue.toString());
+
+            if (active_context.datasetName in discretePalettes) {
+              var paletteInfo = discretePalettes[active_context.datasetName];
+              var index = paletteInfo.values.indexOf(firstPropertyValue);
+              if (index !== -1) {
+                active_context.point_val.setValue(paletteInfo.labels[index]);
+              } else {
+                active_context.point_val.setValue('Unknown');
+              }
+            } else {
+              active_context.point_val.setValue(firstPropertyValue.toString());
+            }
+
             if (active_context.last_point_layer !== null) {
               active_context.map.remove(active_context.last_point_layer);
             }
+
             active_context.last_point_layer = active_context.map.addLayer(
               point, {'color': '#FF00FF'});
           } else {
@@ -446,8 +517,8 @@ panel_list.forEach(function (panel_array) {
           }
         });
       }
-    });
-  });
+    })
+  }
 });
 
 panel_list[0][0].add(clone_to_right);
