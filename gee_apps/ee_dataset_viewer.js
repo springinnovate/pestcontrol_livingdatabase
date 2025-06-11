@@ -518,7 +518,7 @@ panel_list.forEach(function (panel_array) {
         });
       }
     })
-  }
+  })
 });
 
 panel_list[0][0].add(clone_to_right);
