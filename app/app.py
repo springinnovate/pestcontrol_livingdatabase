@@ -75,7 +75,8 @@ logging.getLogger("taskgraph").setLevel(logging.INFO)
 LOGGER = logging.getLogger(__name__)
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
-app.config["SECRET_KEY"] = "your_secret_key"
+app.config["SECRET_KEY"] = "amazingly secret"
+app.config["TEMPLATES_AUTO_RELOAD"] = True
 app.config.update(
     broker_url="redis://redis:6379/0", result_backend="redis://redis:6379/0"
 )
