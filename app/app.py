@@ -279,6 +279,12 @@ def calculate_display_tables(session, query, max_sample_size):
     )
 
 
+@app.route("/favicon.ico")
+def favicon():
+    # saves us from returning a 404
+    return "", 204
+
+
 @app.route("/about")
 def about():
     return render_template("about.html")
