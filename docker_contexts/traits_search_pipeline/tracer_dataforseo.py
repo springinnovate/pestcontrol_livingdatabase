@@ -1,16 +1,29 @@
+print("starting module")
 from typing import List, Dict, Union
 import asyncio
 import logging
 import sys
-from time import sleep
 
+print("loading api client")
 from dataforseo_client import Configuration, ApiClient
-from dataforseo_client.api.serp_api import SerpApi
-from dataforseo_client.exceptions import ApiException
-from dataforseo_client.models import SerpGoogleOrganicLiveAdvancedRequestInfo
-from dataforseo_client.api.on_page_api import OnPageApi
-from dataforseo_client.models import OnPageTaskPostRequest
 
+print("loading onpageapi")
+from dataforseo_client.api.on_page_api import OnPageApi
+
+print("SerpApi")
+from dataforseo_client.api.serp_api import SerpApi
+
+print("ApiException")
+from dataforseo_client.exceptions import ApiException
+
+print("SerpGoogleOrganicLiveAdvancedRequestInfo")
+from dataforseo_client.models import SerpGoogleOrganicLiveAdvancedRequestInfo
+
+print("OnPageContentParsingLiveRequest")
+from dataforseo_client.models import OnPageContentParsingLiveRequest
+
+
+print("continuing...")
 logging.basicConfig(
     level=logging.DEBUG,
     stream=sys.stdout,
@@ -54,28 +67,15 @@ QPS = 20  # queries per second (overall throttle)
 async def crawl_url(url: str, configuration: Configuration):
     with ApiClient(configuration) as client:
         api = OnPageApi(client)
-        # Submit a task
-        result = api.task_post(
-            [
-                OnPageTaskPostRequest(
-                    target=url,
-                    max_crawl_pages=1,
-                    enable_javascript=True,
-                    load_resources=True,
-                    store_raw_html=True,
-                )
-            ]
-        )
-        task_id = result[0].id
-
-        # Poll for summary
-        status = None
-        while status != "finished":
-            sleep(5)
-            summary = api.summary(task_id)
-            status = summary[0].status_message or ""
-        pages = api.pages(task_id)
-        print(pages)
+        try:
+            response = api.content_parsing_live(
+                [OnPageContentParsingLiveRequest(url=url, markdown_view=True)]
+            )
+            result = response[0]
+            markdown = result.page_as_markdown
+            print(markdown)
+        except ApiException as e:
+            print(f"Error: {e}")
 
 
 async def query(keyword: str, api: SerpApi):
@@ -90,6 +90,7 @@ async def query(keyword: str, api: SerpApi):
 
 
 async def main():
+    LOGGER.info("loading questions")
     questions_list = open("data/question_list.txt").read().strip().split("\n")
     species_dict = {
         "predator_list": load_species_list("data/predator_list.txt"),
@@ -101,10 +102,11 @@ async def main():
     )
 
     # Configure HTTP basic authorization: basicAuth
-    configuration = Configuration(
-        username="richard.sharp@wwfus.org", password="99b21285fea6911f"
-    )
+    LOGGER.info("load username/password")
+    username, password = open("secrets/auth").read().strip().split("\n")
+    configuration = Configuration(username=username, password=password)
 
+    LOGGER.info("launching client")
     with ApiClient(configuration) as client:
         api = SerpApi(client)
         sem = asyncio.Semaphore(MAX_CONCURRENT)
@@ -119,9 +121,15 @@ async def main():
                     print(e)
                 await asyncio.sleep(delay)
 
+        LOGGER.info("awaiting results")
         results = await asyncio.gather(
             *(limited_query(k) for k in keywords_list)
         )
+        LOGGER.info("done with results")
+    for result in results:
+        print(result.url)
+        page = await crawl_url(result.url, configuration)
+        print(page)
     print(results)
 
 
