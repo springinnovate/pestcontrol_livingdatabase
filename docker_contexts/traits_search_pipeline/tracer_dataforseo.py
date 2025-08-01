@@ -2,12 +2,14 @@ from typing import List, Dict, Union
 import asyncio
 import logging
 import sys
+from time import sleep
 
 from dataforseo_client import Configuration, ApiClient
 from dataforseo_client.api.serp_api import SerpApi
 from dataforseo_client.exceptions import ApiException
 from dataforseo_client.models import SerpGoogleOrganicLiveAdvancedRequestInfo
-
+from dataforseo_client.api.on_page_api import OnPageApi
+from dataforseo_client.models import OnPageTaskPostRequest
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -47,6 +49,33 @@ def expand_questions(
 
 MAX_CONCURRENT = 10  # simultaneous requests
 QPS = 20  # queries per second (overall throttle)
+
+
+async def crawl_url(url: str, configuration: Configuration):
+    with ApiClient(configuration) as client:
+        api = OnPageApi(client)
+        # Submit a task
+        result = api.task_post(
+            [
+                OnPageTaskPostRequest(
+                    target=url,
+                    max_crawl_pages=1,
+                    enable_javascript=True,
+                    load_resources=True,
+                    store_raw_html=True,
+                )
+            ]
+        )
+        task_id = result[0].id
+
+        # Poll for summary
+        status = None
+        while status != "finished":
+            sleep(5)
+            summary = api.summary(task_id)
+            status = summary[0].status_message or ""
+        pages = api.pages(task_id)
+        print(pages)
 
 
 async def query(keyword: str, api: SerpApi):
