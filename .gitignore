@@ -2,6 +2,5 @@ venv
 __pycache__
 secrets
 *.lock
-docker_contexts/backend/instance
-docker_contexts/backend/base_data
 *.pkl
+app/live_database/*

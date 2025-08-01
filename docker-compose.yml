@@ -1,12 +1,9 @@
 services:
-  backend:
-    container_name: backend
-    hostname: backend_api
-    build: docker_contexts/backend
+  app:
+    hostname: app_api
+    build: app
     volumes:
-      # Application code and local install of database
-      - ./docker_contexts/backend:/usr/local/pcld_api
-      # Volume that sqlite database is copied to and that .pkl file is sampled from
+      - ./app:/usr/local/pcld_api
       - pcld_data:/usr/local/data
     logging:
       driver: local
@@ -28,32 +25,36 @@ services:
       - "5000"
     depends_on:
       - redis
+      - reverse-proxy
+      - celery_worker
     environment:
       - INIT_COVARIATES=True
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
-    ports:
-      - "${BACKEND_PORT_MAPPING:-5000:5000}"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.app.rule=Host(`pcld.ecoshard.org`)"
+      - "traefik.http.routers.app.entrypoints=websecure"
+      - "traefik.http.routers.app.tls=true"
+      - "traefik.http.routers.app.tls.certresolver=letsencrypt"
 
-  backend_dev:
+  app_dev:
     extends:
-      service: backend
-    ports:
-      - "5000:5000"
+      service: app
     profiles:
       - development
-    depends_on:
-      - redis
-      - celery_worker
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.app_dev.rule=Host(`localhost`)"
+      - "traefik.http.routers.app_dev.entrypoints=websecure"
+      - "traefik.http.routers.app_dev.tls=true"
 
   celery_worker:
     container_name: celery_worker
     hostname: celery_worker
-    build: docker_contexts/backend
+    build: app
     volumes:
-      # Bind mount for application code (development)
-      - ./docker_contexts/backend:/usr/local/pcld_api
-      # Named volume for SQLite database (performance)
+      - ./app:/usr/local/pcld_api
       - pcld_data:/usr/local/data
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
@@ -75,17 +76,26 @@ services:
     ports:
       - "6379:6379"
 
-  nginx:
-    image: nginx:latest
-    volumes:
-      - ./docker_contexts/nginx/nginx.conf:/etc/nginx/nginx.conf
-      - /etc/letsencrypt/live/pcld.ecoshard.org/fullchain.pem:/etc/nginx/ssl/cert.crt
-      - /etc/letsencrypt/live/pcld.ecoshard.org/privkey.pem:/etc/nginx/ssl/cert.key
+  reverse-proxy:
+    image: traefik:v2.11
+    command:
+      # --- providers ----------------------------
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entryPoints.web.address=:80"
+      - "--entryPoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entryPoints.web.http.redirections.entryPoint.scheme=https"
+      - "--entryPoints.websecure.address=:443"
+      - "--certificatesResolvers.letsencrypt.acme.httpChallenge=true"
+      - "--certificatesResolvers.letsencrypt.acme.httpChallenge.entryPoint=web"
+      - "--certificatesResolvers.letsencrypt.acme.email=rich@springinnovate.org"
+      - "--certificatesResolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
     ports:
       - "80:80"
       - "443:443"
-    depends_on:
-      - backend
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "./letsencrypt:/letsencrypt"
 
 volumes:
   pcld_data:

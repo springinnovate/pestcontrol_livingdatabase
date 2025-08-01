@@ -1,0 +1,17 @@
+* Why don't the votes add up to 25
+    * probably because of LLM, use something more manual
+* Explore why "unknown"
+    * script where i can put the question and it dumps me:
+        * link, title, snippet, scrubbed, answer
+        * possibly what got sent to openAI?
+    * perhaps come up with classes of unknown
+        * no webpage
+        * no answer in webpage
+        * unknown
+can you write me a script to load a CSV as a table then for one field and a list of values that are in that field, can you pull out all the values in a set of the other fields listed that correspond to that original value?
+
+input: 'query_value_list', 'field_name', 'output_field_list'
+
+expect that there are multiple identical matches in field_name for any one element of query_value_list
+
+I would like the output to be easily reformattable, like in a template but for now

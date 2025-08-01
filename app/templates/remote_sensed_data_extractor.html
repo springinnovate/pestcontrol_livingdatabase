@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='UTF-8'>
+    <meta name='viewport' content='width=device-width,initial-scale=1'>
+    <title>Remote‑Sensed Data Extractor</title>
+    <link href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css' rel='stylesheet'>
+    <style>
+        .btn:disabled,
+        select:disabled{opacity:.65;pointer-events:none}
+    </style>
+</head>
+<body>
+<div class='container mt-5'>
+    <h1 class='mb-4'>Earth Observation Data Extractor</h1>
+
+    <form method='POST' enctype='multipart/form-data'>
+        <div class='mb-3'>
+            <small class='form-text text-muted'>
+                CSV format should have 3 headers: <code>{{ year_id }},{{ latitude_id }},{{ longitude_id }}</code> and contain no more than {{ max_eo_points }} points
+            </small>
+            <a href='{{ url_for('download_csv_template') }}' class='btn btn-link'>Download CSV Template</a>
+            <input class='form-control' type='file' id='csv_file' name='csv_file' accept='.csv' required>
+        </div>
+
+        <div class='mb-3'>
+            <label for='data_source' class='form-label'>Data Source</label>
+            <select class='form-select' id='data_source' name='data_source'>
+                <option value='' selected disabled hidden>Click here to select a dataset</option>
+                {% for source_key in data_sources.keys() %}
+                    <option value='{{ source_key }}'>{{ source_key }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div id='source_details' class='p-3 border d-none'>
+            <strong>Data Source Information</strong><br>
+            <span id='source_date_range'></span><br>
+            <a id='source_doc_link' href='#' target='_blank'>Documentation</a>
+        </div>
+
+        <div class='mb-3'>
+            <h5>Yearly average</h5>
+            <label for='num_years_avg' class='form-label'>Number of Previous Years to Average Over</label>
+            <input type='number' class='form-control' id='num_years_avg' name='num_years_avg' value='0' min='0'>
+        </div>
+
+        <div class='mb-3'>
+            <h5>Seasonality</h5>
+            <label for='seasonality_aggregation_fn' class='form-label mt-3'>Seasonal aggregation function</label>
+            <select class='form-select' id='seasonality_aggregation_fn' name='seasonality_aggregation_fn' required>
+                <option value='min'>Min</option>
+                <option value='mean' selected>Mean</option>
+                <option value='max'>Max</option>
+                <option value='sd'>Standard Deviation</option>
+            </select>
+            <div class='row mt-3'>
+                <div class='col'>
+                    <label for='julian_start_day' class='form-label'>Julian Start Day</label>
+                    <input type='number' class='form-control' id='julian_start_day' name='julian_start_day' min='1' max='365' value='1' required>
+                </div>
+                <div class='col'>
+                    <label for='julian_end_day' class='form-label'>Julian End Day</label>
+                    <input type='number' class='form-control' id='julian_end_day' name='julian_end_day' min='1' max='365' value='365' required>
+                </div>
+            </div>
+        </div>
+
+        <div class='mb-3'>
+            <h5>Spatial averaging</h5>
+            <div class='row'>
+                <div class='col'>
+                    <label for='spatial_aggregation_fn' class='form-label'>Spatial aggregation function</label>
+                    <select class='form-select' id='spatial_aggregation_fn' name='spatial_aggregation_fn' disabled>
+                        <option value='' selected hidden>Select a dataset first</option>
+                    </select>
+                </div>
+                <div class='col'>
+                    <label for='spatial_radius' class='form-label'>Radius (max&nbsp;30 000 m)</label>
+                    <input type='number' class='form-control' id='spatial_radius' name='spatial_radius' min='1' max='30000' value='30' required>
+                </div>
+            </div>
+        </div>
+
+        <div class='form-check form-switch mb-3'>
+            <input class='form-check-input' type='checkbox' id='enable_masking' name='enable_masking'>
+            <label class='form-check-label h5' for='enable_masking'>Enable Masking</label>
+        </div>
+
+        <div id='masking_section' class='d-none'>
+            <div class='mb-3'>
+                <label for='masking_data_source' class='form-label'>Masking Data Source</label>
+                <select class='form-select' id='masking_data_source' name='masking_data_source'>
+                    <option value='' selected disabled hidden>Click here to select a dataset</option>
+                    {% for mask_source in masking_data_sources %}
+                        <option value='{{ mask_source }}'>{{ mask_source }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div id='masking_source_details' class='p-3 border d-none'>
+                <strong>Masking Data Source Information</strong><br>
+                <span id='masking_source_date_range'></span><br>
+                <a id='masking_source_doc_link' href='#' target='_blank'>Documentation</a>
+            </div>
+
+            <div class='mb-3'>
+                <label for='masking_rule' class='form-label'>Masking Rule (List of Codes)</label>
+                <input type='text' class='form-control' id='masking_rule' name='masking_rule' placeholder='e.g. 11,12,13,14'>
+                <small class='form-text text-muted'>Enter comma‑separated land‑cover codes to mask.</small>
+            </div>
+        </div>
+
+        <button id='submitBtn' type='submit' class='btn btn-primary'>Submit</button>
+    </form>
+</div>
+
+<script>
+const DATA_SOURCES      = {{ data_sources_json|safe }};
+const MASKING_SOURCES   = {{ masking_data_sources_json|safe }};
+
+document.addEventListener('DOMContentLoaded',()=>{
+    const $ = q=>document.querySelector(q);
+
+    const sourceSelect       = $('#data_source');
+    const aggSelect          = $('#spatial_aggregation_fn');
+    const detailsBox         = $('#source_details');
+    const detailsDate        = $('#source_date_range');
+    const detailsLink        = $('#source_doc_link');
+
+    const maskToggle         = $('#enable_masking');
+    const maskSection        = $('#masking_section');
+    const maskSelect         = $('#masking_data_source');
+    const maskDetailsBox     = $('#masking_source_details');
+    const maskDetailsDate    = $('#masking_source_date_range');
+    const maskDetailsLink    = $('#masking_source_doc_link');
+
+    const csvInput           = $('#csv_file');
+
+    function populateAggOptions(key){
+        aggSelect.innerHTML='';
+        if(!key||!DATA_SOURCES[key]){
+            aggSelect.append(new Option('Select a dataset first',''));
+            aggSelect.disabled=true;
+            return;
+        }
+        DATA_SOURCES[key].agg_funcs.forEach(([val,label])=>{
+            aggSelect.append(new Option(label,val));
+        });
+        aggSelect.disabled=false;
+    }
+
+    function showDetails(meta,box,dateEl,linkEl){
+        if(!meta){
+            box.classList.add('d-none');
+            return;
+        }
+        dateEl.textContent=`Date Range: ${meta.date_range}`;
+        linkEl.href=meta.doc_url;
+        box.classList.remove('d-none');
+    }
+
+    sourceSelect.addEventListener('change',e=>{
+        const key=e.target.value;
+        populateAggOptions(key);
+        showDetails(DATA_SOURCES[key],detailsBox,detailsDate,detailsLink);
+    });
+
+    maskSelect.addEventListener('change',e=>{
+        const key=e.target.value;
+        showDetails(MASKING_SOURCES[key],maskDetailsBox,maskDetailsDate,maskDetailsLink);
+    });
+
+    maskToggle.addEventListener('change',e=>{
+        maskSection.classList.toggle('d-none',!e.target.checked);
+    });
+
+    csvInput.addEventListener('change', e => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = ev => {
+            const n_lines = ev.target.result.trim().split('\n').length - 1;
+            if (n_lines > {{ max_eo_points }}) {  // subtracting 1 to exclude header row
+                alert(`The file cannot have more than {{ max_eo_points }} points; "${file.name}" has ${n_lines}.`);
+                csvInput.value = '';  // Clear input
+                return;
+            }
+            fetch('{{ url_for('validate_csv') }}', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: new URLSearchParams({csv_data: ev.target.result})
+            });
+        };
+        reader.readAsText(file, 'UTF-8');
+    });
+
+});
+</script>
+<script src='https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js'></script>
+</body>
+</html>
