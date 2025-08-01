@@ -24,7 +24,6 @@ from openai import OpenAI
 from playwright.async_api import async_playwright
 import pandas as pd
 import requests
-from openai import BadRequestError, RateLimitError
 
 LOGGER = logging.getLogger(__name__)
 MAX_TIMEOUT = 60.0
@@ -876,3 +875,4 @@ if __name__ == "__main__":
     print("about to search")
     asyncio.run(main())
     # asyncio.run(test())
+    x = "foo"
