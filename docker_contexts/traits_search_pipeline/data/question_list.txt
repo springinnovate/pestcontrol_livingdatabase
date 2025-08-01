@@ -1,9 +1,9 @@
-Are [predator_list.txt] larvae, nymphs, or adults when they are predators?
-Are [pest_list.txt] larvae, nymphs, or adults when they are agricultural pests?
-Are [full_species_list.txt] invasive (otherwise known as exotic)?
-Does [full_species_list.txt] utilize non-crop habitat?
-Is [full_species_list.txt] a dietary specialist or generalist?
-Does [full_species_list.txt] disperse by wind?
-Can [full_species_list.txt] fly?
-Does [full_species_list.txt] seasonally migrate?
-Is [full_species_list.txt] a pest?
+[predator_list] predator larvae nymphs adults | Are [predator_list] larvae, nymphs, or adults when they are predators?
+[pest_list] agricultural pest larvae nymphs adults | Are [pest_list] larvae, nymphs, or adults when they are agricultural pests?
+[full_species_list] invasive exotic | Are [full_species_list] invasive (otherwise known as exotic)?
+[full_species_list] non-crop habitat | Does [full_species_list] utilize non-crop habitat?
+[full_species_list] dietary specialist generalist | Is [full_species_list] a dietary specialist or generalist?
+[full_species_list] disperse by wind | Does [full_species_list] disperse by wind?
+[full_species_list] can fly | Can [full_species_list] fly?
+[full_species_list] seasonal migration | Does [full_species_list] seasonally migrate?
+[full_species_list] pest | Is [full_species_list] a pest?
