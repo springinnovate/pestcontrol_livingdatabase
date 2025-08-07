@@ -1,29 +1,9 @@
-print("starting module")
-from typing import List, Dict, Union
+from typing import List, Dict, Union, NamedTuple
 import asyncio
 import logging
+import requests
 import sys
 
-print("loading api client")
-from dataforseo_client import Configuration, ApiClient
-
-print("loading onpageapi")
-from dataforseo_client.api.on_page_api import OnPageApi
-
-print("SerpApi")
-from dataforseo_client.api.serp_api import SerpApi
-
-print("ApiException")
-from dataforseo_client.exceptions import ApiException
-
-print("SerpGoogleOrganicLiveAdvancedRequestInfo")
-from dataforseo_client.models import SerpGoogleOrganicLiveAdvancedRequestInfo
-
-print("OnPageContentParsingLiveRequest")
-from dataforseo_client.models import OnPageContentParsingLiveRequest
-
-
-print("continuing...")
 logging.basicConfig(
     level=logging.DEBUG,
     stream=sys.stdout,
@@ -64,29 +44,55 @@ MAX_CONCURRENT = 10  # simultaneous requests
 QPS = 20  # queries per second (overall throttle)
 
 
-async def crawl_url(url: str, configuration: Configuration):
-    with ApiClient(configuration) as client:
-        api = OnPageApi(client)
-        try:
-            response = api.content_parsing_live(
-                [OnPageContentParsingLiveRequest(url=url, markdown_view=True)]
-            )
-            result = response[0]
-            markdown = result.page_as_markdown
-            print(markdown)
-        except ApiException as e:
-            print(f"Error: {e}")
+class SearchResult(NamedTuple):
+    url: str
+    title: str
 
 
-async def query(keyword: str, api: SerpApi):
-    req = [
-        SerpGoogleOrganicLiveAdvancedRequestInfo(
-            language_name="English",
-            location_name="United States",
-            keyword=keyword,
-        )
+async def query(
+    keyword: str, username: str, password: str
+) -> List[SearchResult]:
+    url = "https://api.dataforseo.com/v3/serp/google/organic/live/advanced"
+
+    payload = [
+        {
+            "language_name": "English",
+            "location_name": "United States",
+            "keyword": keyword,
+        }
     ]
-    return await asyncio.to_thread(api.google_organic_live_advanced, req)
+    response = requests.post(url, auth=(username, password), json=payload)
+    results: List[SearchResult] = []
+    if response.ok:
+        data = response.json()
+        # we can only submit one task so we always ["tasks"][0]
+        # and there is always one result, so ["result"][0]
+        items = data["tasks"][0]["result"][0]["items"]
+        for item in items:
+            if item["type"] == "organic":
+                result = SearchResult(
+                    url=item.get("url", ""), title=item.get("title", "")
+                )
+                results.append(result)
+        return results
+    else:
+        print(f"Request failed: {response.status_code}, {response.text}")
+
+
+async def crawl_url(url: str, username: str, password: str):
+    api_url = "https://api.dataforseo.com/v3/on_page/content_parsing/live"
+
+    payload = [{"url": url, "markdown_view": True}]
+
+    response = requests.post(api_url, json=payload, auth=(username, password))
+
+    if response.ok:
+        result = response.json()
+        LOGGER.debug(result)
+        markdown = result["tasks"][0]["result"][0]["page_as_markdown"]
+        print(markdown)
+    else:
+        print(f"Error: {response.status_code} - {response.text}")
 
 
 async def main():
@@ -104,31 +110,32 @@ async def main():
     # Configure HTTP basic authorization: basicAuth
     LOGGER.info("load username/password")
     username, password = open("secrets/auth").read().strip().split("\n")
-    configuration = Configuration(username=username, password=password)
-
+    query_results = await query(keywords_list[0], username, password)
+    for query_result in query_results:
+        LOGGER.info(query_result)
+        crawl_result = await crawl_url(query_result.url, username, password)
+        LOGGER.debug(crawl_result)
+    return
     LOGGER.info("launching client")
-    with ApiClient(configuration) as client:
-        api = SerpApi(client)
-        sem = asyncio.Semaphore(MAX_CONCURRENT)
-        delay = 1 / QPS
 
-        async def limited_query(kw):
-            async with sem:
-                try:
-                    res = await query(kw, api)
-                    print(res)  # process response here
-                except ApiException as e:
-                    print(e)
-                await asyncio.sleep(delay)
+    sem = asyncio.Semaphore(MAX_CONCURRENT)
+    delay = 1 / QPS
 
-        LOGGER.info("awaiting results")
-        results = await asyncio.gather(
-            *(limited_query(k) for k in keywords_list)
-        )
-        LOGGER.info("done with results")
+    async def limited_query(kw):
+        async with sem:
+            try:
+                res = await query(kw, api)
+                print(res)  # process response here
+            except ApiException as e:
+                print(e)
+            await asyncio.sleep(delay)
+
+    LOGGER.info("awaiting results")
+    results = await asyncio.gather(*(limited_query(k) for k in keywords_list))
+    LOGGER.info("done with results")
     for result in results:
         print(result.url)
-        page = await crawl_url(result.url, configuration)
+        page = await crawl_url(result.url, username, password)
         print(page)
     print(results)
 
