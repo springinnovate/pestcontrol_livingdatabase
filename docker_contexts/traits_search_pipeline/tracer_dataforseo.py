@@ -3,6 +3,17 @@ import asyncio
 import logging
 import requests
 import sys
+import httpx
+
+from tqdm import tqdm
+from typing import List
+from sqlalchemy import (
+    insert,
+    select,
+)
+from sqlalchemy.orm import Session
+
+from models import SearchResult, get_session
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -14,6 +25,9 @@ logging.basicConfig(
 )
 
 LOGGER = logging.getLogger(__name__)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 def load_species_list(filename: str):
@@ -36,7 +50,9 @@ def expand_questions(
                     expanded_question = question.replace(
                         f"[{placeholder}]", species
                     )
-                    expanded_questions.append(expanded_question.split(" | "))
+                    expanded_questions.append(
+                        expanded_question.split(" | ") + [species]
+                    )
     return expanded_questions
 
 
@@ -44,14 +60,14 @@ MAX_CONCURRENT = 10  # simultaneous requests
 QPS = 20  # queries per second (overall throttle)
 
 
-class SearchResult(NamedTuple):
+class SEOSearchResult(NamedTuple):
     url: str
     title: str
 
 
 async def query(
     keyword: str, username: str, password: str
-) -> List[SearchResult]:
+) -> List[SEOSearchResult]:
     url = "https://api.dataforseo.com/v3/serp/google/organic/live/advanced"
 
     payload = [
@@ -59,85 +75,118 @@ async def query(
             "language_name": "English",
             "location_name": "United States",
             "keyword": keyword,
+            "depth": 10,
         }
     ]
-    response = requests.post(url, auth=(username, password), json=payload)
-    results: List[SearchResult] = []
-    if response.ok:
-        data = response.json()
-        # we can only submit one task so we always ["tasks"][0]
-        # and there is always one result, so ["result"][0]
-        items = data["tasks"][0]["result"][0]["items"]
-        for item in items:
-            if item["type"] == "organic":
-                result = SearchResult(
-                    url=item.get("url", ""), title=item.get("title", "")
-                )
-                results.append(result)
-        return results
-    else:
-        print(f"Request failed: {response.status_code}, {response.text}")
+
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.post(url, auth=(username, password), json=payload)
+        r.raise_for_status()
+        data = r.json()
+        items = (
+            data.get("tasks", [{}])[0].get("result", [{}])[0].get("items", [])
+        )
+
+        if not items:
+            return []
+
+        return [
+            SEOSearchResult(url=i.get("url", ""), title=i.get("title", ""))
+            for i in items
+            if i.get("type") == "organic"
+        ]
 
 
-async def crawl_url(url: str, username: str, password: str):
-    api_url = "https://api.dataforseo.com/v3/on_page/content_parsing/live"
+def insert_result(
+    session: Session,
+    question: str,
+    keyword_query: str,
+    species_name: str,
+    links: List[str],
+) -> bool:
+    stmt = insert(SearchResult).values(
+        question=question,
+        species_name=species_name,
+        keyword_query=keyword_query,
+        links=links,
+    )
+    session.execute(stmt)
+    session.commit()
 
-    payload = [{"url": url, "markdown_view": True}]
 
-    response = requests.post(api_url, json=payload, auth=(username, password))
-
-    if response.ok:
-        result = response.json()
-        LOGGER.debug(result)
-        markdown = result["tasks"][0]["result"][0]["page_as_markdown"]
-        print(markdown)
-    else:
-        print(f"Error: {response.status_code} - {response.text}")
+def question_exists(session: Session, question: str) -> bool:
+    stmt = select(SearchResult).where(SearchResult.question == question)
+    return session.execute(stmt).first() is not None
 
 
 async def main():
     LOGGER.info("loading questions")
-    questions_list = open("data/question_list.txt").read().strip().split("\n")
+    question_template_list = (
+        open("data/question_list.txt").read().strip().split("\n")
+    )
     species_dict = {
         "predator_list": load_species_list("data/predator_list.txt"),
         "pest_list": load_species_list("data/pest_list.txt"),
         "full_species_list": load_species_list("data/full_species_list.txt"),
     }
-    keywords_list, question_list = zip(
-        *(expand_questions(questions_list, species_dict)[:1])
+    keywords_list, expanded_question_list, species_list = zip(
+        *(expand_questions(question_template_list, species_dict))
     )
 
     # Configure HTTP basic authorization: basicAuth
     LOGGER.info("load username/password")
     username, password = open("secrets/auth").read().strip().split("\n")
-    query_results = await query(keywords_list[0], username, password)
-    for query_result in query_results:
-        LOGGER.info(query_result)
-        crawl_result = await crawl_url(query_result.url, username, password)
-        LOGGER.debug(crawl_result)
-    return
     LOGGER.info("launching client")
 
     sem = asyncio.Semaphore(MAX_CONCURRENT)
     delay = 1 / QPS
 
-    async def limited_query(kw):
+    session = get_session()
+
+    pending = [
+        (k, q, s)
+        for k, q, s in zip(keywords_list, expanded_question_list, species_list)
+        if not question_exists(session, q)
+    ]
+    print(len(pending))
+
+    async def rate_limited_query(
+        question,
+        keyword_query,
+        species_name,
+    ):
         async with sem:
             try:
-                res = await query(kw, api)
-                print(res)  # process response here
-            except ApiException as e:
+                query_results = await query(keyword_query, username, password)
+                url_list = []
+                if query_results:
+                    url_list = [q.url for q in query_results]
+                insert_result(
+                    session,
+                    question,
+                    keyword_query,
+                    species_name,
+                    url_list,
+                )
+                return [q.url for q in query_results]
+            except Exception as e:
                 print(e)
             await asyncio.sleep(delay)
 
     LOGGER.info("awaiting results")
-    results = await asyncio.gather(*(limited_query(k) for k in keywords_list))
-    LOGGER.info("done with results")
-    for result in results:
-        print(result.url)
-        page = await crawl_url(result.url, username, password)
-        print(page)
-    print(results)
+    tasks = [
+        asyncio.create_task(
+            rate_limited_query(question, keyword_query, species)
+        )
+        for keyword_query, question, species in pending
+    ]
+
+    for fut in tqdm(
+        asyncio.as_completed(tasks), total=len(tasks), desc="queries"
+    ):
+        await fut
+
+    LOGGER.info("all done!")
 
 
 if __name__ == "__main__":

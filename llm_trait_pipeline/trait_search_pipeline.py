@@ -1,4 +1,10 @@
-"""Pipeline to google search, follow links, then LLM questions."""
+"""Pipeline to google search, follow links, then LLM questions.
+
+DataforSEO for google search?
+Then the webcrawler for webcrawling?
+
+
+"""
 
 from collections import defaultdict
 from datetime import datetime
