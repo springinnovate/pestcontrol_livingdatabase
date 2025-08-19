@@ -1,5 +1,5 @@
 from typing import List
-from sqlalchemy import create_engine, String, JSON, DateTime, func, insert
+from sqlalchemy import create_engine, String, JSON
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
 from sqlalchemy.schema import Index
 
