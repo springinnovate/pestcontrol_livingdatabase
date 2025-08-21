@@ -1,5 +1,11 @@
+"""
+docker build -t apify_pcld:latest . && docker run --rm -it -v "%CD%/apify_storage":/apify_storage apify_pcld:latest
+
+"""
+
 from __future__ import annotations
 
+import time
 import asyncio
 import re
 import html as html_utils
@@ -62,7 +68,7 @@ def site_origin(url: str) -> str:
     return urlunsplit((p.scheme, p.netloc, "", "", ""))
 
 
-def parent_url(url: str) -> str:
+def get_parent_url(url: str) -> str:
     p = urlsplit(url)
     parent = p.path.rsplit("/", 1)[0] or "/"
     return urlunsplit((p.scheme, p.netloc, parent, "", ""))
@@ -73,20 +79,27 @@ def browser_like_headers(
 ) -> dict[str, str]:
     headers = {
         "User-Agent": DEFAULT_UA,
-        "Accept": (
-            "text/html,application/xhtml+xml,application/xml;"
-            "q=0.9,image/avif,image/webp,*/*;q=0.8"
-        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
         "Accept-Encoding": "gzip, deflate, br",
         "Cache-Control": "no-cache",
         "Pragma": "no-cache",
         "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Sec-CH-UA": '"Chromium";v="124", "Not.A/Brand";v="24"',
+        "Sec-CH-UA-Mobile": "?0",
+        "Sec-CH-UA-Platform": '"Windows"',
     }
     if referer:
         headers["Referer"] = referer
+        headers["Sec-Fetch-Site"] = "same-origin"
     if url.lower().endswith(".pdf"):
         headers["Accept"] = "application/pdf,*/*;q=0.8"
+        headers["Sec-Fetch-Dest"] = "document"
     return headers
 
 
@@ -105,7 +118,7 @@ async def playwright_fetch_bytes(
         if referer:
             try:
                 await page.goto(
-                    referer, wait_until="domcontentloaded", timeout=30_000
+                    referer, wait_until="domcontentloaded", timeout=60
                 )
             except Exception:
                 pass
@@ -113,7 +126,7 @@ async def playwright_fetch_bytes(
             resp = await context.request.get(
                 url,
                 headers=browser_like_headers(url, referer=referer),
-                timeout=90_000,
+                timeout=60,
             )
             if resp.ok:
                 data = await resp.body()
@@ -150,39 +163,39 @@ def parse_pdf_bytes(data: bytes, max_pages: int = 10) -> str:
 async def fetch_url(
     client: httpx.AsyncClient,
     url: str,
-    *,
-    referer_hint: str | None = None,
+    proxy_cfg,
 ) -> str | None:
     try:
         Actor.log.info(f"Fetching URL: {url}")
         origin_url = site_origin(url)
-        parent = parent_url(url)
+        parent_url = get_parent_url(url)
 
         # best-effort priming
-        for u in (origin_url, referer_hint):
-            if not u:
-                continue
-            try:
-                await client.get(u, headers=browser_like_headers(u))
-            except Exception:
-                pass
-
-        # attempt with a sequence of referers, stopping on first non-403
-        referers = [referer_hint or origin_url, parent]
-        if referer_hint:
-            referers.append(referer_hint)
-        unique_referers: list[str] = []
-        for r in referers:
-            if r and r not in unique_referers:
-                unique_referers.append(r)
-
-        response: httpx.Response | None = None
-        for ref in unique_referers:
-            response = await client.get(
-                url, headers=browser_like_headers(url, referer=ref)
+        for referer in [origin_url, parent_url]:
+            r = await client.get(
+                url, headers=browser_like_headers(url, referer)
             )
-            if response.status_code != 403:
+            if r.status_code in (401, 403):
+                response = r
                 break
+        else:
+            # rotate IP once
+            new_proxy = await proxy_cfg.new_url(
+                session_id=f"rot_{time.time_ns()}"
+            )
+            async with httpx.AsyncClient(
+                transport=httpx.AsyncHTTPTransport(proxy=new_proxy),
+                http2=True,
+                timeout=httpx.Timeout(30),
+                headers=browser_like_headers(""),
+                follow_redirects=True,
+            ) as tmp:
+                r = await tmp.get(
+                    url, headers=browser_like_headers(url, referer=origin_url)
+                )
+                if r.status_code == 401:
+                    return f"[[AUTH_REQUIRED:{urlsplit(url).netloc}]]"
+                response = r
 
         if response is None:
             return "Error: no response received"
@@ -191,9 +204,7 @@ async def fetch_url(
 
         # 403 PDF fallback via Playwright (optional)
         if response.status_code == 403 and looks_pdf(content_type, url):
-            data = await playwright_fetch_bytes(
-                url, referer=referer_hint or parent
-            )
+            data = await playwright_fetch_bytes(url, parent_url)
             if data:
                 return parse_pdf_bytes(data, max_pages=10)
             return "Error: 403 and Playwright fallback failed to fetch bytes"
@@ -201,7 +212,7 @@ async def fetch_url(
         response.raise_for_status()
 
         if looks_pdf(content_type, url):
-            return parse_pdf_bytes(response.content, max_pages=10)
+            return parse_pdf_bytes(response.content, max_pages=20)
         if "text/plain" in content_type:
             return response.text
         if "html" in content_type or not content_type:
@@ -224,10 +235,26 @@ async def fetch_url(
         return f"Error: unexpected failure fetching {url} ({e})"
 
 
+async def make_client_for_worker(
+    worker_id: int, proxy_cfg
+) -> httpx.AsyncClient:
+    proxy = await proxy_cfg.new_url(session_id=f"worker_{worker_id}")
+    limits = httpx.Limits(max_connections=50, max_keepalive_connections=25)
+    return httpx.AsyncClient(
+        transport=httpx.AsyncHTTPTransport(proxy=proxy),
+        limits=limits,
+        http2=True,
+        timeout=httpx.Timeout(30),
+        headers=browser_like_headers(""),
+        follow_redirects=True,
+    )
+
+
 async def worker(
     worker_id: int,
     queue: asyncio.Queue,
     client: httpx.AsyncClient,
+    proxy_cfg,
     metrics: dict[str, int],
 ):
     while True:
@@ -236,7 +263,7 @@ async def worker(
             if url is None:
                 Actor.log.info(f"[w{worker_id}] received sentinel; exiting")
                 break
-            result = await fetch_url(client, url)
+            result = await fetch_url(client, url, proxy_cfg)
             item = {
                 "url": url,
                 "ok": isinstance(result, str)
@@ -262,6 +289,7 @@ async def worker(
 async def main() -> None:
     async with Actor:
         inp = await Actor.get_input() or {}
+        Actor.log.info(f"INPUT IS: {inp}")
         urls = inp.get("urls", [])
         max_urls = inp.get("max_urls", None)
         if isinstance(max_urls, int) and max_urls and max_urls > 0:
@@ -278,25 +306,35 @@ async def main() -> None:
         for _ in range(num_workers):
             queue.put_nowait(None)
 
-        proxy_cfg = await Actor.create_proxy_configuration(groups=["auto"])
-        proxy_url = await proxy_cfg.new_url()
+        proxy_cfg = None
+        try:
+            proxy_cfg = await Actor.create_proxy_configuration(groups=['auto'])
+        except Exception:
+            Actor.log.info('Apify Proxy unavailable; using direct connection.')
 
-        transport = httpx.AsyncHTTPTransport(proxy=proxy_url)
+        if proxy_cfg:
+            proxy_url = await proxy_cfg.new_url(session_id=f'worker_{worker_id}')
+            transport = httpx.AsyncHTTPTransport(proxy=proxy_url)
+        else:
+            transport = httpx.AsyncHTTPTransport()
+
+        client = httpx.AsyncClient(transport=transport, http2=True, ...)
+
 
         metrics = {"ok": 0, "err": 0}
 
-        async with httpx.AsyncClient(
-            transport=transport,
-            http2=True,
-            timeout=httpx.Timeout(30.0),
-            headers=browser_like_headers(""),
-            follow_redirects=True,
-        ) as client:
-            tasks = [
-                asyncio.create_task(worker(wid + 1, queue, client, metrics))
-                for wid in range(num_workers)
-            ]
-            await queue.join()
-            await asyncio.gather(*tasks, return_exceptions=True)
+        clients = [
+            await make_client_for_worker(i + 1, proxy_cfg)
+            for i in range(num_workers)
+        ]
+        tasks = [
+            asyncio.create_task(
+                worker(i + 1, queue, clients[i], proxy_cfg, metrics)
+            )
+            for i in range(num_workers)
+        ]
+
+        await queue.join()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
         await Actor.set_value("OUTPUT", URL_TO_TEXT)
