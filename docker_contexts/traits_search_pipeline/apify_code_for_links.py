@@ -152,7 +152,6 @@ async def fetch_url(
     url: str,
     *,
     referer_hint: str | None = None,
-    allow_playwright_fallback: bool = False,
 ) -> str | None:
     try:
         Actor.log.info(f"Fetching URL: {url}")
@@ -191,11 +190,7 @@ async def fetch_url(
         content_type = response.headers.get("content-type", "").lower()
 
         # 403 PDF fallback via Playwright (optional)
-        if (
-            response.status_code == 403
-            and looks_pdf(content_type, url)
-            and allow_playwright_fallback
-        ):
+        if response.status_code == 403 and looks_pdf(content_type, url):
             data = await playwright_fetch_bytes(
                 url, referer=referer_hint or parent
             )
@@ -233,7 +228,7 @@ async def worker(
     worker_id: int,
     queue: asyncio.Queue,
     client: httpx.AsyncClient,
-    allow_playwright_fallback: bool,
+    metrics: dict[str, int],
 ):
     while True:
         url = await queue.get()
@@ -241,12 +236,24 @@ async def worker(
             if url is None:
                 Actor.log.info(f"[w{worker_id}] received sentinel; exiting")
                 break
-            result = await fetch_url(
-                client, url, allow_playwright_fallback=allow_playwright_fallback
+            result = await fetch_url(client, url)
+            item = {
+                "url": url,
+                "ok": isinstance(result, str)
+                and not result.startswith("Error:"),
+                "content": result,
+            }
+            await Actor.push_data(item)  # ← stream to Dataset
+            if item["ok"]:
+                metrics["ok"] += 1
+            else:
+                metrics["err"] += 1
+
+        except Exception as e:
+            await Actor.push_data(
+                {"url": url, "ok": False, "content": f"Error: {e}"}
             )
-            if result is not None:
-                URL_TO_TEXT[url] = result
-        except Exception:
+            metrics["err"] += 1
             Actor.log.exception(f"[w{worker_id}] error processing {url!r}")
         finally:
             queue.task_done()
@@ -260,7 +267,6 @@ async def main() -> None:
         if isinstance(max_urls, int) and max_urls and max_urls > 0:
             urls = urls[:max_urls]
         concurrency = max(1, int(inp.get("concurrency", 1)))
-        use_playwright = bool(inp.get("use_playwright", False))
 
         if not urls:
             raise ValueError('Input must contain a "urls" array.')
@@ -276,6 +282,9 @@ async def main() -> None:
         proxy_url = await proxy_cfg.new_url()
 
         transport = httpx.AsyncHTTPTransport(proxy=proxy_url)
+
+        metrics = {"ok": 0, "err": 0}
+
         async with httpx.AsyncClient(
             transport=transport,
             http2=True,
@@ -284,9 +293,7 @@ async def main() -> None:
             follow_redirects=True,
         ) as client:
             tasks = [
-                asyncio.create_task(
-                    worker(wid + 1, queue, client, use_playwright)
-                )
+                asyncio.create_task(worker(wid + 1, queue, client, metrics))
                 for wid in range(num_workers)
             ]
             await queue.join()
