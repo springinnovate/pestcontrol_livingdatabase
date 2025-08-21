@@ -1,28 +1,78 @@
 from __future__ import annotations
 
 import asyncio
-import traceback
+import re
+import html as html_utils
 
 from apify import Actor
+from bs4 import BeautifulSoup
 from httpx import AsyncClient, AsyncHTTPTransport
+from readability import Document
 
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 URL_TO_TEXT: dict[str, str] = dict()
 
 
-async def fetch_url(client: AsyncClient, url: str) -> str | None:
+def extract_text(html: str, base_url: str | None = None) -> str:
+    try:
+        import trafilatura
+
+        txt = trafilatura.extract(
+            html, url=base_url, include_comments=False, include_tables=False
+        )
+        if txt and txt.strip():
+            return txt.strip()
+    except Exception:
+        pass
+    try:
+        summary_html = Document(html).summary(html_partial=True)
+        soup = BeautifulSoup(summary_html, "html.parser")
+        return soup.get_text(separator="\n", strip=True)
+    except Exception:
+        pass
+    try:
+        soup = BeautifulSoup(html, "html.parser")
+        for tag in soup(["script", "style", "noscript"]):
+            tag.extract()
+        return soup.get_text(separator="\n", strip=True)
+    except Exception:
+        pass
+    # strip any code that passes through
+    html2 = re.sub(r"(?is)<(script|style|noscript)[^>]*>.*?</\1>", " ", html)
+    # replace any HTML headings with a newline
+    html2 = re.sub(r"(?i)</?(p|div|br|li|h[1-6]|tr|th|td)\b[^>]*>", "\n", html2)
+    # strip the rest of the html brackets out
+    text = re.sub(r"(?s)<[^>]+>", " ", html2)
+    text = html_utils.unescape(text)
+    # scrub any intermediate whitespace
+    text = re.sub(r"\n\s*\n+", "\n\n", re.sub(r"[ \t\f\v]+", " ", text))
+    return text.strip()
+
+
+async def fetch_url(client: httpx.AsyncClient, url: str) -> str | None:
     try:
         Actor.log.info(f"Fetching URL: {url}")
-        response = await client.get(
+        resp = await client.get(
             url, headers=HEADERS, follow_redirects=True, timeout=30
         )
-        response.raise_for_status()
-        return response.text
+        resp.raise_for_status()
+        ct = resp.headers.get("content-type", "").lower()
+        if "text/plain" in ct:
+            return resp.text
+        if "html" in ct or not ct:
+            return extract_text(resp.text, base_url=str(resp.url))
+        return f"Unsupported content type: {ct}"
+    except httpx.TimeoutException:
+        return f"Error: timed out while fetching {url}"
+    except httpx.HTTPStatusError as e:
+        return (
+            f"Error: server returned status {e.response.status_code} for {url}"
+        )
+    except httpx.RequestError as e:
+        return f"Error: request failed for {url} ({e.__class__.__name__})"
     except Exception as e:
-        tb = traceback.format_exc()
-        Actor.log.warning(f"Fetch failed for {url}: {e}\n{tb}")
-        raise
+        return f"Error: unexpected failure fetching {url} ({e})"
 
 
 async def worker(worker_id: int, q: asyncio.Queue, client: AsyncClient):
