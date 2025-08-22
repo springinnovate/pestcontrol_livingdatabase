@@ -424,12 +424,12 @@ async def make_client_for_worker(
 async def main() -> None:
     async with Actor:
         inp = await Actor.get_input() or {}
-        Actor.log.info(f'INPUT IS: {"empty" if not inp else len(inp)} urls')
 
         urls = inp.get("urls", [])
         max_urls = inp.get("max_urls")
         if isinstance(max_urls, int) and max_urls > 0:
             urls = urls[:max_urls]
+        Actor.log.info(f'INPUT IS: {"empty" if not inp else len(urls)} urls')
         concurrency = max(1, int(inp.get("concurrency", 1)))
 
         if not urls:
