@@ -231,7 +231,7 @@ def browser_like_headers(url: str, referer: str) -> dict[str, str]:
         "Sec-CH-UA-Mobile": "?0",
         "Sec-CH-UA-Platform": '"Windows"',
     }
-    if referer:
+    if referer and referer != url:
         headers["Referer"] = referer
         headers["Sec-Fetch-Site"] = "same-origin"
     if url.lower().endswith(".pdf"):
@@ -291,7 +291,7 @@ async def fetch_url(
             # fetch & parse the alt URL using your existing logic
             r = await client.get(
                 alt,
-                headers=browser_like_headers(alt),
+                headers=browser_like_headers(alt, ""),
                 timeout=30,
                 follow_redirects=True,
             )
@@ -402,12 +402,21 @@ async def make_client_for_worker(
         transport = httpx.AsyncHTTPTransport()
 
     limits = httpx.Limits(max_connections=50, max_keepalive_connections=25)
+    default_headers = {
+        "User-Agent": DEFAULT_UA,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+    }
     return httpx.AsyncClient(
         transport=transport,
         limits=limits,
         http2=True,
         timeout=httpx.Timeout(30.0),
-        headers=browser_like_headers("", ""),
+        headers=default_headers,
         follow_redirects=True,
     )
 
