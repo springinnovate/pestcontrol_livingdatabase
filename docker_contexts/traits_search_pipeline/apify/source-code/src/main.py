@@ -7,7 +7,7 @@ import html as html_utils
 import logging
 import re
 from io import BytesIO
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlsplit, urlunsplit, unquote
 
 from apify import Actor
 from bs4 import BeautifulSoup
@@ -27,6 +27,124 @@ DEFAULT_UA = (
 
 BROWSER_CACHE = Index("browser_cache")
 LOGGER = logging.getLogger(__name__)
+
+
+def _host(url: str) -> str:
+    return urlsplit(url).netloc.lower()
+
+
+def _title_from_researchgate_url(url: str) -> str | None:
+    # e.g. .../publication/259592301_Flowers_for_better_pest_control_Ground_cover_plants...
+    m = re.search(r"/publication/\d+_([^/?#]+)", url)
+    if not m:
+        return None
+    slug = unquote(m.group(1))
+    # tidy slug → title-ish
+    title = re.sub(r"[_+]+", " ", slug).strip()
+    # strip trailing id-like chunks in parentheses if present
+    title = re.sub(r"\s*\(\d{4}\)$", "", title)
+    return title if title else None
+
+
+async def _crossref_find_doi_by_title(
+    client: httpx.AsyncClient, title: str
+) -> str | None:
+    # Use query.bibliographic (title+authors+etc) and pick the top item
+    params = {"query.bibliographic": title, "rows": 3}
+    r = await client.get(
+        "https://api.crossref.org/works", params=params, timeout=20
+    )
+    if r.status_code != 200:
+        return None
+    items = r.json().get("message", {}).get("items", []) or []
+    for it in items:
+        doi = it.get("DOI")
+        if doi:
+            return doi
+    return None
+
+
+async def _unpaywall_best_oa_from_doi(
+    client: httpx.AsyncClient, doi: str, email: str | None
+) -> str | None:
+    if not email:
+        return None
+    url = f"https://api.unpaywall.org/v2/{doi}"
+    r = await client.get(url, params={"email": email}, timeout=20)
+    if r.status_code != 200:
+        return None
+    data = r.json() or {}
+    loc = data.get("best_oa_location") or {}
+    return loc.get("url_for_pdf") or loc.get("url")
+
+
+async def _openalex_best_oa_from_title(
+    client: httpx.AsyncClient, title: str
+) -> str | None:
+    # Search by title and prefer best_oa_location.url
+    params = {"search": title, "per_page": 5}
+    r = await client.get(
+        "https://api.openalex.org/works", params=params, timeout=20
+    )
+    if r.status_code != 200:
+        return None
+    results = (r.json() or {}).get("results", []) or []
+    for it in results:
+        loc = it.get("best_oa_location") or {}
+        url = loc.get("url")
+        if url:
+            return url
+        # fallback to primary_location if present
+        pl = it.get("primary_location") or {}
+        if pl.get("source", {}) and pl.get("source", {}).get("is_oa"):
+            if pl.get("pdf_url") or pl.get("landing_page_url"):
+                return pl.get("pdf_url") or pl.get("landing_page_url")
+    return None
+
+
+async def _wayback_available(client: httpx.AsyncClient, url: str) -> str | None:
+    # Returns the archived snapshot URL if available
+    r = await client.get(
+        "https://archive.org/wayback/available", params={"url": url}, timeout=15
+    )
+    if r.status_code != 200:
+        return None
+    snap = (r.json() or {}).get("archived_snapshots", {})
+    closest = snap.get("closest") or {}
+    if closest.get("available") and closest.get("url"):
+        return closest["url"]
+    return None
+
+
+async def resolve_open_version_for_researchgate(
+    client: httpx.AsyncClient, url: str
+) -> str | None:
+    title = _title_from_researchgate_url(url)
+    if not title:
+        # Try Wayback on the RG URL directly (sometimes archived)
+        return await _wayback_available(client, url)
+
+    # 1) Crossref → DOI
+    doi = await _crossref_find_doi_by_title(client, title)
+
+    # 2) Unpaywall (needs email) if we have DOI
+    if doi:
+        oa = await _unpaywall_best_oa_from_doi(client, doi, None)
+        if oa:
+            return oa
+
+    # 3) OpenAlex by title
+    oa = await _openalex_best_oa_from_title(client, title)
+    if oa:
+        return oa
+
+    # 4) Wayback on potential publisher/landing pages, if known DOI
+    if doi:
+        # heuristic publisher landing from doi
+        return await _wayback_available(client, f"https://doi.org/{doi}")
+
+    # 5) Wayback on RG itself as last resort
+    return await _wayback_available(client, url)
 
 
 def extract_readable_text(html: str) -> str:
@@ -165,6 +283,28 @@ async def fetch_url(
     url: str,
 ) -> str | None:
     try:
+
+        if _host(url).endswith("researchgate.net"):
+            alt = await resolve_open_version_for_researchgate(client, url)
+            if not alt:
+                return "[[OA_NOT_FOUND]]"
+            # fetch & parse the alt URL using your existing logic
+            r = await client.get(
+                alt,
+                headers=browser_like_headers(alt),
+                timeout=30,
+                follow_redirects=True,
+            )
+            r.raise_for_status()
+            ct = (r.headers.get("content-type") or "").lower()
+            if "pdf" in ct or alt.lower().endswith(".pdf"):
+                return parse_pdf_content(r.content, max_pages=10)
+            if "text/plain" in ct:
+                return r.text
+            if "html" in ct or not ct:
+                return extract_readable_text(r.text, base_url=str(r.url))
+            return f"Unsupported content type: {ct}"
+
         Actor.log.info(f"Fetching URL: {url}")
         origin_url = site_origin(url)
         ref_parent = parent_url(url)
