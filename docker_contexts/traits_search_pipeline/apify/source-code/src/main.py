@@ -13,7 +13,7 @@ from apify import Actor
 from bs4 import BeautifulSoup
 from diskcache import Index
 from playwright.async_api import async_playwright
-from playwright_stealth import stealth_async
+from playwright_stealth import Stealth
 from pypdf import PdfReader
 from readability import Document as ReadabilityDocument
 import httpx
@@ -133,14 +133,12 @@ async def playwright_fetch_text(url: str, referer: str) -> str | None:
             viewport={"width": 1280, "height": 800},
             locale="en-US",
         )
-        page = await context.new_page()
-        await stealth_async(page)
+        await Stealth().apply_stealth_async(context)
 
-        # Use the request context to fetch the URL (works for PDFs and HTML)
         try:
             resp = await context.request.get(
                 url,
-                headers=browser_like_headers(url, referer=referer),
+                headers=browser_like_headers(url, referer),
                 timeout=90_000,
             )
             if not resp.ok:
@@ -171,16 +169,19 @@ async def fetch_url(
         origin_url = site_origin(url)
         ref_parent = parent_url(url)
 
-        # best-effort priming
-        await client.get(origin_url, headers=browser_like_headers(origin_url))
+        # best-effort priming to get set cookies
+        try:
+            await client.get(
+                origin_url, headers=browser_like_headers(origin_url, "")
+            )
+        except Exception:
+            pass
 
         referers = {origin_url, ref_parent}
 
         response: httpx.Response | None = None
         for ref in referers:
-            r = await client.get(
-                url, headers=browser_like_headers(url, referer=ref)
-            )
+            r = await client.get(url, headers=browser_like_headers(url, ref))
             if r.status_code not in (401, 403):
                 response = r
                 break
@@ -254,8 +255,11 @@ async def worker(
 async def make_client_for_worker(
     worker_id: int, proxy_cfg
 ) -> httpx.AsyncClient:
-    proxy_url = await proxy_cfg.new_url(session_id=f"worker_{worker_id}")
-    transport = httpx.AsyncHTTPTransport(proxy=proxy_url)
+    if proxy_cfg:
+        proxy_url = await proxy_cfg.new_url(session_id=f"worker_{worker_id}")
+        transport = httpx.AsyncHTTPTransport(proxy=proxy_url)
+    else:
+        transport = httpx.AsyncHTTPTransport()
 
     limits = httpx.Limits(max_connections=50, max_keepalive_connections=25)
     return httpx.AsyncClient(
@@ -263,7 +267,7 @@ async def make_client_for_worker(
         limits=limits,
         http2=True,
         timeout=httpx.Timeout(30.0),
-        headers=browser_like_headers(""),
+        headers=browser_like_headers("", ""),
         follow_redirects=True,
     )
 
@@ -320,6 +324,5 @@ async def main() -> None:
                 "total": len(urls),
                 "ok": metrics["ok"],
                 "err": metrics["err"],
-                "datasetId": (await Actor.get_env())["defaultDatasetId"],
             },
         )
