@@ -1,0 +1,5 @@
+# Database ORM
+SQLAlchemy>=2.0,<3.0
+# OpenAI API client
+openai>=1.0,<2.0
+dotenv

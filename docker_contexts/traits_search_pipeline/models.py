@@ -6,6 +6,7 @@ from sqlalchemy import String
 from sqlalchemy import (
     ForeignKey,
     Integer,
+    JSON,
     Text,
     UniqueConstraint,
 )
@@ -160,6 +161,7 @@ class Answer(BaseNorm):
     id: Mapped[int] = mapped_column(
         Integer, primary_key=True, autoincrement=True
     )
+
     keyword_query_id: Mapped[int] = mapped_column(
         ForeignKey("keyword_queries.id", ondelete="CASCADE"),
         nullable=False,
@@ -170,7 +172,13 @@ class Answer(BaseNorm):
         nullable=False,
         index=True,
     )
+
+    # extracted result
     answer_text: Mapped[str] = mapped_column(Text, nullable=False)
+    reason: Mapped[str] = mapped_column(
+        String, nullable=False, default="not_enough_information", index=True
+    )
+    evidence: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
 
     keyword_query: Mapped[KeywordQuery] = relationship(back_populates="answers")
     link: Mapped[Link] = relationship(back_populates="answers")
