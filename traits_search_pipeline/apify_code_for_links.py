@@ -5,30 +5,39 @@ docker build -t apify_pcld:latest . && docker run --rm -it -v "%CD%/apify_storag
 
 from __future__ import annotations
 
-from io import BytesIO
-from urllib.parse import urlsplit, urlunsplit
 import asyncio
-import html as html_utils
+import json
+import logging
+import random
 import re
-import time
+from io import BytesIO
+from typing import Iterable
+import html as html_utils
+import sys
 
-from apify import Actor
+import trafilatura
+from readability import Document  # readability-lxml
+
 from bs4 import BeautifulSoup
-import httpx
-
-DEFAULT_UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/124.0.0.0 Safari/537.36"
+from playwright.async_api import (
+    async_playwright,
+    TimeoutError as PWTimeoutError,
 )
+from pypdf import PdfReader
+from pdfminer.high_level import extract_text as pm_extract
 
-URL_TO_TEXT: dict[str, str] = {}
+LOGGER = logging.getLogger("fetcher")
+if not LOGGER.handlers:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+
+UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
+)
 
 
 def extract_text(html: str, base_url: str | None = None) -> str:
     try:
-        import trafilatura
-
         txt = trafilatura.extract(
             html, url=base_url, include_comments=False, include_tables=False
         )
@@ -37,8 +46,6 @@ def extract_text(html: str, base_url: str | None = None) -> str:
     except Exception:
         pass
     try:
-        from readability import Document  # readability-lxml
-
         summary_html = Document(html).summary(html_partial=True)
         soup = BeautifulSoup(summary_html, "html.parser")
         return soup.get_text(separator="\n", strip=True)
@@ -51,6 +58,8 @@ def extract_text(html: str, base_url: str | None = None) -> str:
         return soup.get_text(separator="\n", strip=True)
     except Exception:
         pass
+    # ultra-fallback: strip tags crudely
+
     scrubbed_html = re.sub(r"(?is)<(script|style|noscript)[^>]*>.*?</\1>", " ", html)
     scrubbed_html = re.sub(
         r"(?i)</?(p|div|br|li|h[1-6]|tr|th|td)\b[^>]*>", "\n", scrubbed_html
@@ -61,257 +70,263 @@ def extract_text(html: str, base_url: str | None = None) -> str:
     return text.strip()
 
 
-def site_origin(url: str) -> str:
-    p = urlsplit(url)
-    return urlunsplit((p.scheme, p.netloc, "", "", ""))
+def looks_pdf_from_headers_url(content_type: str, url: str) -> bool:
+    if "application/pdf" in (content_type or "").lower():
+        return True
+    u = (url or "").lower()
+    return u.endswith(".pdf") or ("/pdf" in u or "download" in u) and "pdf" in u
 
 
-def get_parent_url(url: str) -> str:
-    p = urlsplit(url)
-    parent = p.path.rsplit("/", 1)[0] or "/"
-    return urlunsplit((p.scheme, p.netloc, parent, "", ""))
-
-
-def browser_like_headers(url: str, referer: str | None = None) -> dict[str, str]:
-    headers = {
-        "User-Agent": DEFAULT_UA,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Cache-Control": "no-cache",
-        "Pragma": "no-cache",
-        "Connection": "keep-alive",
-        "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-        "Sec-Fetch-User": "?1",
-        "Sec-CH-UA": '"Chromium";v="124", "Not.A/Brand";v="24"',
-        "Sec-CH-UA-Mobile": "?0",
-        "Sec-CH-UA-Platform": '"Windows"',
-    }
-    if referer:
-        headers["Referer"] = referer
-        headers["Sec-Fetch-Site"] = "same-origin"
-    if url.lower().endswith(".pdf"):
-        headers["Accept"] = "application/pdf,*/*;q=0.8"
-        headers["Sec-Fetch-Dest"] = "document"
-    return headers
-
-
-async def playwright_fetch_bytes(url: str, referer: str | None = None) -> bytes | None:
+def parse_pdf_bytes(data: bytes, max_pages: int = 20) -> str:
     try:
-        from playwright.async_api import async_playwright
-    except Exception:
-        return None
-
-    async with async_playwright() as pw:
-        browser = await pw.chromium.launch(headless=True)
-        context = await browser.new_context(user_agent=DEFAULT_UA)
-        page = await context.new_page()
-        if referer:
-            try:
-                await page.goto(referer, wait_until="domcontentloaded", timeout=60)
-            except Exception:
-                pass
-        try:
-            resp = await context.request.get(
-                url,
-                headers=browser_like_headers(url, referer=referer),
-                timeout=60,
-            )
-            if resp.ok:
-                data = await resp.body()
-                await browser.close()
-                return data
-        except Exception:
-            pass
-        await browser.close()
-    return None
-
-
-def looks_pdf(content_type: str, url: str) -> bool:
-    return "application/pdf" in content_type or url.lower().endswith(".pdf")
-
-
-def parse_pdf_bytes(data: bytes, max_pages: int = 10) -> str:
-    try:
-        from pypdf import PdfReader
-
         reader = PdfReader(BytesIO(data))
-        n_pages = len(reader.pages)
-        if n_pages > max_pages:
-            return f"[[PDF_SKIPPED_TOO_LONG:{n_pages}]]"
-        texts: list[str] = []
-        for i in range(n_pages):
-            page_text = (reader.pages[i].extract_text() or "").strip()
-            if page_text:
-                texts.append(page_text)
-        return "\n\n".join(texts) if texts else "[[PDF_EMPTY_TEXT]]"
-    except Exception as e:
-        return f"[[PDF_PARSE_ERROR:{e.__class__.__name__}: {e}]]"
+        if len(reader.pages) > max_pages:
+            return f"[[PDF_SKIPPED_TOO_LONG:{len(reader.pages)}]]"
+        parts: list[str] = []
+        for i in range(len(reader.pages)):
+            t = (reader.pages[i].extract_text() or "").strip()
+            if t:
+                parts.append(t)
+        return "\n\n".join(parts) if parts else "[[PDF_EMPTY_TEXT]]"
+    except Exception:
+        try:
+            return pm_extract(BytesIO(data), maxpages=max_pages) or ""
+        except Exception:
+            return "[[PDF_PARSE_ERROR]]"
 
 
-async def fetch_url(
-    client: httpx.AsyncClient,
-    url: str,
-    proxy_cfg,
-) -> str | None:
+async def soft_block_detect(page) -> bool:
     try:
-        Actor.log.info(f"Fetching URL: {url}")
-        origin_url = site_origin(url)
-        parent_url = get_parent_url(url)
-
-        # best-effort priming
-        for referer in [origin_url, parent_url]:
-            r = await client.get(url, headers=browser_like_headers(url, referer))
-            if r.status_code in (401, 403):
-                response = r
-                break
-        else:
-            # rotate IP once
-            new_proxy = await proxy_cfg.new_url(session_id=f"rot_{time.time_ns()}")
-            async with httpx.AsyncClient(
-                transport=httpx.AsyncHTTPTransport(proxy=new_proxy),
-                http2=True,
-                timeout=httpx.Timeout(30),
-                headers=browser_like_headers(""),
-                follow_redirects=True,
-            ) as tmp:
-                r = await tmp.get(
-                    url, headers=browser_like_headers(url, referer=origin_url)
-                )
-                if r.status_code == 401:
-                    return f"[[AUTH_REQUIRED:{urlsplit(url).netloc}]]"
-                response = r
-
-        if response is None:
-            return "Error: no response received"
-
-        content_type = response.headers.get("content-type", "").lower()
-
-        # 403 PDF fallback via Playwright (optional)
-        if response.status_code == 403 and looks_pdf(content_type, url):
-            data = await playwright_fetch_bytes(url, parent_url)
-            if data:
-                return parse_pdf_bytes(data, max_pages=10)
-            return "Error: 403 and Playwright fallback failed to fetch bytes"
-
-        response.raise_for_status()
-
-        if looks_pdf(content_type, url):
-            return parse_pdf_bytes(response.content, max_pages=20)
-        if "text/plain" in content_type:
-            return response.text
-        if "html" in content_type or not content_type:
-            return extract_text(response.text, base_url=str(response.url))
-        return f"Unsupported content type: {content_type}"
-
-    except httpx.TimeoutException:
-        return f"Error: timed out while fetching {url}"
-    except httpx.HTTPStatusError as e:
-        code = e.response.status_code
-        msg = f"Error: server returned status {code} for {url}"
-        if code == 403:
-            msg += " — likely hotlink protection or a cookie/Referer requirement."
-        return msg
-    except httpx.RequestError as e:
-        return f"Error: request failed for {url} ({e.__class__.__name__})"
-    except Exception as e:
-        return f"Error: unexpected failure fetching {url} ({e})"
-
-
-async def make_client_for_worker(worker_id: int, proxy_cfg) -> httpx.AsyncClient:
-    proxy = await proxy_cfg.new_url(session_id=f"worker_{worker_id}")
-    limits = httpx.Limits(max_connections=50, max_keepalive_connections=25)
-    return httpx.AsyncClient(
-        transport=httpx.AsyncHTTPTransport(proxy=proxy),
-        limits=limits,
-        http2=True,
-        timeout=httpx.Timeout(30),
-        headers=browser_like_headers(""),
-        follow_redirects=True,
+        title = (await page.title()) or ""
+    except Exception:
+        title = ""
+    body = ""
+    try:
+        if await page.locator("body").count():
+            body = await page.inner_text("body")
+    except Exception:
+        pass
+    blob = (title + "\n" + body).lower()
+    return any(
+        s in blob
+        for s in (
+            "temporarily unavailable",
+            "just a moment",
+            "verify you are a human",
+            "are you a human",
+            "access denied",
+            "rate limit",
+            "unusual traffic",
+        )
     )
 
 
-async def worker(
-    worker_id: int,
-    queue: asyncio.Queue,
-    client: httpx.AsyncClient,
-    proxy_cfg,
-    metrics: dict[str, int],
-):
-    while True:
-        url = await queue.get()
+# -----------------------------------
+# core fetch
+# -----------------------------------
+async def fetch_once(
+    context, url: str, *, timeout_ms: int = 60000, block_resources: bool = True
+) -> str:
+    page = await context.new_page()
+    try:
+        if block_resources:
+
+            async def _route(route, request):
+                if request.resource_type in {"image", "font", "media"}:
+                    try:
+                        await route.abort()
+                    except Exception:
+                        await route.continue_()
+                else:
+                    await route.continue_()
+
+            await page.route("**/*", _route)
+
+        resp = await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
         try:
-            if url is None:
-                Actor.log.info(f"[w{worker_id}] received sentinel; exiting")
-                break
-            result = await fetch_url(client, url, proxy_cfg)
-            item = {
-                "url": url,
-                "ok": isinstance(result, str) and not result.startswith("Error:"),
-                "content": result,
-            }
-            await Actor.push_data(item)  # ← stream to Dataset
-            if item["ok"]:
-                metrics["ok"] += 1
-            else:
-                metrics["err"] += 1
+            await page.wait_for_load_state("networkidle", timeout=timeout_ms)
+        except PWTimeoutError:
+            pass
 
-        except Exception as e:
-            await Actor.push_data({"url": url, "ok": False, "content": f"Error: {e}"})
-            metrics["err"] += 1
-            Actor.log.exception(f"[w{worker_id}] error processing {url!r}")
-        finally:
-            queue.task_done()
+        # soft block retry handled by caller (we only report state here)
+        status = resp.status if resp else 0
+        final_url = resp.url if resp else url
+        ctype = (resp.headers.get("content-type") if resp else "") or ""
 
+        if looks_pdf_from_headers_url(ctype, final_url):
+            try:
+                data = await resp.body()
+            except Exception:
+                data = b""
+            return parse_pdf_bytes(data, max_pages=20)
 
-async def main() -> None:
-    async with Actor:
-        inp = await Actor.get_input() or {}
-        Actor.log.info(f"INPUT IS: {inp}")
-        urls = inp.get("urls", [])
-        max_urls = inp.get("max_urls", None)
-        if isinstance(max_urls, int) and max_urls and max_urls > 0:
-            urls = urls[:max_urls]
-        concurrency = max(1, int(inp.get("concurrency", 1)))
-
-        if not urls:
-            raise ValueError('Input must contain a "urls" array.')
-
-        queue: asyncio.Queue = asyncio.Queue()
-        for url in urls:
-            queue.put_nowait(url)
-        num_workers = min(concurrency, len(urls))
-        for _ in range(num_workers):
-            queue.put_nowait(None)
-
-        proxy_cfg = None
+        # prefer rendered HTML
         try:
-            proxy_cfg = await Actor.create_proxy_configuration(groups=["auto"])
+            html = await page.content()
         except Exception:
-            Actor.log.info("Apify Proxy unavailable; using direct connection.")
+            html = ""
+        if not html and resp:
+            try:
+                html = await resp.text()
+            except Exception:
+                html = ""
+        if not html:
+            try:
+                visible = await page.evaluate(
+                    'document.body && document.body.innerText || ""'
+                )
+            except Exception:
+                visible = ""
+            return visible.strip()
 
-        if proxy_cfg:
-            proxy_url = await proxy_cfg.new_url(session_id=f"worker_{worker_id}")
-            transport = httpx.AsyncHTTPTransport(proxy=proxy_url)
-        else:
-            transport = httpx.AsyncHTTPTransport()
+        return extract_text(html, base_url=final_url)
+    finally:
+        await page.close()
 
-        client = httpx.AsyncClient(transport=transport, http2=True, ...)
 
-        metrics = {"ok": 0, "err": 0}
+async def fetch_url(url: str, *, timeout_ms: int = 60000, max_retries: int = 3) -> str:
+    LOGGER.info("fetch: %s", url)
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=True,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+            ],
+        )
+        context = await browser.new_context(
+            user_agent=UA,
+            locale="en-US",
+            timezone_id="America/Los_Angeles",
+            viewport={"width": 1366, "height": 768},
+            java_script_enabled=True,
+            ignore_https_errors=True,
+            extra_http_headers={
+                "Accept-Language": "en-US,en;q=0.9",
+                "Sec-CH-UA": '"Chromium";v="140", "Not.A/Brand";v="24", "Google Chrome";v="140"',
+                "Sec-CH-UA-Mobile": "?0",
+                "Sec-CH-UA-Platform": '"Windows"',
+            },
+        )
+        try:
+            for attempt in range(1, max_retries + 1):
+                text = await fetch_once(
+                    context, url, timeout_ms=timeout_ms, block_resources=True
+                )
+                if text and not await soft_block_detect(await context.new_page()):
+                    return text
+                LOGGER.info("retry %d for %s", attempt, url)
+                await asyncio.sleep(0.8 + random.random() * 1.2)
+            return text  # type: ignore[has-type]
+        finally:
+            await context.close()
+            await browser.close()
 
-        clients = [
-            await make_client_for_worker(i + 1, proxy_cfg) for i in range(num_workers)
+
+# -----------------------------------
+# worker pool
+# -----------------------------------
+async def worker(worker_id: int, q: asyncio.Queue[str], out: dict[str, str], ctx):
+    LOGGER.info("[w%d] start", worker_id)
+    while True:
+        url = await q.get()
+        if url is None:  # type: ignore[unreachable]
+            q.task_done()
+            break
+        try:
+            page = await ctx.new_page()
+            try:
+                # reuse the context per worker for speed
+                resp = await page.goto(
+                    url, wait_until="domcontentloaded", timeout=60000
+                )
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=60000)
+                except PWTimeoutError:
+                    pass
+                ctype = (resp.headers.get("content-type") if resp else "") or ""
+                if looks_pdf_from_headers_url(ctype, resp.url if resp else url):
+                    data = await (resp.body() if resp else b"")
+                    out[url] = parse_pdf_bytes(data, max_pages=20)
+                else:
+                    html = await page.content()
+                    out[url] = extract_text(html, base_url=(resp.url if resp else url))
+                LOGGER.info("[w%d] ok: %s", worker_id, url)
+            finally:
+                await page.close()
+        except Exception as e:
+            LOGGER.info("[w%d] err: %s -> %s", worker_id, url, e)
+            out[url] = f"Error: {e}"
+        finally:
+            q.task_done()
+
+
+async def run(urls: Iterable[str], concurrency: int = 4) -> dict[str, str]:
+    urls = [u for u in urls if u]
+    out: dict[str, str] = {}
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=True,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+            ],
+        )
+        # create one context per worker
+        contexts = [
+            await browser.new_context(
+                user_agent=UA,
+                locale="en-US",
+                timezone_id="America/Los_Angeles",
+                viewport={"width": 1366, "height": 768},
+                java_script_enabled=True,
+                ignore_https_errors=True,
+                extra_http_headers={
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Sec-CH-UA": '"Chromium";v="140", "Not.A/Brand";v="24", "Google Chrome";v="140"',
+                    "Sec-CH-UA-Mobile": "?0",
+                    "Sec-CH-UA-Platform": '"Windows"',
+                },
+            )
+            for _ in range(min(concurrency, max(1, len(urls))))
         ]
+
+        q: asyncio.Queue[str] = asyncio.Queue()
+        for u in urls:
+            q.put_nowait(u)
+
         tasks = [
-            asyncio.create_task(worker(i + 1, queue, clients[i], proxy_cfg, metrics))
-            for i in range(num_workers)
+            asyncio.create_task(worker(i + 1, q, out, contexts[i]))
+            for i in range(len(contexts))
         ]
 
-        await queue.join()
+        await q.join()
+        for t in tasks:
+            t.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
 
-        await Actor.set_value("OUTPUT", URL_TO_TEXT)
+        for ctx in contexts:
+            await ctx.close()
+        await browser.close()
+    return out
+
+
+# -----------------------------------
+# example CLI usage
+# -----------------------------------
+if __name__ == "__main__":
+
+    async def _main():
+        if len(sys.argv) > 1:
+            urls = sys.argv[1:]
+        else:
+            # quick demo set; replace as needed
+            urls = ["https://example.com"]
+        res = await run(urls, concurrency=4)
+        print(json.dumps(res, ensure_ascii=False, indent=2))
+
+    asyncio.run(_main())
