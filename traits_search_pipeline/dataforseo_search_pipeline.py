@@ -1,12 +1,10 @@
 from typing import List, Dict, Union, NamedTuple
 import asyncio
 import logging
-import requests
 import sys
 import httpx
 
 from tqdm import tqdm
-from typing import List
 from sqlalchemy import (
     insert,
     select,
@@ -47,9 +45,7 @@ def expand_questions(
         for placeholder, species_list in species_dict.items():
             if f"[{placeholder}]" in question:
                 for species in species_list:
-                    expanded_question = question.replace(
-                        f"[{placeholder}]", species
-                    )
+                    expanded_question = question.replace(f"[{placeholder}]", species)
                     expanded_questions.append(
                         expanded_question.split(" | ") + [species]
                     )
@@ -65,9 +61,7 @@ class SEOSearchResult(NamedTuple):
     title: str
 
 
-async def query(
-    keyword: str, username: str, password: str
-) -> List[SEOSearchResult]:
+async def query(keyword: str, username: str, password: str) -> List[SEOSearchResult]:
     url = "https://api.dataforseo.com/v3/serp/google/organic/live/advanced"
 
     payload = [
@@ -83,9 +77,7 @@ async def query(
         r = await client.post(url, auth=(username, password), json=payload)
         r.raise_for_status()
         data = r.json()
-        items = (
-            data.get("tasks", [{}])[0].get("result", [{}])[0].get("items", [])
-        )
+        items = data.get("tasks", [{}])[0].get("result", [{}])[0].get("items", [])
 
         if not items:
             return []
@@ -103,7 +95,7 @@ def insert_result(
     keyword_query: str,
     species_name: str,
     links: List[str],
-) -> bool:
+):
     stmt = insert(SearchResult).values(
         question=question,
         species_name=species_name,
@@ -121,9 +113,7 @@ def question_exists(session: Session, question: str) -> bool:
 
 async def main():
     LOGGER.info("loading questions")
-    question_template_list = (
-        open("data/question_list.txt").read().strip().split("\n")
-    )
+    question_template_list = open("data/question_list.txt").read().strip().split("\n")
     species_dict = {
         "predator_list": load_species_list("data/predator_list.txt"),
         "pest_list": load_species_list("data/pest_list.txt"),
@@ -175,15 +165,11 @@ async def main():
 
     LOGGER.info("awaiting results")
     tasks = [
-        asyncio.create_task(
-            rate_limited_query(question, keyword_query, species)
-        )
+        asyncio.create_task(rate_limited_query(question, keyword_query, species))
         for keyword_query, question, species in pending
     ]
 
-    for fut in tqdm(
-        asyncio.as_completed(tasks), total=len(tasks), desc="queries"
-    ):
+    for fut in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="queries"):
         await fut
 
     LOGGER.info("all done!")

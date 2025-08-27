@@ -5,16 +5,16 @@ docker build -t apify_pcld:latest . && docker run --rm -it -v "%CD%/apify_storag
 
 from __future__ import annotations
 
-import time
-import asyncio
-import re
-import html as html_utils
-from urllib.parse import urlsplit, urlunsplit
 from io import BytesIO
+from urllib.parse import urlsplit, urlunsplit
+import asyncio
+import html as html_utils
+import re
+import time
 
-import httpx
 from apify import Actor
 from bs4 import BeautifulSoup
+import httpx
 
 DEFAULT_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -51,9 +51,7 @@ def extract_text(html: str, base_url: str | None = None) -> str:
         return soup.get_text(separator="\n", strip=True)
     except Exception:
         pass
-    scrubbed_html = re.sub(
-        r"(?is)<(script|style|noscript)[^>]*>.*?</\1>", " ", html
-    )
+    scrubbed_html = re.sub(r"(?is)<(script|style|noscript)[^>]*>.*?</\1>", " ", html)
     scrubbed_html = re.sub(
         r"(?i)</?(p|div|br|li|h[1-6]|tr|th|td)\b[^>]*>", "\n", scrubbed_html
     )
@@ -74,9 +72,7 @@ def get_parent_url(url: str) -> str:
     return urlunsplit((p.scheme, p.netloc, parent, "", ""))
 
 
-def browser_like_headers(
-    url: str, referer: str | None = None
-) -> dict[str, str]:
+def browser_like_headers(url: str, referer: str | None = None) -> dict[str, str]:
     headers = {
         "User-Agent": DEFAULT_UA,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -103,9 +99,7 @@ def browser_like_headers(
     return headers
 
 
-async def playwright_fetch_bytes(
-    url: str, referer: str | None = None
-) -> bytes | None:
+async def playwright_fetch_bytes(url: str, referer: str | None = None) -> bytes | None:
     try:
         from playwright.async_api import async_playwright
     except Exception:
@@ -117,9 +111,7 @@ async def playwright_fetch_bytes(
         page = await context.new_page()
         if referer:
             try:
-                await page.goto(
-                    referer, wait_until="domcontentloaded", timeout=60
-                )
+                await page.goto(referer, wait_until="domcontentloaded", timeout=60)
             except Exception:
                 pass
         try:
@@ -172,17 +164,13 @@ async def fetch_url(
 
         # best-effort priming
         for referer in [origin_url, parent_url]:
-            r = await client.get(
-                url, headers=browser_like_headers(url, referer)
-            )
+            r = await client.get(url, headers=browser_like_headers(url, referer))
             if r.status_code in (401, 403):
                 response = r
                 break
         else:
             # rotate IP once
-            new_proxy = await proxy_cfg.new_url(
-                session_id=f"rot_{time.time_ns()}"
-            )
+            new_proxy = await proxy_cfg.new_url(session_id=f"rot_{time.time_ns()}")
             async with httpx.AsyncClient(
                 transport=httpx.AsyncHTTPTransport(proxy=new_proxy),
                 http2=True,
@@ -225,9 +213,7 @@ async def fetch_url(
         code = e.response.status_code
         msg = f"Error: server returned status {code} for {url}"
         if code == 403:
-            msg += (
-                " — likely hotlink protection or a cookie/Referer requirement."
-            )
+            msg += " — likely hotlink protection or a cookie/Referer requirement."
         return msg
     except httpx.RequestError as e:
         return f"Error: request failed for {url} ({e.__class__.__name__})"
@@ -235,9 +221,7 @@ async def fetch_url(
         return f"Error: unexpected failure fetching {url} ({e})"
 
 
-async def make_client_for_worker(
-    worker_id: int, proxy_cfg
-) -> httpx.AsyncClient:
+async def make_client_for_worker(worker_id: int, proxy_cfg) -> httpx.AsyncClient:
     proxy = await proxy_cfg.new_url(session_id=f"worker_{worker_id}")
     limits = httpx.Limits(max_connections=50, max_keepalive_connections=25)
     return httpx.AsyncClient(
@@ -266,8 +250,7 @@ async def worker(
             result = await fetch_url(client, url, proxy_cfg)
             item = {
                 "url": url,
-                "ok": isinstance(result, str)
-                and not result.startswith("Error:"),
+                "ok": isinstance(result, str) and not result.startswith("Error:"),
                 "content": result,
             }
             await Actor.push_data(item)  # ← stream to Dataset
@@ -277,9 +260,7 @@ async def worker(
                 metrics["err"] += 1
 
         except Exception as e:
-            await Actor.push_data(
-                {"url": url, "ok": False, "content": f"Error: {e}"}
-            )
+            await Actor.push_data({"url": url, "ok": False, "content": f"Error: {e}"})
             metrics["err"] += 1
             Actor.log.exception(f"[w{worker_id}] error processing {url!r}")
         finally:
@@ -308,29 +289,25 @@ async def main() -> None:
 
         proxy_cfg = None
         try:
-            proxy_cfg = await Actor.create_proxy_configuration(groups=['auto'])
+            proxy_cfg = await Actor.create_proxy_configuration(groups=["auto"])
         except Exception:
-            Actor.log.info('Apify Proxy unavailable; using direct connection.')
+            Actor.log.info("Apify Proxy unavailable; using direct connection.")
 
         if proxy_cfg:
-            proxy_url = await proxy_cfg.new_url(session_id=f'worker_{worker_id}')
+            proxy_url = await proxy_cfg.new_url(session_id=f"worker_{worker_id}")
             transport = httpx.AsyncHTTPTransport(proxy=proxy_url)
         else:
             transport = httpx.AsyncHTTPTransport()
 
         client = httpx.AsyncClient(transport=transport, http2=True, ...)
 
-
         metrics = {"ok": 0, "err": 0}
 
         clients = [
-            await make_client_for_worker(i + 1, proxy_cfg)
-            for i in range(num_workers)
+            await make_client_for_worker(i + 1, proxy_cfg) for i in range(num_workers)
         ]
         tasks = [
-            asyncio.create_task(
-                worker(i + 1, queue, clients[i], proxy_cfg, metrics)
-            )
+            asyncio.create_task(worker(i + 1, queue, clients[i], proxy_cfg, metrics))
             for i in range(num_workers)
         ]
 
