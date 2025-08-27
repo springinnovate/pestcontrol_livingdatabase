@@ -7,11 +7,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import asynccontextmanager
 import logging
 import random
 import re
 from io import BytesIO
-from typing import Iterable
+from typing import AsyncIterator, Tuple, Iterable
 import html as html_utils
 import sys
 
@@ -23,10 +24,20 @@ from playwright.async_api import (
     async_playwright,
     TimeoutError as PWTimeoutError,
 )
+
+import httpx
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.orm import sessionmaker
+
+
 from pypdf import PdfReader
 from pdfminer.high_level import extract_text as pm_extract
 
-LOGGER = logging.getLogger("fetcher")
+from models import Content, Link, DB_URI
+
+LOGGER = logging.getLogger(__name__)
 if not LOGGER.handlers:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
@@ -34,6 +45,18 @@ UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"
 )
+
+PDF_MAX_PAGES = 50
+
+
+engine = create_async_engine(DB_URI, future=True, echo=False)
+AsyncSessionLocal = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+
+
+@asynccontextmanager
+async def get_session() -> AsyncIterator[AsyncSession]:
+    async with AsyncSessionLocal() as sess:
+        yield sess
 
 
 def extract_text(html: str, base_url: str | None = None) -> str:
@@ -249,7 +272,7 @@ async def worker(worker_id: int, q: asyncio.Queue[str], out: dict[str, str], ctx
                 ctype = (resp.headers.get("content-type") if resp else "") or ""
                 if looks_pdf_from_headers_url(ctype, resp.url if resp else url):
                     data = await (resp.body() if resp else b"")
-                    out[url] = parse_pdf_bytes(data, max_pages=20)
+                    out[url] = parse_pdf_bytes(data, max_pages=PDF_MAX_PAGES)
                 else:
                     html = await page.content()
                     out[url] = extract_text(html, base_url=(resp.url if resp else url))
@@ -315,18 +338,26 @@ async def run(urls: Iterable[str], concurrency: int = 4) -> dict[str, str]:
     return out
 
 
-# -----------------------------------
-# example CLI usage
-# -----------------------------------
+async def stream_links(batch_size: int = 500):
+    async with get_session() as sess:
+        stmt = select(Link.id, Link.url).execution_options(stream_results=True)
+        result = await sess.stream(stmt)  # <-- await the coroutine
+        batch = []
+        async for row in result:
+            batch.append((row.id, row.url))
+            if len(batch) >= batch_size:
+                for item in batch:
+                    yield item
+                batch.clear()
+        if batch:
+            for item in batch:
+                yield item
+
+
+async def _main():
+    async for link in stream_links():
+        print(link)
+
+
 if __name__ == "__main__":
-
-    async def _main():
-        if len(sys.argv) > 1:
-            urls = sys.argv[1:]
-        else:
-            # quick demo set; replace as needed
-            urls = ["https://example.com"]
-        res = await run(urls, concurrency=4)
-        print(json.dumps(res, ensure_ascii=False, indent=2))
-
     asyncio.run(_main())

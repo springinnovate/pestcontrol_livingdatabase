@@ -17,7 +17,7 @@ from sqlalchemy.orm import (
     relationship,
 )
 
-DB_URI = "sqlite:///data/search_content_index.db"
+DB_URI = "sqlite+aiosqlite:///data/search_content_index.db"
 
 
 class BaseNorm(DeclarativeBase):
@@ -26,9 +26,7 @@ class BaseNorm(DeclarativeBase):
 
 class Content(BaseNorm):
     __tablename__ = "content"
-    id: Mapped[int] = mapped_column(
-        Integer, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     content_hash: Mapped[str] = mapped_column(
         String, nullable=False, unique=True, index=True
     )
@@ -41,12 +39,8 @@ class Content(BaseNorm):
 
 class Link(BaseNorm):
     __tablename__ = "links"
-    id: Mapped[int] = mapped_column(
-        Integer, primary_key=True, autoincrement=True
-    )
-    url: Mapped[str] = mapped_column(
-        String, nullable=False, unique=True, index=True
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    url: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
     content_id: Mapped[int | None] = mapped_column(
         ForeignKey("content.id", ondelete="SET NULL"), nullable=True
     )
@@ -61,12 +55,8 @@ class Link(BaseNorm):
 
 class Question(BaseNorm):
     __tablename__ = "questions"
-    id: Mapped[int] = mapped_column(
-        Integer, primary_key=True, autoincrement=True
-    )
-    text: Mapped[str] = mapped_column(
-        Text, nullable=False, unique=True, index=True
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    text: Mapped[str] = mapped_column(Text, nullable=False, unique=True, index=True)
 
     search_head: Mapped["SearchHead"] = relationship(
         back_populates="question", uselist=False, cascade="all, delete"
@@ -78,29 +68,19 @@ class Question(BaseNorm):
 
 class Species(BaseNorm):
     __tablename__ = "species"
-    id: Mapped[int] = mapped_column(
-        Integer, primary_key=True, autoincrement=True
-    )
-    name: Mapped[str] = mapped_column(
-        String, nullable=False, unique=True, index=True
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
 
 
 class KeywordQuery(BaseNorm):
     __tablename__ = "keyword_queries"
-    id: Mapped[int] = mapped_column(
-        Integer, primary_key=True, autoincrement=True
-    )
-    query: Mapped[str] = mapped_column(
-        String, nullable=False, unique=True, index=True
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    query: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
 
     question_keywords: Mapped[List["QuestionKeyword"]] = relationship(
         back_populates="keyword_query"
     )
-    answers: Mapped[List["Answer"]] = relationship(
-        back_populates="keyword_query"
-    )
+    answers: Mapped[List["Answer"]] = relationship(back_populates="keyword_query")
 
 
 class QuestionKeyword(BaseNorm):
@@ -150,17 +130,13 @@ class SearchResultLink(BaseNorm):
         primary_key=True,
     )
     __table_args__ = (
-        UniqueConstraint(
-            "search_head_id", "link_id", name="uq_search_head_link_id"
-        ),
+        UniqueConstraint("search_head_id", "link_id", name="uq_search_head_link_id"),
     )
 
 
 class Answer(BaseNorm):
     __tablename__ = "answers"
-    id: Mapped[int] = mapped_column(
-        Integer, primary_key=True, autoincrement=True
-    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
 
     keyword_query_id: Mapped[int] = mapped_column(
         ForeignKey("keyword_queries.id", ondelete="CASCADE"),
