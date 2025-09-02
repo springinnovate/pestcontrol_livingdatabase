@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
+import re
 import json
-from typing import Iterator, Mapping, List, Dict
+import itertools
+from typing import Iterator, Mapping, List, Dict, Any, Tuple
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
@@ -14,7 +17,6 @@ from models import (
     BaseNorm,
     Question,
     QuestionKeyword,
-    KeywordQuery,
     SearchHead,
     SearchResultLink,
     Link,
@@ -63,6 +65,7 @@ Rules:
 
 
 def create_openai_context():
+    """Helper to create openai context."""
     openai_client = OpenAI()
     openai_context = {
         "client": openai_client,
@@ -71,6 +74,7 @@ def create_openai_context():
 
 
 def apply_llm(question: str, page_text: str) -> List[Dict[str, str]]:
+    """Invoke the question and context on the `SYSTEM_PROMPT`."""
     user_payload = (
         "QUESTION:\n"
         f"{question.strip()}\n\n"
@@ -84,8 +88,7 @@ def apply_llm(question: str, page_text: str) -> List[Dict[str, str]]:
     ]
 
     args = {
-        "model": "gpt-4o-mini",
-        "temperature": 0,
+        "model": "gpt-5",
         "response_format": {
             "type": "json_object"
         },  # if supported in your SDK/runtime
@@ -97,23 +100,33 @@ def apply_llm(question: str, page_text: str) -> List[Dict[str, str]]:
     return content
 
 
-def iter_question_content_rows(
+def iter_unanswered_questions(
     session: Session,
 ) -> Iterator[Mapping[str, object]]:
-    # question -> question_keyword -> keyword_query
-    # question -> search_head -> search_result_link -> link -> content
+    """
+    Iterate over question–content rows where no answer exists yet.
+
+    Returns:
+        Iterator[Mapping[str, object]] with fields:
+            - question_id (int)
+            - question_text (str)
+            - keyword_query_id (int)
+            - link_id (int)
+            - link_url (str)
+            - content_id (int)
+            - content_text (str)
+    """
     stmt = (
         select(
             Question.id.label("question_id"),
             Question.text.label("question_text"),
-            KeywordQuery.id.label("keyword_query_id"),
+            QuestionKeyword.keyword_query_id.label("keyword_query_id"),
             Link.id.label("link_id"),
             Link.url.label("link_url"),
             Content.id.label("content_id"),
             Content.text.label("content_text"),
         )
         .join(QuestionKeyword, QuestionKeyword.question_id == Question.id)
-        .join(KeywordQuery, KeywordQuery.id == QuestionKeyword.keyword_query_id)
         .join(SearchHead, SearchHead.question_id == Question.id)
         .join(
             SearchResultLink,
@@ -121,16 +134,18 @@ def iter_question_content_rows(
         )
         .join(Link, Link.id == SearchResultLink.link_id)
         .join(Content, Content.id == Link.content_id, isouter=True)
+        .join(
+            Answer,
+            (Answer.keyword_query_id == QuestionKeyword.keyword_query_id)
+            & (Answer.link_id == Link.id),
+            isouter=True,
+        )
         .where(Content.id.is_not(None))
+        .where(Answer.id.is_(None))
     ).execution_options(stream_results=True)
 
     for row in session.execute(stmt).mappings():
         yield row
-
-
-def iter_question_content_pairs(session: Session) -> Iterator[tuple[str, str]]:
-    for row in iter_question_content_rows(session):
-        yield row["question_text"], row["content_text"]  # convenient 2-tuple
 
 
 def insert_answer(
@@ -159,40 +174,98 @@ def insert_answer(
     return ans.id
 
 
-def generate_and_store_answers(batch_commit: int = 10) -> None:
-    with Session(DB_ENGINE) as session:
-        pending = 0
-        for row in iter_question_content_rows(session):
-            qtext: str = row["question_text"]
-            content_text: str = row["content_text"]
-            kid: int = row["keyword_query_id"]
-            lid: int = row["link_id"]
+async def call_llm_async(
+    question_text: str, content_text: str
+) -> Dict[str, Any]:
+    # run your sync LLM call in a thread to enable asyncio concurrency
+    return await asyncio.to_thread(apply_llm, question_text, content_text)
 
+
+async def _worker(
+    row: Dict[str, Any], sem: asyncio.Semaphore
+) -> Tuple[Dict[str, Any], str | Dict[str, Any] | None]:
+    async with sem:
+        qtext: str = row["question_text"]
+        content_text: str = row["content_text"] or ""
+        print(
+            f"\n[QUESTION #{row['question_id']}] "
+            f"(KeywordQuery #{row['keyword_query_id']}, Link #{row['link_id']})\n"
+            f"Q: {qtext.strip()[:120]}{'...' if len(qtext) > 120 else ''}\n"
+            f"Content: {content_text.strip()[:200]}{'...' if len(content_text) > 200 else ''}\n"
+            f"{'-'*80}"
+        )
+
+        # If content_text is an error marker like [[some text]], short-circuit with 'unknown - [[some text]]'
+        m = re.search(r"\[\[(.*?)\]\]", content_text, flags=re.DOTALL)
+        if m:
+            err_text = m.group(1).strip()
+            answer = {
+                "answer": "unknown",
+                "reason": "page_error",
+                "evidence": [f"[[{err_text}]]"],
+            }
+            return row, answer
+
+        try:
+            answer = await call_llm_async(qtext, content_text)
+            return row, answer
+        except Exception as e:
             print(
-                f"\n[QUESTION #{row['question_id']}] "
-                f"(KeywordQuery #{kid}, Link #{lid})\n"
-                f"Q: {qtext.strip()[:120]}{'...' if len(qtext) > 120 else ''}\n"
-                f"Content: {content_text.strip()[:200]}{'...' if len(content_text) > 200 else ''}\n"
-                f"{'-'*80}"
+                f"LLM error on question_id={row['question_id']}, link_id={row['link_id']}: {e}"
             )
+            return row, None
 
-            answer = apply_llm(qtext, content_text)
-            print(answer)
-            if not answer:
-                print("warning no answer!")
-                return
 
-            inserted_id = insert_answer(session, kid, lid, answer)
-            if inserted_id is not None:
-                pending += 1
-                if pending >= batch_commit:
-                    session.commit()
-                    pending = 0
-                    break
+async def run_parallel_generation(
+    max_concurrency: int = 8,
+    batch_commit: int = 50,
+) -> None:
+    engine = create_engine(DB_URI)
 
-        if pending:
+    # snapshot rows first (so DB cursor isn't shared across async tasks)
+    print("snapshot rows")
+    with Session(engine) as session:
+        # the 'None' is a placeholder so we can put a limit if we need
+        unanswered_questions = list(
+            itertools.islice(iter_unanswered_questions(session), None)
+        )
+
+    sem = asyncio.Semaphore(max_concurrency)
+    print("creating tasks")
+    tasks = [
+        asyncio.create_task(_worker(question, sem))
+        for question in unanswered_questions
+    ]
+
+    pending_inserts: List[Tuple[int, int, Dict[str, Any]]] = []
+    inserted = 0
+
+    for fut in asyncio.as_completed(tasks):
+        row, answer = await fut
+        if not answer:
+            continue
+        kid: int = row["keyword_query_id"]
+        lid: int = row["link_id"]
+        pending_inserts.append((kid, lid, answer))
+
+        if len(pending_inserts) >= batch_commit:
+            with Session(engine) as session:
+                for kid_i, lid_i, ans in pending_inserts:
+                    insert_answer(session, kid_i, lid_i, ans)
+                session.commit()
+            inserted += len(pending_inserts)
+            pending_inserts.clear()
+
+    if pending_inserts:
+        with Session(engine) as session:
+            for kid_i, lid_i, ans in pending_inserts:
+                insert_answer(session, kid_i, lid_i, ans)
             session.commit()
+        inserted += len(pending_inserts)
+
+    print(f"\nDone. Inserted {inserted} answers.")
 
 
 if __name__ == "__main__":
-    generate_and_store_answers()
+    asyncio.run(run_parallel_generation(dry_run=False))
+    # generate_and_store_answers()
