@@ -1,4 +1,4 @@
-# docker build -t py-sqlalchemy-openai:latest . && docker run --rm -it -v "$PWD":/app -w /app py-sqlalchemy-openai:latest
+# docker build -t pcld_trait_search_env:latest . && docker run --rm -it -v "%CD%":/app -w /app pcld_trait_search_env:latest
 
 FROM python:3.11-slim
 

@@ -1,5 +1,13 @@
-# Database ORM
 SQLAlchemy>=2.0,<3.0
-# OpenAI API client
 openai>=1.0,<2.0
-dotenv
+trafilatura
+httpx
+tqdm
+python-dotenv
+readability-lxml
+beautifulsoup4
+playwright
+pypdf
+pdfminer.six
+aiosqlite
+psutil
