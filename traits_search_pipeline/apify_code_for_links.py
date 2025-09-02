@@ -6,15 +6,13 @@ docker build -t apify_pcld:latest . && docker run --rm -it -v "%CD%/apify_storag
 from __future__ import annotations
 
 import asyncio
-import json
 from contextlib import asynccontextmanager
 import logging
 import random
 import re
 from io import BytesIO
-from typing import AsyncIterator, Tuple, Iterable
+from typing import AsyncIterator, Iterable
 import html as html_utils
-import sys
 
 import trafilatura
 from readability import Document  # readability-lxml
@@ -25,9 +23,7 @@ from playwright.async_api import (
     TimeoutError as PWTimeoutError,
 )
 
-import httpx
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -35,7 +31,7 @@ from sqlalchemy.orm import sessionmaker
 from pypdf import PdfReader
 from pdfminer.high_level import extract_text as pm_extract
 
-from models import Content, Link, DB_URI
+from models import Link, DB_URI
 
 LOGGER = logging.getLogger(__name__)
 if not LOGGER.handlers:
@@ -50,7 +46,9 @@ PDF_MAX_PAGES = 50
 
 
 engine = create_async_engine(DB_URI, future=True, echo=False)
-AsyncSessionLocal = sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+AsyncSessionLocal = sessionmaker(
+    engine, expire_on_commit=False, class_=AsyncSession
+)
 
 
 @asynccontextmanager
@@ -83,7 +81,9 @@ def extract_text(html: str, base_url: str | None = None) -> str:
         pass
     # ultra-fallback: strip tags crudely
 
-    scrubbed_html = re.sub(r"(?is)<(script|style|noscript)[^>]*>.*?</\1>", " ", html)
+    scrubbed_html = re.sub(
+        r"(?is)<(script|style|noscript)[^>]*>.*?</\1>", " ", html
+    )
     scrubbed_html = re.sub(
         r"(?i)</?(p|div|br|li|h[1-6]|tr|th|td)\b[^>]*>", "\n", scrubbed_html
     )
@@ -165,7 +165,9 @@ async def fetch_once(
 
             await page.route("**/*", _route)
 
-        resp = await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+        resp = await page.goto(
+            url, wait_until="domcontentloaded", timeout=timeout_ms
+        )
         try:
             await page.wait_for_load_state("networkidle", timeout=timeout_ms)
         except PWTimeoutError:
@@ -207,7 +209,9 @@ async def fetch_once(
         await page.close()
 
 
-async def fetch_url(url: str, *, timeout_ms: int = 60000, max_retries: int = 3) -> str:
+async def fetch_url(
+    url: str, *, timeout_ms: int = 60000, max_retries: int = 3
+) -> str:
     LOGGER.info("fetch: %s", url)
     async with async_playwright() as p:
         browser = await p.chromium.launch(
@@ -238,7 +242,9 @@ async def fetch_url(url: str, *, timeout_ms: int = 60000, max_retries: int = 3) 
                 text = await fetch_once(
                     context, url, timeout_ms=timeout_ms, block_resources=True
                 )
-                if text and not await soft_block_detect(await context.new_page()):
+                if text and not await soft_block_detect(
+                    await context.new_page()
+                ):
                     return text
                 LOGGER.info("retry %d for %s", attempt, url)
                 await asyncio.sleep(0.8 + random.random() * 1.2)
@@ -251,7 +257,9 @@ async def fetch_url(url: str, *, timeout_ms: int = 60000, max_retries: int = 3) 
 # -----------------------------------
 # worker pool
 # -----------------------------------
-async def worker(worker_id: int, q: asyncio.Queue[str], out: dict[str, str], ctx):
+async def worker(
+    worker_id: int, q: asyncio.Queue[str], out: dict[str, str], ctx
+):
     LOGGER.info("[w%d] start", worker_id)
     while True:
         url = await q.get()
@@ -275,7 +283,9 @@ async def worker(worker_id: int, q: asyncio.Queue[str], out: dict[str, str], ctx
                     out[url] = parse_pdf_bytes(data, max_pages=PDF_MAX_PAGES)
                 else:
                     html = await page.content()
-                    out[url] = extract_text(html, base_url=(resp.url if resp else url))
+                    out[url] = extract_text(
+                        html, base_url=(resp.url if resp else url)
+                    )
                 LOGGER.info("[w%d] ok: %s", worker_id, url)
             finally:
                 await page.close()
@@ -338,20 +348,12 @@ async def run(urls: Iterable[str], concurrency: int = 4) -> dict[str, str]:
     return out
 
 
-async def stream_links(batch_size: int = 500):
+async def stream_links():
     async with get_session() as sess:
         stmt = select(Link.id, Link.url).execution_options(stream_results=True)
-        result = await sess.stream(stmt)  # <-- await the coroutine
-        batch = []
+        result = await sess.stream(stmt)
         async for row in result:
-            batch.append((row.id, row.url))
-            if len(batch) >= batch_size:
-                for item in batch:
-                    yield item
-                batch.clear()
-        if batch:
-            for item in batch:
-                yield item
+            yield (row.id, row.url)
 
 
 async def _main():
