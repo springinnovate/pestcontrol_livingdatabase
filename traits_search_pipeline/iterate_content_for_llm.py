@@ -103,8 +103,7 @@ def apply_llm(question: str, page_text: str) -> List[Dict[str, str]]:
 def iter_unanswered_questions(
     session: Session,
 ) -> Iterator[Mapping[str, object]]:
-    """
-    Iterate over question–content rows where no answer exists yet.
+    """Iterate over question–content rows where no answer exists yet.
 
     Returns:
         Iterator[Mapping[str, object]] with fields:
@@ -154,6 +153,7 @@ def insert_answer(
     link_id: int,
     answer: Dict[str, str],
 ) -> int | None:
+    """Insert a new answer if there is not already one in the db."""
     exists_stmt = select(Answer.id).where(
         Answer.keyword_query_id == keyword_query_id,
         Answer.link_id == link_id,
@@ -177,7 +177,7 @@ def insert_answer(
 async def call_llm_async(
     question_text: str, content_text: str
 ) -> Dict[str, Any]:
-    # run your sync LLM call in a thread to enable asyncio concurrency
+    """Wrapper to sync LLM call in a thread."""
     return await asyncio.to_thread(apply_llm, question_text, content_text)
 
 
@@ -267,5 +267,4 @@ async def run_parallel_generation(
 
 
 if __name__ == "__main__":
-    asyncio.run(run_parallel_generation(dry_run=False))
-    # generate_and_store_answers()
+    asyncio.run(run_parallel_generation())
