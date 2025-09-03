@@ -10,5 +10,6 @@ WORKDIR /app
 
 COPY requirements.txt /app/requirements.txt
 RUN pip install -r requirements.txt
+RUN python -m playwright install --with-deps chromium
 
 CMD ["bash"]
