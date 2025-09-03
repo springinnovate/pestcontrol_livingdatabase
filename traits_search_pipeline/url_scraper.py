@@ -9,7 +9,7 @@ from concurrent.futures import ProcessPoolExecutor
 from io import BytesIO
 from multiprocessing import Queue as MPQueue, Manager
 from queue import Empty
-from typing import Iterable
+from typing import Iterable, Tuple, Iterator
 import asyncio
 import html as html_utils
 from pathlib import Path
@@ -29,11 +29,10 @@ import psutil
 from pypdf import PdfReader
 from readability import Document  # readability-lxml
 from sqlalchemy import select, create_engine
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker, Session
 import trafilatura
 
-from models import Link, DB_URI
+from models import Content, Link, DB_URI
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -43,19 +42,8 @@ USER_AGENT = (
 PDF_MAX_PAGES = 50
 BATCH_SIZE = 10
 
-
-engine = create_async_engine(
-    DB_URI,  # must be sqlite+aiosqlite:///path/to.db
-    echo=False,
-    pool_pre_ping=True,
-    connect_args={"timeout": 30},  # seconds to wait on SQLite file locks
-)
-AsyncSessionLocal = sessionmaker(
-    engine, expire_on_commit=False, class_=AsyncSession
-)
-
 sync_engine = create_engine(
-    DB_URI.replace("+aiosqlite", ""),  # to make sure it is sync
+    DB_URI,
     echo=False,
     pool_pre_ping=True,
     connect_args={"timeout": 30},
@@ -84,7 +72,7 @@ def _resolve_logger(logger: logging.Logger | str | None) -> logging.Logger:
 
 
 def catch_and_log(
-    logger: logging.Logger | str | None = None, *, level: int = logging.ERROR
+    logger: logging.Logger | str | None = None, *, level: int = logging.DEBUG
 ):
     """Wrapper to log any exception that's raised, helpful in subprocesses."""
     log = _resolve_logger(logger)
@@ -118,12 +106,6 @@ def catch_and_log(
             return sync_wrapper
 
     return decorator
-
-
-async def _init_sqlite():
-    async with engine.begin() as conn:
-        await conn.exec_driver_sql("PRAGMA journal_mode=WAL")
-        await conn.exec_driver_sql("PRAGMA busy_timeout=30000")
 
 
 def start_process_safe_logging(log_path: str, level: int = logging.INFO):
@@ -352,10 +334,12 @@ def _url_scrape_worker(
                     payload = url_link_tuples_process_queue.get(timeout=1)
                     if payload is None:
                         # sentinel to indicate no more data
+                        logger.info("no data yet, repolling")
                         break
+                    logger.info(payload)
                     link_id, url = payload
                 except Empty:
-                    logger.debug("task queue empty; polling again")
+                    logger.info("task queue empty; polling again")
                     continue
 
                 logger.info(f"processing url: {url}")
@@ -421,6 +405,8 @@ def _url_scrape_worker(
                     logger.exception(f"unhandled scrape error for {url}: {e}")
                     stop_processing_event.set()
                     # do not break immediately; let finally close resources
+        except:
+            logger.exception("something bad happened when getting a url")
 
         finally:
             logger.info("worker shutting down; closing context/browser")
@@ -485,6 +471,7 @@ def scrape_urls(
             for f in worker_futures:
                 f.result()
             logger.info("_url_scrape_workers are finished, signal to stop")
+            url_to_content_queue.put(None)
             stop_processing_event.set()
             logger.info("await writer task")
             writer_future.result()
@@ -494,33 +481,63 @@ def scrape_urls(
         logger.info("all done with scrape url, exiting")
 
 
-def stream_links(log_queue: MPQueue, max_items: int | None = None):
-    """Generator for links that need fetching in the DB."""
+def stream_links(
+    log_queue: MPQueue, max_items: int | None = None
+) -> Iterator[Tuple[int, str, str | None]]:
+    def _is_error_like(text: str | None) -> bool:
+        if text is None:
+            return True
+        t = text.strip()
+        if not t:
+            return True
+        if t.startswith("Error:"):
+            return True
+        if "[[" in t:
+            return True
+        if "Traceback" in t:
+            return True
+        if "HTTP 4" in t or "HTTP 5" in t:
+            return True
+        return False
+
     logger = configure_worker_logger(log_queue, logging.DEBUG, "stream_links")
-    logger.info("open AsyncSession")
-    with SessionLocal() as sess:
-        logger.info("build statement")
-        stmt = select(Link.id, Link.url).execution_options(
-            stream_results=True,
-            yield_per=500,
+    logger.info("open Session")
+    with SessionLocal() as sess:  # type: Session
+        logger.info("build statement (links + content)")
+        stmt = (
+            select(Link.id, Link.url, Content.text)
+            .outerjoin(Content, Link.content_id == Content.id)
+            .execution_options(stream_results=True, yield_per=500)
         )
         if max_items is not None:
             logger.info(f"limit {max_items}")
-            stmt = stmt.limit(max_items)
+            # stmt = stmt.limit(max_items)
 
         logger.info("create stream (may wait if DB is locked)")
-        result = sess.stream(stmt)
+        result = sess.execute(stmt)
 
         yielded = 0
-        logger.info("iterate remaining rows...")
+        scanned = 0
+        logger.info("iterate rows...")
         for row in result:
-            yielded += 1
-            if yielded % 100 == 0:
-                logger.info(f"yielded {yielded} rows so far...")
-            logger.info(f"yielding row {yielded}: id={row.id}, url={row.url}")
-            yield (row.id, row.url)
-
-        logger.info(f"done, total yielded={yielded}")
+            scanned += 1
+            link_id, url, text = row
+            if _is_error_like(text):
+                yielded += 1
+                if yielded % 100 == 0:
+                    logger.info(
+                        f"yielded {yielded} error-like rows so far (scanned={scanned})..."
+                    )
+                logger.debug(
+                    f"yielding id={link_id}, url={url}, content_is_none={text is None}"
+                )
+                yield (link_id, url)
+                if yielded == max_items:
+                    logger.info(
+                        f"terminating early after {yielded} items of {max_items}"
+                    )
+                    break
+        logger.info(f"done, scanned={scanned}, yielded={yielded}")
 
 
 def db_writer(url_to_content_queue, stop_event, log_queue):
@@ -528,37 +545,41 @@ def db_writer(url_to_content_queue, stop_event, log_queue):
     pending = []
     logger = configure_worker_logger(log_queue, logging.DEBUG, "db_writer")
     logger.info("starting up")
-    with SessionLocal() as sess:
-        while True:
-            if (
-                stop_event.is_set()
-                and url_to_content_queue.empty()  # noqa: W503
-                and not pending  # noqa: W503
-            ):
-                logger.info(
-                    "stop is set, content is empty and nothing pending, quitting"
-                )
-                break
-            try:
-                status, link_id, url, payload = url_to_content_queue.get(
-                    timeout=0.5
-                )
-                pending.append((status, url, payload))
-            except Empty:
-                logger.info("no content to write, waiting for some...")
+    while True:
+        if (
+            stop_event.is_set()
+            and url_to_content_queue.empty()  # noqa: W503
+            and not pending  # noqa: W503
+        ):
+            logger.info(
+                "stop is set, content is empty and nothing pending, quitting"
+            )
+            break
+        try:
+            payload = url_to_content_queue.get()
+            if payload is None:
+                logger.info("got a sentinel, all work done, shutting down...")
+                stop_event.set()
+                continue
+            status, link_id, url, content = payload
+            pending.append((status, url, content))
+        except Empty:
+            logger.info("no content to write, waiting for some...")
 
-            if pending and (len(pending) >= BATCH_SIZE or stop_event.is_set()):
+        if pending and (len(pending) >= BATCH_SIZE or stop_event.is_set()):
+            logger.info(f"attempting to write {len(pending)} content items")
+            with SessionLocal() as sess:
                 # write a batch (pseudo upsert)
                 try:
-                    for status, url, payload in pending:
-                        logger.info(f"{status}: {url}: {payload}")
+                    for status, url, content in pending:
+                        logger.info(f"{status}: {url}: {content}")
                         if status == "ok":
                             logger.error("ok status not implemented")
                             # TODO: replace with your model + upsert (example shown)
-                            # sess.add(Content(url=url, text=payload))
+                            # sess.add(Content(url=url, text=content))
                         else:
                             # optionally write to an errors table
-                            # sess.add(ScrapeError(url=url, message=payload))
+                            # sess.add(ScrapeError(url=url, message=content))
                             logger.error("error status not implemented")
                     sess.commit()
                 except Exception:
@@ -571,9 +592,8 @@ async def _main():
     log_queue, listener, manager = start_process_safe_logging(
         "logs/scraper_errors.log"
     )
-    main_logger = configure_worker_logger(log_queue, logging.INFO, "main")
+    main_logger = configure_worker_logger(log_queue, logging.DEBUG, "main")
     set_catch_and_log_logger(main_logger)
-    await _init_sqlite()
     scrape_urls(
         stream_links(log_queue, 1),
         1,
