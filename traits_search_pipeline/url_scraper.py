@@ -735,7 +735,7 @@ async def _main():
         (-1, "https://esajournals.onlinelibrary.wiley.com/doi/10.1002/eap.2196")
     ]
     scrape_urls(
-        temp_links,  # stream_links(log_queue, 1),
+        stream_links(log_queue),
         1,
         manager,
         log_queue,
