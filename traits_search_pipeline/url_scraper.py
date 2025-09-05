@@ -1,22 +1,21 @@
-"""# noqa: D200, D205, D210, D415
-docker build -t apify_pcld:latest . && docker run --rm -it -v "%CD%/apify_storage":/apify_storage apify_pcld:latest
-"""
-
 from __future__ import annotations
-import functools
-import traceback
 from concurrent.futures import ProcessPoolExecutor
 from io import BytesIO
 from multiprocessing import Queue as MPQueue, Manager
+from pathlib import Path
 from queue import Empty
+from tempfile import NamedTemporaryFile
 from typing import Iterable, Tuple, Iterator
 import asyncio
+import functools
+import hashlib
 import html as html_utils
-from pathlib import Path
-import logging
 import inspect
+import logging
 import logging.handlers
+import os
 import re
+import traceback
 
 from bs4 import BeautifulSoup
 from pdfminer.high_level import extract_text as pm_extract
@@ -30,6 +29,7 @@ from pypdf import PdfReader
 from readability import Document  # readability-lxml
 from sqlalchemy import select, create_engine
 from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 import trafilatura
 
 from models import Content, Link, DB_URI
@@ -41,6 +41,8 @@ USER_AGENT = (
 
 PDF_MAX_PAGES = 50
 BATCH_SIZE = 10
+NAV_TIMEOUT_MS = 60000
+DOWNLOAD_SENTINEL = "Download is starting"
 
 sync_engine = create_engine(
     DB_URI,
@@ -163,6 +165,7 @@ def configure_worker_logger(
     return logger
 
 
+@catch_and_log()
 def extract_text(html: str, base_url: str | None = None) -> str:
     """Extract readable text content from raw HTML, using multiple fallbacks.
 
@@ -280,29 +283,33 @@ def soft_block_detect(page) -> bool:
     )
 
 
+@catch_and_log()
 def _url_scrape_worker(
     url_link_tuples_process_queue,
     url_to_content_queue,
     stop_processing_event,
     log_queue,
 ):
-    """Processes given urls to scrape respective webpages."""
     logger = configure_worker_logger(
-        log_queue, logging.DEBUG, "_url_scrape_worker"
+        log_queue, GLOBAL_LOG_LEVEL, "_url_scrape_worker"
     )
 
     browser = None
     context = None
-    pages_done = 0
+    processed_count = 0
 
     def _open_browser():
         nonlocal browser, context
-        if browser:
+        # close stale handles
+        for closer, label in (
+            (getattr(context, "close", None), "context"),
+            (getattr(browser, "close", None), "browser"),
+        ):
             try:
-                logger.debug("closing existing browser before reopen")
-                browser.close()
+                closer and closer()
             except PlaywrightError as e:
-                logger.debug(f"ignoring browser close error during reopen: {e}")
+                logger.debug(f"ignoring {label} close error during reopen: {e}")
+
         logger.info("launching browser")
         browser = pw.chromium.launch(
             headless=True,
@@ -322,8 +329,142 @@ def _url_scrape_worker(
             java_script_enabled=True,
             ignore_https_errors=True,
             extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
+            accept_downloads=True,  # critical for handling attachment navigations
         )
         logger.info("browser/context ready")
+
+    def _read_download_bytes(download) -> bytes:
+        # prefer the already-downloaded path; otherwise stream to a temp file
+        try:
+            path = download.path()
+        except PlaywrightError:
+            path = None
+        if path:
+            return Path(path).read_bytes()
+        with NamedTemporaryFile(delete=False) as tmp:
+            tmp_name = tmp.name
+        try:
+            download.save_as(tmp_name)
+            return Path(tmp_name).read_bytes()
+        finally:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+
+    def _is_probable_pdf_url(url: str) -> bool:
+        lo = url.lower()
+        return (
+            lo.endswith(".pdf") or "contenttype=pdf" in lo or "format=pdf" in lo
+        )
+
+    def _is_pdf_download(download, src_url: str) -> bool:
+        filename = (getattr(download, "suggested_filename", "") or "").lower()
+        if filename.endswith(".pdf"):
+            return True
+        return looks_pdf_from_headers_url("", src_url)
+
+    def _download_via_goto(page, target_url: str) -> Tuple[str, str]:
+        # Expect a download and swallow the Page.goto exception inside the 'with' block.
+        with page.expect_download(timeout=NAV_TIMEOUT_MS) as download_info:
+            try:
+                page.goto(
+                    target_url, wait_until="commit", timeout=NAV_TIMEOUT_MS
+                )
+            except PlaywrightError as e:
+                if DOWNLOAD_SENTINEL not in str(e):
+                    raise
+                # swallow the expected 'Download is starting' so that expect_download can resolve
+        download = download_info.value
+        src_url = getattr(download, "url", None) or target_url
+        blob = _read_download_bytes(download)
+        if _is_pdf_download(download, src_url):
+            text = parse_pdf_bytes(blob, max_pages=PDF_MAX_PAGES)
+        else:
+            try:
+                text = blob.decode("utf-8", "ignore")
+            except Exception:
+                text = ""
+        return text, src_url
+
+    def _fetch_bytes_via_request(target_url: str) -> Tuple[str, bytes]:
+        # Fallback path that avoids renderer entirely
+        resp = context.request.get(target_url, timeout=NAV_TIMEOUT_MS)
+        if not resp.ok:
+            raise RuntimeError(
+                f"GET {target_url} failed: {resp.status} {resp.status_text()}"
+            )
+        return resp.headers.get("content-type", ""), resp.body()
+
+    def _extract_text_from_page(page, response, url: str) -> Tuple[str, str]:
+        try:
+            page.wait_for_load_state("networkidle", timeout=NAV_TIMEOUT_MS)
+        except PWTimeoutError:
+            logger.debug("networkidle timeout; proceeding with current DOM")
+
+        content_type = (
+            response.headers.get("content-type") if response else ""
+        ) or ""
+        final_url = response.url if response else url
+        logger.debug(f"content-type={content_type!r} final_url={final_url}")
+
+        if looks_pdf_from_headers_url(content_type, final_url):
+            logger.debug("detected pdf; fetching body via response")
+            data = response.body() if response else b""
+            text_content = parse_pdf_bytes(data, max_pages=PDF_MAX_PAGES)
+        else:
+            logger.debug("extracting html content")
+            html = page.content()
+            text_content = extract_text(html, base_url=final_url)
+
+        return text_content, final_url
+
+    def _navigate_and_collect_text(target_url: str) -> Tuple[str, str]:
+        # Prefer direct download handling when the URL clearly points to a file.
+        page = context.new_page()
+        try:
+            if _is_probable_pdf_url(target_url):
+                logger.debug("url looks like a file; handling as download")
+                return _download_via_goto(page, target_url)
+
+            logger.debug(f"goto domcontentloaded: {target_url}")
+            response = page.goto(
+                target_url,
+                wait_until="domcontentloaded",
+                timeout=NAV_TIMEOUT_MS,
+            )
+            return _extract_text_from_page(page, response, target_url)
+
+        except PlaywrightError as e:
+            msg = str(e)
+            if DOWNLOAD_SENTINEL in msg:
+                logger.debug(
+                    "download detected from goto exception; handling as download"
+                )
+                try:
+                    return _download_via_goto(page, target_url)
+                except PlaywrightError as e2:
+                    # If even the download path fails, try request client as a final fallback.
+                    logger.debug(
+                        f"download via goto failed: {e2}; falling back to request client"
+                    )
+                    ctype, blob = _fetch_bytes_via_request(target_url)
+                    if looks_pdf_from_headers_url(ctype or "", target_url):
+                        return (
+                            parse_pdf_bytes(blob, max_pages=PDF_MAX_PAGES),
+                            target_url,
+                        )
+                    try:
+                        return blob.decode("utf-8", "ignore"), target_url
+                    except Exception:
+                        return "", target_url
+            # If it's a different Playwright error, rethrow to outer handler.
+            raise
+        finally:
+            try:
+                page.close()
+            except PlaywrightError:
+                pass
 
     logger.info("worker start")
     with sync_playwright() as pw:
@@ -331,83 +472,49 @@ def _url_scrape_worker(
         try:
             while not stop_processing_event.is_set():
                 try:
-                    payload = url_link_tuples_process_queue.get(timeout=1)
-                    if payload is None:
-                        # sentinel to indicate no more data
-                        logger.info("no data yet, repolling")
-                        break
-                    logger.info(payload)
-                    link_id, url = payload
+                    item = url_link_tuples_process_queue.get(timeout=1)
                 except Empty:
                     logger.info("task queue empty; polling again")
                     continue
 
-                logger.info(f"processing url: {url}")
+                if item is None:
+                    logger.info("received sentinel; exiting")
+                    break
+
+                link_id, target_url = item
+                logger.info(f"processing url: {target_url}")
+
                 try:
-                    with context.new_page() as page:
-                        logger.debug(f"goto domcontentloaded: {url}")
-                        response = page.goto(
-                            url,
-                            wait_until="domcontentloaded",
-                            timeout=60000,
-                        )
-                        try:
-                            logger.debug("waiting for networkidle")
-                            page.wait_for_load_state(
-                                "networkidle", timeout=60000
-                            )
-                        except PWTimeoutError:
-                            logger.debug(
-                                "networkidle timeout; proceeding with current DOM"
-                            )
-
-                        content_type = (
-                            response.headers.get("content-type")
-                            if response
-                            else ""
-                        ) or ""
-                        response_url = response.url if response else url
-                        logger.debug(
-                            f"content-type={content_type!r} final_url={response_url}"
-                        )
-
-                        if looks_pdf_from_headers_url(
-                            content_type, response_url
-                        ):
-                            logger.debug("detected pdf; fetching body")
-                            data = response.body() if response else b""
-                            content = parse_pdf_bytes(
-                                data, max_pages=PDF_MAX_PAGES
-                            )
-                            logger.debug(
-                                f'pdf parsed ({len(content) if isinstance(content, str) else "n/a"} chars)'
-                            )
-                        else:
-                            logger.debug("extracting html content")
-                            html = page.content()
-                            content = extract_text(html, base_url=response_url)
-                            logger.debug(
-                                f"html extracted ({len(content)} chars)"
-                            )
-
-                        url_to_content_queue.put(("ok", link_id, url, content))
-                        pages_done += 1
-                        logger.info(
-                            f"queued result for {url} (total processed: {pages_done})"
-                        )
-
+                    text_content, final_url = _navigate_and_collect_text(
+                        target_url
+                    )
+                    logger.info(
+                        f"this is the final url {final_url} and text content {text_content}"
+                    )
+                    url_to_content_queue.put(
+                        (link_id, target_url, text_content)
+                    )
+                    processed_count += 1
+                    logger.info(
+                        f"queued result for {target_url} (total processed: {processed_count})"
+                    )
                 except PlaywrightError as e:
                     logger.warning(
-                        f"playwright error on {url}: {e}; restarting browser/context"
+                        f"playwright error on {target_url}: {e}; restarting browser/context\n\n"
+                        + "".join(
+                            traceback.format_exception(
+                                type(e), e, e.__traceback__
+                            )
+                        )
                     )
                     _open_browser()
                 except Exception as e:
-                    logger.exception(f"unhandled scrape error for {url}: {e}")
+                    logger.exception(
+                        f"unhandled scrape error for {target_url}: {e}"
+                    )
                     stop_processing_event.set()
-                    # do not break immediately; let finally close resources
-        except:
-            logger.exception("something bad happened when getting a url")
-
+        except Exception:
+            logger.exception("unexpected failure in worker loop")
         finally:
             logger.info("worker shutting down; closing context/browser")
             try:
@@ -420,7 +527,7 @@ def _url_scrape_worker(
                     browser.close()
             except PlaywrightError as e:
                 logger.debug(f"ignoring browser close error: {e}")
-            logger.info(f"worker exit after processing {pages_done} pages")
+            logger.info(f"worker exit after processing {processed_count} pages")
 
 
 @catch_and_log()
@@ -435,7 +542,7 @@ def scrape_urls(
     url_link_tuples_process_queue = manager.Queue()
     url_to_content_queue = manager.Queue()
     stop_processing_event = manager.Event()
-    logger = configure_worker_logger(log_queue, logging.DEBUG, "scrape_urls")
+    logger = configure_worker_logger(log_queue, GLOBAL_LOG_LEVEL, "scrape_urls")
     n_workers = min(max_concurrency, psutil.cpu_count(logical=False))
     try:
         logger.info("start writer")
@@ -481,6 +588,7 @@ def scrape_urls(
         logger.info("all done with scrape url, exiting")
 
 
+@catch_and_log()
 def stream_links(
     log_queue: MPQueue, max_items: int | None = None
 ) -> Iterator[Tuple[int, str, str | None]]:
@@ -500,7 +608,9 @@ def stream_links(
             return True
         return False
 
-    logger = configure_worker_logger(log_queue, logging.DEBUG, "stream_links")
+    logger = configure_worker_logger(
+        log_queue, GLOBAL_LOG_LEVEL, "stream_links"
+    )
     logger.info("open Session")
     with SessionLocal() as sess:  # type: Session
         logger.info("build statement (links + content)")
@@ -538,14 +648,16 @@ def stream_links(
                     )
                     break
         logger.info(f"done, scanned={scanned}, yielded={yielded}")
+    logger.info("terminated")
 
 
+@catch_and_log()
 def db_writer(url_to_content_queue, stop_event, log_queue):
     """Watch the queue to see links/content come back ready to insert in the db."""
     pending = []
-    logger = configure_worker_logger(log_queue, logging.DEBUG, "db_writer")
+    logger = configure_worker_logger(log_queue, GLOBAL_LOG_LEVEL, "db_writer")
     logger.info("starting up")
-    while True:
+    while not stop_event.is_set():
         if (
             stop_event.is_set()
             and url_to_content_queue.empty()  # noqa: W503
@@ -560,9 +672,9 @@ def db_writer(url_to_content_queue, stop_event, log_queue):
             if payload is None:
                 logger.info("got a sentinel, all work done, shutting down...")
                 stop_event.set()
-                continue
-            status, link_id, url, content = payload
-            pending.append((status, url, content))
+            else:
+                link_id, url, content = payload
+                pending.append((link_id, url, content))
         except Empty:
             logger.info("no content to write, waiting for some...")
 
@@ -571,31 +683,59 @@ def db_writer(url_to_content_queue, stop_event, log_queue):
             with SessionLocal() as sess:
                 # write a batch (pseudo upsert)
                 try:
-                    for status, url, content in pending:
-                        logger.info(f"{status}: {url}: {content}")
-                        if status == "ok":
-                            logger.error("ok status not implemented")
-                            # TODO: replace with your model + upsert (example shown)
-                            # sess.add(Content(url=url, text=content))
-                        else:
-                            # optionally write to an errors table
-                            # sess.add(ScrapeError(url=url, message=content))
-                            logger.error("error status not implemented")
+                    for link_id, url, content in pending:
+                        content_hash = hashlib.sha256(
+                            content.encode("utf-8")
+                        ).hexdigest()
+
+                        # insert the new content if it does not exist
+                        sess.execute(
+                            sqlite_insert(Content)
+                            .values(content_hash=content_hash, text=content)
+                            .on_conflict_do_nothing(
+                                index_elements=["content_hash"]
+                            )
+                        )
+
+                        content_id = sess.execute(
+                            select(Content.id).where(
+                                Content.content_hash == content_hash
+                            )
+                        ).scalar_one()
+
+                        # insert the link or update its content id if it
+                        # already exists
+                        sess.execute(
+                            sqlite_insert(Link)
+                            .values(url=url, content_id=content_id)
+                            .on_conflict_do_update(
+                                index_elements=["url"],
+                                set_={"content_id": content_id},
+                            )
+                        )
+                        logger.info(f"{link_id}: {url}: {content}")
                     sess.commit()
                 except Exception:
+                    logger.exception("something bad happened on insert")
                     sess.rollback()
                 finally:
                     pending.clear()
+    logger.info("terminated")
 
 
 async def _main():
+    global GLOBAL_LOG_LEVEL
+    GLOBAL_LOG_LEVEL = logging.DEBUG
     log_queue, listener, manager = start_process_safe_logging(
         "logs/scraper_errors.log"
     )
-    main_logger = configure_worker_logger(log_queue, logging.DEBUG, "main")
+    main_logger = configure_worker_logger(log_queue, GLOBAL_LOG_LEVEL, "main")
     set_catch_and_log_logger(main_logger)
+    temp_links = [
+        (-1, "https://esajournals.onlinelibrary.wiley.com/doi/10.1002/eap.2196")
+    ]
     scrape_urls(
-        stream_links(log_queue, 1),
+        temp_links,  # stream_links(log_queue, 1),
         1,
         manager,
         log_queue,
