@@ -1,0 +1,1405 @@
+praon abjectum
+melittobia acasta
+omalus aenus
+rogadinae: aleoides
+chrysis angustula
+ancistrocerus antilope
+helicoverpa armigera
+monodontomerus auratus
+omalus auratus
+aphidius avenae
+sitobion avenae
+vorya ayerzai
+pemphredon baltica
+symmorphus bifasciatus
+mamestra brassicae
+auplopus carbonarius
+dendrocerus carpenteri
+myzus cerasi
+leaf chewing
+ancistrocerus claripennis
+trypoxylon clavicerum
+sapyga clavicornis
+liriomyza commelinae
+psenulus concolor
+passaloecus corniger
+conopomorpha cramarella
+chrysis cyanea
+symmorphus debilitatus
+leptinotarsa decemlineata
+eriborus epiphyas
+passaloecus eremita
+aphidius ervi
+trypoxylon figulus
+chrysocharis flacilla
+spodoptera frugiperda
+ancistrocerus gazella
+aphis glycines
+chaenotetrastichus grangeri
+halticoptera helioponi
+pteromalinae heteroschema
+chrysis ignita
+cacoxenus indagator
+chrysis indigotea
+pemphredon inornata
+passaloecus insignis
+lygus lineolaris
+pemphredon lugubris
+trypoxylon minus
+ancistrocerus nigricornis
+parlatoria oleae
+oligosita pallida
+psenulus pallipes
+ancistrocerus parietum
+diglyphus pedicellus
+all pests
+acyrthosiphon pisum
+ephedrus plagiator
+hypera postica
+omalus pusillus
+diaeretiella rapae
+aphidius rhopalosiphi
+pemphredon rugifera
+chaenotetrastichus semiflavus
+stigmus solskyi
+dipogon subintermedius
+helopeltis sulawesi
+asaphes suspensus
+dolichogenidea tasmanica
+ancistrocerus trifasciatus
+therioaphis trifolii
+megatoma undata
+aphidius uzbekistanicus
+aphelinus varipes
+alloxysta victrix
+omalus violaceus
+praon volucre
+chrysocharis vonones
+allodynerus rossii
+diglyphus websteri
+proacrias xenodice
+helicoverpa zea
+discoelius zonalis
+anarchis
+ancistrocerus
+blacus
+bracon
+cynipoidea
+dacnusini
+dibrachys
+dinocampus
+encyrtidae
+gasteruption
+goniozus
+hymenoptera
+ichneumonidae
+lytopylus
+macrocentrus
+meteorus
+microctonus
+monodontomerus
+passaloecus
+pemphredon
+psenulus
+symmorphus
+tachinidae
+trichogramma
+trimorous
+trypoxylon
+estigmene acrea
+meligethes aeneus
+eupoecilia ambiguella
+uroleucon ambrosiae
+eurytoma amygdali
+orosius argentatus
+helicoverpa armigera
+aonidiella aurantii
+toxoptera aurantii
+forficula auricularia
+sitobion avenae
+eutetranychus banksi
+diabrotica barberi
+flea beetles
+lobesia botrana
+halticus bractatus
+brevicoryne brassicae
+pieris brassicae
+trigonotylus caelestialium
+ceratitis capitata
+myzus cerasi
+rhagoletis cerasi
+cephus cinctus
+phyllocnistic citrella
+panonychus citri
+planococcus citri
+leucoptera coffeella
+copitarsia consueta
+aphis craccivora
+metopholophium dihrodum
+creonitades dilutus
+creontiades dilutus
+metopolophium dirhodum
+capitophorus elaeagni
+eucarazzia elegans
+petrusa epilepsis
+lipaphis erysimi
+macrosiphum euphorbiae
+spodoptera exigua
+aphis fabae
+empoasca fabae
+calamobius filum
+scaptomyza flava
+hyadaphis foeniculi
+paria fragariae
+systena frontalis
+busseola fusca
+stelidota geminata
+habrochila ghesquierei
+aphis glycines
+cryptoblabes gnidiella
+pectinophora gossypiella
+aphis gossypii
+schizaphis graminun
+hypothenemus hampei
+lygus hesperus
+acrosternum hilare
+bagrada hilaris
+liriomyza huidobrensis
+thrips imaginis
+earias insulana
+rhabdopterus jansoni
+popillia japonica
+acyrthosiphon kondoi
+hyperomyzus lactucae
+thaumatotibia leucotreta
+campylomma liebknechti
+lygus lineolaris
+adelphocoris lineolatus
+spodoptera littoralis
+deudorix livia
+oxycarenus luctuosus
+mythimna loreyi
+rhopalosiphum maidis
+sipha maydis
+oulema melanopus
+leucoptera meyricki
+parabemisia myricae
+trichoplusia ni
+ostrinia nubilalis
+frankliniella occidentalis
+aceria oleae
+bactrocera oleae
+prays oleae
+euphyllura olivina
+creontiades pacificus
+rhopalosiphum padi
+javasella pellucida
+myzus persicae
+acyrthosiphon pisum
+hypera postica
+delia radicum
+nasonovia ribisnigri
+stenotus rubrovittatus
+rhopalosiphum rufiabdominale
+solenopsis saevissima
+liriomyza sativae
+frankliniella schultzei
+anthonomus signatus
+ophiomyia simplex
+tecia solanivora
+helopeltis sulawesi
+premnotrypes suturicallus
+bemisia tabaci
+thrips tabaci
+aphodius tasmaniae
+amrasca terraereginae
+therioaphis trifolii
+cerotoma trifurcata
+copitarsia turbata
+diabrotica undecimpunctata
+monosteria unicostata
+aliticini
+aphididae
+aphidoidea
+austroasca
+chaetocnema
+curculionidae
+diabrotica
+frankliniella
+lepidoptera
+liriomyza
+lygus
+melanoplinae
+myodocha
+oecanthinae
+oedipodinae
+oulema
+piezodorus
+pterohelaeus
+rhizoglyphus
+rivellia
+tetranychus urticae
+trialeurodes vaporariorum
+nysius vinitor
+diabrotica virgifera
+austroasca viridigrisea
+coccus viridis
+nezara viridula
+calepitrimerus vitis
+acalymma vittatum
+plutella xylostella
+helicoverpa zea
+auchenorrhyncha
+carpophilus
+cicadellidae
+deraeocoris
+euschistus
+helicoverpa
+thraupis abbas
+mangora acalifa
+mangora acalypha
+walckenaeria acuminata
+neoscona adianta
+troglodytes aedon
+amara aenea
+philonthus aeneipennis
+bembidion aeneum
+notiophilus aesthuans
+notiophilus aestuans
+euphonia affinis
+harpalus affinis
+meioneta affinis
+tiphia agilis
+pachyramphus aglaiae
+synuchus agonus
+oedothorax agrestis
+pardosa agrestis
+pardosa agricola
+motacilla alba
+nyctidromus albicollis
+empidonax albigularis
+aulonia albimana
+technomyrmex albipes
+empidonax alnorum
+pardosa alticola
+hypsipetes amaurotis
+bembidion ambiguum
+calathus ambiguus
+macropygia amboinensis
+pardosa amentata
+nabis americoferus
+amischa analis
+gyrohypnus angustatus
+dinaraea angustula
+pterostichus anthracinus
+walckenaeria antica
+campsomeriella annulata
+harpalus anxius
+aphidoletes aphidimyza
+pachycondyla apicalis
+oedothorax apicatus
+amara apricaria
+himacerus apterus
+notiophilus aquaticus
+plagiognathus arbustorum
+ophonus ardosiacus
+calosoma argentinense
+robertus arundineti
+carabus arvensis
+nectarinia aspasia
+agonum assimile
+limodromus assimilis
+patrobus assimilis
+platynus assimilis
+abax ater
+acrotona aterima
+pterostichus aterrimus
+erigone atra
+harpalus atratus
+demetrias atricapillus
+saltator atriceps
+zosterops atrifrons
+anthobium atrocephalum
+patrobus atrorufus
+walckenaeria atrotibialis
+harpalus attenuatus
+xysticus audax
+xantholinus audrasi
+amara aulica
+catharus aurantiirostris
+carabus auratus
+dicaeum aureolimbatum
+forficula auricularia
+melanerpes aurifrons
+pycnonotus aurigaster
+seiurus aurocapilla
+seiurus aurocapillus
+carabus auronitens
+paratrechina auropuctata
+wasmannia auropunctata
+calosoma auropunctatum
+phoenicurus auroreus
+catadromus australis
+paratrechina austroccidua
+harmonia axyridis
+pheidole azul
+hypothymis azurea
+ophonus azureus
+dolycoris baccarum
+laemostenus baeticus
+episyrphus balteatus
+diabrotica barberi
+cephalotes basalis
+dicranolaius bellulus
+centropus bengalensis
+amazilia beryllina
+teropha besti
+melozone biarcuata
+closterotomus biclavatus
+centromerita bicolor
+scymnus bicolor
+piranga bidentata
+amara bifrons
+hyperaspis bigeminata
+bembidion biguttatum
+notiophilus biguttatus
+aleochara bilineata
+theridion bimaculatum
+mycetoporus bimaculatus
+anisodactylus binotactaus
+hyperaspis binotata
+anisodactylus binotatus
+thyreosthenius biovatus
+adalia bipunctata
+aleochara bipustulata
+badister bipustulatus
+pseudomyrmex boopis
+oxypoda brachyptera
+nebria brevicollis
+aleochara brevipennis
+ceratinella brevipes
+rhynchocyclus brevirostris
+ceratinella brevis
+nabis brevis
+centromerus brevivulvatus
+plataraea brunnea
+acupalpus brunnipes
+lanius bucephalus
+platytarus bufo
+badister bullatus
+harpalus bungii
+passerina caerulea
+polioptila caerulea
+falagria caesa
+phaenicophaeus calyorhynchus
+cicindela campestris
+drusilla canaliculata
+carabus cancellatus
+carabus cancellatus
+manacus candei
+camponotus canescens
+cuculus canorus
+picus canus
+dixus capito
+harpalus capito
+cychrus caraboides
+larra carbonaria
+rodolia cardinalis
+crematogaster carinata
+chrysoperla carnea
+dumetella carolinensis
+hirundapus caudacutus
+piaya cayana
+atheta celata
+trichastoma celebense
+dicaeum celebicum
+broscus cephalotes
+harpalus chalcentus
+nebria chinensis
+oriolus chinensis
+elvira chionura
+halcyon chloris
+zosterops chloris
+thryreocephalus chloropterus
+chlaenius chrysocephalus
+tachyporus chrysomelinus
+vermivora chrysoptera
+cicurina cicur
+calathus cinctus
+sturnus cineraceus
+motacilla cinerea
+oncostoma cinereigulare
+todirostrum cinereum
+contopus cinereus
+bolitobius cingulatus
+emberiza cioides
+passerina ciris
+stenus clavicornis
+pachygnatha clercki
+labidus coecus
+saltator coerulescens
+philonthus cognatus
+clivina collaris
+archilochus colubris
+archilocus colubris
+amara communis
+diplostyla concolor
+harmonia conformis
+amara congrua
+arremonops conirostris
+eriopis connexa
+polistichus connexus
+heliomaster constantii
+amara consularis
+hippodamia convergens
+amara convexior
+porrhomma convexum
+carabus convexus
+hister coprophilus
+trigonognatha coreana
+nebria coreica
+cambalida coriacea
+carabus coriaceus
+walckenaeria corniculans
+sintula corniger
+platystethus cornutus
+larinioides cornutus
+eupeodes corollae
+harpalus corporosus
+ellychnia corrusca
+microlestes corticalis
+carpelimus corticinus
+sporophila corvina
+atheta crassicornis
+poecilus crenulatus
+brachinus crepitans
+diplocephalus cristatus
+lanius cristatus
+xysticus cristatus
+bembidion cruciatum
+basileuterus culicivorus
+alopecosa cuneata
+harpalus cupreus
+poecilus cupreus
+pterostichus cupreus
+scopaeus currax
+poecilus cursorius
+amara curta
+aleochara curtula
+asaphidion curtum
+cyanopica cyana
+passerina cyanea
+trichrysis cyanea
+cyanerpes cyaneus
+cyanocompsa cyanoides
+pygochelidon cyanoleuca
+lampona cylindrata
+amischa decipiens
+dinodes decipiens
+agyneta decora
+hylophilus decurtatus
+pachygnatha degeeri
+erigone dentipalpis
+drypta dentata
+erigone dentipalpis
+araneus diadematus
+stenolophus difficilis
+ophonus diffinis
+pterostichus diligens
+harpalus dimidiatus
+cettia diphone
+stenolophus discophorus
+nipponoharpalus discrepans
+blemus discus
+trechus discus
+harpalus distinguendus
+tribalus distinguendus
+aleochara diversa
+dives dives
+thamnophilus doliatus
+agonum dorsale
+acupalpus dorsalis
+anchomenus dorsalis
+platinus dorsalis
+diaea dorsata
+scissirostrum dubium
+agonum duftschmidi
+walckenaeria dysderoides
+walkenaeria dysderoides
+zelotes electus
+antistea elegans
+emberiza elegans
+silometopus elegans
+dismodicus elevatus
+strumigenys elongata
+corvus enca
+harpalus eous
+thraupis episcopus
+upupa epops
+amara equestris
+eridantes erigonoides
+calathus erratus
+dysdera erythrina
+synallaxis erythrothorax
+collocalia esculenta
+collocalia esculenta
+gynandromorphus etruscus
+siagona europaea
+amara eurynota
+cisticola exilis
+loriculus exilis
+oxypoda exoleta
+tallusia experta
+brachinus explodens
+tetragnatha extensa
+alopecosa fabrilis
+jacksonella falconeri
+amara famelica
+amara familiaris
+melanostoma fasciatum
+archipatrobus femoralis
+dicranoncus femoralis
+bembidion femoratum
+leistus ferrugineus
+nabis ferus
+larra festirans
+phrurolithus festivus
+motacilla flava
+vespula flaviceps
+xiphorhynchus flavigaster
+asaphidion flavipes
+empidonax flaviventris
+elaenia flavogaster
+euryopis flavomaculata
+trichoglossus flavoviridis
+vireo flavoviridis
+empidonax flavescens
+rhyzobius forestieri
+calocitta formosa
+chrysopa formosa
+clivina fossor
+metabletus foveatus
+syntomus foveatus
+foveosa foveolata
+glenognatha foxi
+micraspis frenata
+harpalus froelichii
+scymnus frontalis
+trypoxylon fronticorne
+agonum fuliginosum
+rhagonycha fulva
+lathrobium fulvipenne
+cycloneda fulvipennis
+carterus fulvipes
+pardosa fulvipes
+technomyrmex fulvus
+sporophila funerea
+atheta fungi
+calathus fuscipes
+monocephalus fuscipes
+apostenus fuscus
+oedothorax fuscus
+icterus galbula
+solenopsis geminata
+diachromus germanus
+notiophilus germinyi
+oedothorax gibbosus
+amara gigantea
+bembidion gilvipes
+vireo gilvus
+poecilus gisellae
+amara glabrata
+carabus glabratus
+dyschiriodes globosus
+pterostichus globosus
+solenopsis globularia
+pyramica goblin
+agonum gracilipes
+bathyphantes gracilis
+oodes gracilis
+carabus granulatus
+acrotona grata
+notonomus gravis
+zabrus gravis
+turdus grayi
+aloconota gregaria
+sittasomus griseicapillus
+harpalus griseus
+ophonus griseus
+pseudoophonus griseus
+paratrechina guatemalensis
+icterus gularis
+pyramica gundlachi
+bembidion guttula
+meioneta habra
+oxypoda haemorrhoa
+calathus halensis
+dolichus halensis
+pterostichus haptoderoides
+ocys harpaloides
+hypoponera harpax
+pachycondyla harpax
+culicicapa helianthea
+oodes helopioides
+micrargus herbigradus
+erigonella hiemalis
+arachnura higginsii
+crematogaster hirsuta
+euphonia hirundinacea
+parophonus hispanus
+harpalus honestus
+carabus hortensis
+pardosa hortensis
+cerceris hortivaga
+araeoncus humilis
+procryptocerus hylaeus
+ficedula hyperythra
+tachyporus hypnorum
+coccinellidae imago
+syrphidae imago
+camptostoma imberbe
+brachinus immaculicornis
+demetrias imperialis
+pachycondyla impressa
+theridion impressum
+coelophora inaequalis
+rabigus inconstans
+sphaerophoria indiana
+chalcophaps indica
+pheidole indistincta
+eurocoelotes inermis
+collinsia inerrans
+milleriana inerrans
+oligota inflata
+amara ingenua
+pardosa injucunda
+chlaenius inops
+neobisnius inornatus
+anotylus insecatus
+tapinocyba insecta
+orius insidiosus
+ardea intermed
+anisodactylus intermedius
+acupalpus interstitialis
+philochthus iricolor
+amaurornis isabellinus
+volatinia jacarina
+propylea japonica
+ancistrocerus japonicus
+nectarinia jugularis
+pocadicnemis juncea
+pocadicnemis juncea
+harpalus jureceki
+nabis kinbergii
+dendrocopos kizuki
+xysticus kochi
+trypoxylon koma
+atheta koreana
+carabus koreanus
+vespula koreensis
+robertus kuehnae
+poecilus kugelanni
+amara kulti
+badister lacertosus
+euthlypis lachrymosa
+geoscaptus laevissimus
+philonthus laminatus
+bembidion lampros
+metallina lampros
+spizaetus lanceolatus
+xysticus lanio
+tangara larvata
+odontomachus laticeps
+ophonus laticollis
+diplocephalus latifrons
+bembidion latinum
+tiphia latistriata
+pirata latitans
+zelotes latreillei
+harpalus latus
+arctosa leopardus
+harpactea lepida
+pterostichus lepidius
+mycetoporus lepidus
+poecilus lepidus
+centromerus leruthi
+piranga leucoptera
+coracina leucopygia
+lalage leucopygialis
+artamus leucorhynchus
+henicorhina leucosticta
+hylocharis leucotis
+campylomma liebknechti
+dromius linearis
+xantholinus linearis
+pachycondyla lineaticeps
+stemonyphantes lineatus
+rhytisternus liopleurus
+pachygnatha listeri
+amara littoralis
+calomera littoralis
+amara littorea
+rhyzobius litura
+nehemitrophia lividipennis
+robertus lividus
+pterostichus longicollis
+erigone longipalpis
+hemiprocne longipennis
+heliomaster longirostris
+phaethornis longirostris
+limodromus longiventris
+strumigenys louisianae
+geocoris lubra
+geocoris lubra
+promecoderus lucidicollis
+microlestes luctuosus
+piranga ludoviciana
+agonum lugens
+pardosa lugubris
+callistus lunatus
+philochthus lunulatus
+amara lunicollis
+bembidion lunulatum
+zelus luridus
+harpalus luteicornis
+drassyllus lutetianus
+zelotes lutetianus
+pterostichus macer
+atheta macrocera
+corvus macrorhynchos
+coleomegilla maculata
+parophonus maculicornis
+thryothorus maculipectus
+calosoma maderae
+pterostichus madidus
+coccinella magnifica
+dendroica magnolia
+setophaga magnolia
+dendrocopos major
+parus major
+amara majuscula
+orius majusculus
+lonchura malacca
+antreptes malacensis
+metius malachitichus
+tiphia malayana
+pyramica margaritae
+agonum marginatum
+harpalus marginellus
+tachinus marginellus
+microlestes maurus
+tetragnatha maxillosa
+saltator maximus
+odontomachus meinerti
+pterostichus melanarius
+calathus melanocephalus
+medon melanocephalus
+ptilinopus melanospila
+melanostoma mellinum
+florisuga mellivora
+sphaerophoria menthastri
+acupalpus meridianus
+badister meridionalis
+chlaenius micans
+pterostichus microcephalus
+porrhomma microphthalmum
+calathus micropterus
+trechoblemus micros
+trechus micros
+xerolycosa miniata
+myioborus miniatus
+empidonax minimus
+aplonis minor
+pterostichus minor
+microlestes minutulus
+orius minutus
+pisaura mirabilis
+himacerus mirmicoides
+cantorchilus modestus
+harpalus modestus
+thryothorus modestus
+agonum moestum
+lonchura molucca
+falco moluccensis
+momotus momota
+carabus monilis
+notoxus monoceros
+walckenaeria monoceros
+passer montanus
+pardosa monticola
+amara montivaga
+coraci morio
+tinotus morion
+agonum muelleri
+cycloneda munda
+amara municipalis
+ontholestes murinus
+pardosa naevia
+cermatulus nasalis
+troxochrus nasutus
+hahnia nava
+robertus neglectus
+carabus nemoralis
+xerolycosa nemoralis
+anisodactylus nemorivagus
+dicaeum nehrkorni
+amblystomus niger
+pterostichus niger
+lithocharis nigriceps
+tachinus nigriceps
+bembidion nigricorne
+chlaeniellus nigricornis
+pterostichus nigrita
+amischa nigrofusca
+crematogaster nigropilosa
+agonum nigrum
+dicymbium nigrum
+hister niloticus
+euodynerus nipanicus
+chrysoperla nipponensis
+carabus nitens
+eupeodes nitens
+ocypus nitens
+amara nitida
+poecilus nitidicollis
+hypoponera nitidula
+pristosia nitidula
+chlaeniellus nitidulus
+buteo nitidus
+synuchus nivalis
+diomus notescens
+parkesia noveboracensis
+walckenaeria nudipalpis
+walkenaeria nudipalpis
+philonthus numata
+acrotona obfuscata
+bembidion obliquum
+porrhomma oblitum
+harpalus oblitus
+pterostichus oblongopunctatus
+syntomus obscuroguttatus
+agonum obscurum
+callicerus obscurus
+oxypselaphus obscurus
+walckenaeria obtusa
+bembidion obtusum
+pheidole obtusus
+pheropsophus obtusus
+pheucticus obtusus
+pheugopedius obtusus
+philhygra obtusus
+philochthus obtusus
+tachyporus obtusus
+trechus obtusus
+automolus ochrolaemus
+harmonia octomaculata
+chrysopa oculata
+philonthus ohizumi
+mionectes oleagineus
+eurydema oleracea
+tiaris olivaceus
+vireo olivaceus
+cyphomyrmex opacus
+platystethus operosus
+phalangium opilio
+araniella opistographa
+atheta orbata
+synuchus orbicollis
+tiphia ordinaria
+chlaenius ocreatus
+acrocephalus orientalis
+streptopelia orientalis
+merops ornatus
+trichoglossus ornatus
+abax ovalis
+amara ovata
+pterostichus ovoideus
+asthenargus paganus
+chrysopa pallen
+taylorilygus pallidulus
+turdus pallidus
+asaphidion pallipes
+chlaenius pallipes
+pardosa paludicola
+notiophilus palustris
+pardosa palustris
+parus palustris
+pelecopsis parallela
+abax parallelepipedus
+paederus parallelus
+hippodamia parenthesis
+afromynoglenes parkeri
+acupalpus parvulus
+bathyphantes parvulus
+ramphocelus passerinii
+harpalus pastor
+eumyias panayensis
+icterus pectoralis
+harpalus pennsylvanicus
+dendroica pensylvanica
+setophaga pensylvanica
+oreothlypis peregrina
+vermivora peregrina
+contopus pertinax
+dendroica petechia
+setophaga petechia
+steatoda phalerata
+geothlypis philadelphia
+vireo philadelphicus
+sphaerophoria philanthus
+pica pica
+solenopsis picea
+molops piceus
+diplocephalus picinus
+acinopus picipes
+zyras pictus
+harpalus pygmaeus
+loricera pilicornis
+pirata piraticus
+megarhynchus pitangua
+pristhesancus plagipennis
+polyborus plancus
+amara plebeja
+thryothorus pleurostictus
+polioptila plumbea
+geothlypis poliocephala
+cuculus poliocephalus
+dyschiriodes politus
+harpalus politus
+pachyramphus polychopterus
+tiphia popilliavora
+chlaenius posticalis
+tapinocyba praecox
+tetragnatha praedonia
+drassyllus praeficus
+pardosa prativaga
+anthracothorax prevostii
+anthracothorax prevostii
+triglyphus primus
+hyperaspis proba
+bembidion properans
+metallina properans
+stenolophus propinquus
+icterus prosthemelas
+pristosia proxima
+nabis pseudoferus
+venatrix pseudospeciosa
+brachinus psophia
+micaria pulicaria
+pardosa pullata
+alopecosa pulverulenta
+stomis pumicatus
+pocadicnemis pumila
+harpalus pumilus
+platythyrea punctata
+anisodactylus punctatipennis
+licinus punctatulus
+nabis punctatus
+ophonus puncticeps
+lonchura punctulata
+ninox punctulata
+poecilus punctulatus
+poecilus purpurascens
+ardea purpurea
+cardellina pusilla
+hahnia pusilla
+microlinyphia pusilla
+wilsonia pusilla
+drassyllus pusillus
+notiophilus pusillus
+temnostethus pusillus
+zelotes pusillus
+porrhomma pygmaeum
+lionychus quadrillum
+bembidion quadrimaculatum
+brachiacantha quadripunctata
+harpalus quadripunctatus
+notiophilus quadripunctatus
+trechus quadristriatus
+trechus quadristriatus
+propylea quatuordecimpunctata
+coccinula quatuordecimpustulata
+ocys quinquestriatus
+clubiona reclusa
+oedothorax retusus
+silometopus reussi
+achaearanea riparia
+elaphrus riparius
+omalium rivulare
+leptorhoptrum robustum
+carterus rotundicollis
+deraeocoris ruber
+piculus rubiginosus
+piranga rubra
+harpalus rubripes
+sphaerophoria ruepelli
+thryothorus rufalbus
+metophonus rufibarbis
+ophonus rufibarbis
+vermivora ruficapilla
+basileuterus rufifrons
+cyornis rufigastra
+dyschiriodes rufipes
+harpalus rufipes
+notiophilus rufipes
+pentatoma rufipes
+pseudoophonus rufipes
+tachinus rufipes
+tiphia rufomandibulata
+philodromus rufus
+platyderus rufus
+tachyphonus rufus
+mesus rugatifrons
+anotylus rugosus
+nabis rugosus
+meioneta rurestris
+trochosa ruricola
+chrysococcyx russatus
+hirundo rustica
+setophaga ruticilla
+ophonus sabulicola
+ammophila sabulosa
+nebria salina
+pardosa saltans
+saldula saltatoria
+pheidole samonsi
+halcyon sancta
+cycloneda sanguinea
+ramphocelus sanguinolentus
+cuculus saturatus
+troxochrus scabriculus
+calosoma schayeri
+carabus scheidleri
+oechalia schellenbergii
+photinus scintillans
+brachinus sclopeta
+bembidion scopulinum
+sphaerophoria scripta
+anotylus sculpturatus
+pterostichus scurra
+epaphius secalis
+trechus secalis
+tityra semifasciata
+dyschiriodes semistriatus
+coccinella septempunctata
+cacomantis sepulcralis
+stelgidopteryx serripennis
+harpalus serripes
+adelphocoris seticornis
+agonum sexpunctatum
+vespula shidai
+philorhizus sigma
+mallada signata
+harpalus signaticornis
+semiophonus signaticornis
+anisodactylus signatus
+deraeocoris signatus
+mallada signatus
+haplodrassus signifer
+tegenaria silvestris
+amara similata
+myiozetetes similis
+ozyptila simplex
+pseudomyrmex simplex
+harpalus sinensis
+carduelis sinica
+harpalus sinicus
+amara sinuaticollis
+aethopyga siparaja
+aethopyga siparaja
+stenolophus skrimshiranus
+carabus smaragdinus
+harpalus smaragdinus
+polistes snelleni
+badister sodalis
+vireo solitarius
+lepidocolaptes souleyetti
+cuculus sparverioides
+ardeola speciosa
+algon sphaericollis
+hyperaspis sphaeridioides
+zora spinimana
+trochosa spinipalpis
+nysson spinosus
+amara spreta
+icterus spurius
+tiphia sternocarinata
+asaphidion stierlini
+pachycondyla stigma
+loriculus stigmatus
+pterostichus strennus
+pterostichus strenuus
+liocranoeca striata
+tetragnatha striata
+gnamptogenys striatula
+gnamptogenys strigata
+phaethornis striigularis
+pyramica subedentata
+argenna subnigra
+ilyobates subopacus
+pterostichus subovatus
+ophonus subquadratus
+zelotes subterraneus
+panamomops sulcifrons
+crotophaga sulcirostris
+pterostichus sulcitarsis
+pachycephala sulfuriventer
+pitangus sulphuratus
+gerygone sulphurea
+tolmomyias sulphurescens
+sphaerophoria sulphuripes
+crematogaster sumichrasti
+ptilinopus superbus
+turnix suscitator
+calosoma sycophanta
+hirundo tahitica
+columbina talpacoti
+harpalus tardus
+micromus tasmania
+micromus tasmaniae
+coracina temminckii
+dendrocopos temminckii
+calliodis temnostethoides
+zabrus tenebrioides
+lepthyphantes tenuis
+tenuiphantes tenuis
+leistus terminatus
+coelotes terrestris
+solenopsis terricola
+trochosa terricola
+phyla tethys
+anotylus tetracarinatus
+bembidion tetracolum
+stenolophus teutonus
+camponotus textor
+rhipidura teysmanni
+enoplognatha thoracica
+dyschirius thoracicus
+agonum thoreyi
+lanius tigrinus
+oporornis tolmiei
+rogeria tonduzi
+histopona torpida
+saxicola torquata
+gallirallus torquatus
+pteroglossus torquatus
+sporophila torqueola
+syrphus torvus
+dendroica townsendi
+coccinella transversalis
+hippodamia tredecimpunctata
+atheta triangulum
+amara tricuspidata
+harpalus tridens
+baryphyma trifrons
+eperigone trilobata
+syntomus truncatellus
+ozyptila trux
+myiarchus tuberculifer
+carabus tuberculosus
+amazilia tzacatl
+pirata uliginosus
+xysticus ulmi
+oxypoda umbrata
+haplodrassus umbratilis
+drepanotylus uncatus
+coccinella undecimpunctata
+diabrotica undecimpunctata
+walckenaeria unicornis
+carebara urichi
+brachiacantha ursina
+harpalus ussuriensis
+catharus ustulatus
+calosoma vagans
+tiso vagans
+collocalia vanikorensis
+mniotilta varia
+theridion varians
+hippodamia variegata
+chlaenius variicornis
+philonthus varius
+aleochara verna
+pterostichus vernalis
+leptotila verreauxi
+poecilus versicolor
+pterostichus versicolor
+ortalis vetula
+agonum viduum
+walckenaeria vigilax
+psyllobora vigintimaculata
+zimmerius vilissimus
+zimmerius vilissimus
+carabus violaceus
+trogon violaceus
+dendroica virens
+icteria virens
+empidonax virescens
+diabrotica virgifera
+myiopagis viridicata
+tetragonoderus viridis
+synuchus vivalis
+gongylidiellum vivum
+anystis wallacei
+parasitic wasp
+lepthyphantes whymperi
+solenopsis zeny
+solenopsis zeteki
+tenuiphantes zimmermanni
+campylorhynchus zonatus
+abax
+acropyga
+acrotona
+adelomyrmex
+aeolothrips
+agonum
+agyneta
+aleochara
+allograpta
+aloconota
+amara
+amischa
+anisostichus
+anochetus
+anotylus
+apterostigma
+araneae
+arctosa
+atheta
+azteca
+badister
+bembidion
+brachinus
+brachymyrmex
+bradycellus
+brevilabus
+cambalida
+camponotus
+cardiocondyla
+carpelimus
+cerapachys
+ceratinopsis
+chalcosyrphus
+chlaenius
+chrysoperla
+chrysopidae
+coccinella
+coccinellidae
+condylostylus
+coranus
+corticaria
+crematogaster
+cydrela
+cyphomyrmex
+deroceras
+dieuches
+diomus
+discothyrea
+dusmadiores
+dysdera
+ectatomma
+eristalis
+euconnus
+eumeninae
+formicidae
+geocoris
+gnamptogenys
+graptartia
+hahnia
+harpalus
+hippodamia
+hister
+hypoponera
+incagonum
+katanga
+labidura
+lachnomyrmex
+larvae
+lathrobium
+lebiinus
+leistus
+leptogenys
+letheaus
+lygaeidae
+medon
+meioneta
+melanostoma
+metaleptyphantes
+misumenops
+monomorium
+mycetosoritis
+mynogleninae
+myrmicocrypta
+nabis
+nehemitropia
+neuroptera
+octostruma
+ocypus
+oedothorax
+ogmopleura
+oligomyrmex
+oligota
+ophonus
+orius
+orthomus
+oxybelus
+oxyopes
+oxypoda
+oxypodini
+pachycondyla
+pachygnatha
+pachymorphus
+paederus
+pardosa
+pelecopsis
+pemphredon
+philonthus
+phytocoris
+picidae
+plagiognathus
+platynini
+podisus
+pompilidae
+pompilinae
+pristonychus
+proceratium
+pterostichini
+pterostichus
+pyramica
+quedius
+rhinocoris
+rhopalothrix
+rodolia
+scantius
+scopaeus
+scymnus
+sericomyrmex
+simodontus
+solenopsis
+sphaerophoria
+sphaerotachys
+sphecidae
+staphylinidae
+staphylinus
+stenolophus
+stenus
+stethorus
+stilicus
+strumigenys
+syrphidae
+syrphus
+tachyini
+tapinoma
+tatuidris
+technomyrmex
+tetragnatha
+theridiidae
+tiphia
+tiphiidae
+tiphiinae
+toxomerus
+trachymyrmex
+trechus
+trochosa
+turdus
+xantholinus
+zyras

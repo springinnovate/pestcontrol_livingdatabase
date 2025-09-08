@@ -1,59 +1,30 @@
-from typing import List, Dict, Union, NamedTuple
+#!/usr/bin/env python3
+import argparse
 import asyncio
 import logging
-import sys
+from pathlib import Path
+from typing import List, NamedTuple
+
 import httpx
+from sqlalchemy import create_engine, select, func
+from sqlalchemy.orm import sessionmaker
 
-from tqdm import tqdm
-from sqlalchemy import (
-    insert,
-    select,
+from models import (
+    DB_URI,
+    Question,
+    KeywordQuery,
+    QuestionKeyword,
+    SearchHead,
+    Link,
+    SearchResultLink,
 )
-from sqlalchemy.orm import Session
-
-from models import SearchResult, get_session
 
 logging.basicConfig(
-    level=logging.DEBUG,
-    stream=sys.stdout,
-    format=(
-        "%(asctime)s (%(relativeCreated)d) %(levelname)s %(name)s"
-        " [%(funcName)s:%(lineno)d] %(message)s"
-    ),
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s [%(funcName)s:%(lineno)d] %(message)s",
 )
-
-LOGGER = logging.getLogger(__name__)
-logging.getLogger("urllib3").setLevel(logging.WARNING)
-logging.getLogger("httpcore").setLevel(logging.WARNING)
+LOGGER = logging.getLogger("missing_links_fill")
 logging.getLogger("httpx").setLevel(logging.WARNING)
-
-
-def load_species_list(filename: str):
-    """Load the species names from a text file."""
-    with open(filename, "r") as file:
-        return [line.strip() for line in file.readlines()]
-
-
-def expand_questions(
-    questions: List[str],
-    species_dict: Dict[str, Union[List[str], Dict[str, str]]],
-):
-    """Expand questions by replacing placeholders with species names."""
-    expanded_questions = []
-
-    for question in questions:
-        for placeholder, species_list in species_dict.items():
-            if f"[{placeholder}]" in question:
-                for species in species_list:
-                    expanded_question = question.replace(f"[{placeholder}]", species)
-                    expanded_questions.append(
-                        expanded_question.split(" | ") + [species]
-                    )
-    return expanded_questions
-
-
-MAX_CONCURRENT = 10  # simultaneous requests
-QPS = 20  # queries per second (overall throttle)
 
 
 class SEOSearchResult(NamedTuple):
@@ -61,9 +32,10 @@ class SEOSearchResult(NamedTuple):
     title: str
 
 
-async def query(keyword: str, username: str, password: str) -> List[SEOSearchResult]:
+async def query(
+    keyword: str, username: str, password: str, timeout: float = 30.0
+) -> List[SEOSearchResult]:
     url = "https://api.dataforseo.com/v3/serp/google/organic/live/advanced"
-
     payload = [
         {
             "language_name": "English",
@@ -72,13 +44,13 @@ async def query(keyword: str, username: str, password: str) -> List[SEOSearchRes
             "depth": 10,
         }
     ]
-
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with httpx.AsyncClient(timeout=timeout) as client:
         r = await client.post(url, auth=(username, password), json=payload)
         r.raise_for_status()
         data = r.json()
-        items = data.get("tasks", [{}])[0].get("result", [{}])[0].get("items", [])
-
+        items = (
+            data.get("tasks", [{}])[0].get("result", [{}])[0].get("items", [])
+        )
         if not items:
             return []
 
@@ -89,90 +61,137 @@ async def query(keyword: str, username: str, password: str) -> List[SEOSearchRes
         ]
 
 
-def insert_result(
-    session: Session,
-    question: str,
-    keyword_query: str,
-    species_name: str,
-    links: List[str],
-):
-    stmt = insert(SearchResult).values(
-        question=question,
-        species_name=species_name,
-        keyword_query=keyword_query,
-        links=links,
+def get_or_create_link(session, url: str) -> int:
+    link_id = session.scalar(select(Link.id).where(Link.url == url))
+    if link_id:
+        return link_id
+    obj = Link(url=url, content_id=None)
+    session.add(obj)
+    session.flush()
+    return obj.id
+
+
+def ensure_search_result_link(
+    session, search_head_id: int, link_id: int
+) -> None:
+    exists = session.scalar(
+        select(func.count())
+        .select_from(SearchResultLink)
+        .where(
+            SearchResultLink.search_head_id == search_head_id,
+            SearchResultLink.link_id == link_id,
+        )
     )
-    session.execute(stmt)
-    session.commit()
+    if not exists:
+        session.add(
+            SearchResultLink(search_head_id=search_head_id, link_id=link_id)
+        )
 
 
-def question_exists(session: Session, question: str) -> bool:
-    stmt = select(SearchResult).where(SearchResult.question == question)
-    return session.execute(stmt).first() is not None
+def fetch_pending(
+    session, limit: int | None = None
+) -> list[tuple[int, str, str]]:
+    stmt = (
+        select(
+            SearchHead.question_id.label("search_head_id"),
+            KeywordQuery.query.label("keyword"),
+            Question.text.label("question_text"),
+        )
+        .join(Question, Question.id == SearchHead.question_id)
+        .join(QuestionKeyword, QuestionKeyword.question_id == Question.id)
+        .join(KeywordQuery, KeywordQuery.id == QuestionKeyword.keyword_query_id)
+        .outerjoin(
+            SearchResultLink,
+            SearchResultLink.search_head_id == SearchHead.question_id,
+        )
+        .where(SearchResultLink.search_head_id.is_(None))
+        .order_by(SearchHead.question_id.asc())
+    )
+    if limit:
+        stmt = stmt.limit(limit)
+    return [(sid, kw, qtxt) for sid, kw, qtxt in session.execute(stmt).all()]
 
 
 async def main():
-    LOGGER.info("loading questions")
-    question_template_list = open("data/question_list.txt").read().strip().split("\n")
-    species_dict = {
-        "predator_list": load_species_list("data/predator_list.txt"),
-        "pest_list": load_species_list("data/pest_list.txt"),
-        "full_species_list": load_species_list("data/full_species_list.txt"),
-    }
-    keywords_list, expanded_question_list, species_list = zip(
-        *(expand_questions(question_template_list, species_dict))
+    parser = argparse.ArgumentParser(
+        description="Query keywords from DB for SearchHeads with no SearchResultLink rows and populate Links & SearchResultLinks."
+    )
+    parser.add_argument(
+        "--db",
+        type=str,
+        default=None,
+        help="SQLAlchemy DB URI (default: models.DB_URI)",
+    )
+    parser.add_argument(
+        "--auth-file",
+        type=Path,
+        default=Path("secrets/auth"),
+        help="File with username\\npassword",
+    )
+    parser.add_argument(
+        "--max-concurrent",
+        type=int,
+        default=10,
+        help="Max concurrent API requests",
+    )
+    parser.add_argument(
+        "--qps",
+        type=float,
+        default=20.0,
+        help="Overall queries per second throttle",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Optional limit of pending SearchHeads to process",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Do not write to the database, just print actions",
+    )
+    args = parser.parse_args()
+
+    username, password = (
+        args.auth_file.read_text(encoding="utf-8").strip().split("\n", 1)
     )
 
-    # Configure HTTP basic authorization: basicAuth
-    LOGGER.info("load username/password")
-    username, password = open("secrets/auth").read().strip().split("\n")
-    LOGGER.info("launching client")
+    engine = create_engine(args.db or DB_URI, future=True)
+    Session = sessionmaker(engine, expire_on_commit=False)
 
-    sem = asyncio.Semaphore(MAX_CONCURRENT)
-    delay = 1 / QPS
+    sem = asyncio.Semaphore(args.max_concurrent)
+    delay = 1.0 / args.qps if args.qps > 0 else 0.0
 
-    session = get_session()
-
-    pending = [
-        (k, q, s)
-        for k, q, s in zip(keywords_list, expanded_question_list, species_list)
-        if not question_exists(session, q)
-    ]
-    print(len(pending))
-
-    async def rate_limited_query(
-        question,
-        keyword_query,
-        species_name,
-    ):
+    async def worker(item: tuple[int, str, str]):
+        search_head_id, keyword, question_text = item
         async with sem:
             try:
-                query_results = await query(keyword_query, username, password)
-                url_list = []
-                if query_results:
-                    url_list = [q.url for q in query_results]
-                insert_result(
-                    session,
-                    question,
-                    keyword_query,
-                    species_name,
-                    url_list,
-                )
-                return [q.url for q in query_results]
-            except Exception as e:
-                print(e)
-            await asyncio.sleep(delay)
+                results = await query(keyword, username, password)
+            finally:
+                if delay:
+                    await asyncio.sleep(delay)
 
-    LOGGER.info("awaiting results")
-    tasks = [
-        asyncio.create_task(rate_limited_query(question, keyword_query, species))
-        for keyword_query, question, species in pending
-    ]
+        with Session() as session:
+            urls = [r.url for r in results]
+            link_ids = [get_or_create_link(session, u) for u in urls]
+            for lid in link_ids:
+                ensure_search_result_link(session, search_head_id, lid)
+            session.commit()
+            LOGGER.info(
+                "updated search_head=%s keyword=%r links_added=%d",
+                search_head_id,
+                keyword,
+                len(link_ids),
+            )
 
-    for fut in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="queries"):
-        await fut
+    with Session() as session:
+        pending = fetch_pending(session, args.limit)
+        LOGGER.info("pending search_heads without links: %d", len(pending))
 
-    LOGGER.info("all done!")
+    tasks = [asyncio.create_task(worker(item)) for item in pending]
+    for t in asyncio.as_completed(tasks):
+        await t
 
 
 if __name__ == "__main__":

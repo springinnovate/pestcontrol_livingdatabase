@@ -589,9 +589,7 @@ def scrape_urls(
 
 
 @catch_and_log()
-def stream_links(
-    log_queue: MPQueue, max_items: int | None = None
-) -> Iterator[Tuple[int, str, str | None]]:
+def stream_links(log_queue: MPQueue) -> Iterator[Tuple[int, str, str | None]]:
     def _is_error_like(text: str | None) -> bool:
         if text is None:
             return True
@@ -619,9 +617,6 @@ def stream_links(
             .outerjoin(Content, Link.content_id == Content.id)
             .execution_options(stream_results=True, yield_per=500)
         )
-        if max_items is not None:
-            logger.info(f"limit {max_items}")
-            # stmt = stmt.limit(max_items)
 
         logger.info("create stream (may wait if DB is locked)")
         result = sess.execute(stmt)
@@ -736,7 +731,6 @@ async def _main():
     ]
     scrape_urls(
         stream_links(log_queue),
-        1,
         manager,
         log_queue,
         listener,
