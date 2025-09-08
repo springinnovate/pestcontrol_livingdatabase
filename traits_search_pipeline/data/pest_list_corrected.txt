@@ -1,5 +1,149 @@
-orosius argentus
-thrips imaginus
-oxycarenus loctosus
-rhopalosipum rufiabdominalis
-riviella
+estigmene acrea
+meligethes aeneus
+eupoecilia ambiguella
+uroleucon ambrosiae
+eurytoma amygdali
+orosius argentatus
+helicoverpa armigera
+aonidiella aurantii
+toxoptera aurantii
+forficula auricularia
+sitobion avenae
+eutetranychus banksi
+diabrotica barberi
+flea beetles
+lobesia botrana
+halticus bractatus
+brevicoryne brassicae
+pieris brassicae
+trigonotylus caelestialium
+ceratitis capitata
+myzus cerasi
+rhagoletis cerasi
+cephus cinctus
+phyllocnistic citrella
+panonychus citri
+planococcus citri
+leucoptera coffeella
+copitarsia consueta
+aphis craccivora
+metopholophium dihrodum
+creonitades dilutus
+creontiades dilutus
+metopolophium dirhodum
+capitophorus elaeagni
+eucarazzia elegans
+petrusa epilepsis
+lipaphis erysimi
+macrosiphum euphorbiae
+spodoptera exigua
+aphis fabae
+empoasca fabae
+calamobius filum
+scaptomyza flava
+hyadaphis foeniculi
+paria fragariae
+systena frontalis
+busseola fusca
+stelidota geminata
+habrochila ghesquierei
+aphis glycines
+cryptoblabes gnidiella
+pectinophora gossypiella
+aphis gossypii
+schizaphis graminun
+hypothenemus hampei
+lygus hesperus
+acrosternum hilare
+bagrada hilaris
+liriomyza huidobrensis
+thrips imaginis
+earias insulana
+rhabdopterus jansoni
+popillia japonica
+acyrthosiphon kondoi
+hyperomyzus lactucae
+thaumatotibia leucotreta
+campylomma liebknechti
+lygus lineolaris
+adelphocoris lineolatus
+spodoptera littoralis
+deudorix livia
+oxycarenus luctuosus
+mythimna loreyi
+rhopalosiphum maidis
+sipha maydis
+oulema melanopus
+leucoptera meyricki
+parabemisia myricae
+trichoplusia ni
+ostrinia nubilalis
+frankliniella occidentalis
+aceria oleae
+bactrocera oleae
+prays oleae
+euphyllura olivina
+creontiades pacificus
+rhopalosiphum padi
+javasella pellucida
+myzus persicae
+acyrthosiphon pisum
+hypera postica
+delia radicum
+nasonovia ribisnigri
+stenotus rubrovittatus
+rhopalosiphum rufiabdominale
+solenopsis saevissima
+liriomyza sativae
+frankliniella schultzei
+anthonomus signatus
+ophiomyia simplex
+tecia solanivora
+helopeltis sulawesi
+premnotrypes suturicallus
+bemisia tabaci
+thrips tabaci
+aphodius tasmaniae
+amrasca terraereginae
+therioaphis trifolii
+cerotoma trifurcata
+copitarsia turbata
+diabrotica undecimpunctata
+monosteria unicostata
+aliticini
+aphididae
+aphidoidea
+austroasca
+chaetocnema
+curculionidae
+diabrotica
+frankliniella
+lepidoptera
+liriomyza
+lygus
+melanoplinae
+myodocha
+oecanthinae
+oedipodinae
+oulema
+piezodorus
+pterohelaeus
+rhizoglyphus
+rivellia
+tetranychus urticae
+trialeurodes vaporariorum
+nysius vinitor
+diabrotica virgifera
+austroasca viridigrisea
+coccus viridis
+nezara viridula
+calepitrimerus vitis
+acalymma vittatum
+plutella xylostella
+helicoverpa zea
+auchenorrhyncha
+carpophilus
+cicadellidae
+deraeocoris
+euschistus
+helicoverpa
