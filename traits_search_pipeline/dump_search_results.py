@@ -1,42 +1,30 @@
-from datetime import datetime
-import json
-
-from models import SearchResult, get_session
-from sqlalchemy import (
-    select,
-)
+from collections import defaultdict
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
+from models import Species, Question, SearchHead, DB_URI
 
 
-def dump_search_results(
-    target_path: str, concurrency: int, max_visited: int
-) -> None:
-    session = get_session()
-    urls = []
-
-    seen = set()
-
-    stmt = select(SearchResult.links)
-    for links in session.execute(stmt):
-        if not links:
-            continue
-        for url_list in links:
-            for url in url_list:
-                if url not in seen:
-                    urls.append(url)
-    payload = {
-        "concurrency": concurrency,
-        "max_visited": max_visited,
-        "url": "blank",
-        "urls": urls,
-    }
-
-    with open(target_path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=4)
+def questions_without_links_by_species(
+    engine_url: str = DB_URI,
+) -> dict[str, list[str]]:
+    engine = create_engine(engine_url, future=True)
+    out: dict[str, list[str]] = defaultdict(list)
+    with Session(engine) as sess:
+        stmt = (
+            select(Species.name, Question.text)
+            .join(SearchHead, SearchHead.species_id == Species.id)
+            .join(Question, Question.id == SearchHead.question_id)
+            .where(~SearchHead.links.any())
+            .order_by(Species.name.asc(), Question.text.asc())
+        )
+        for species_name, question_text in sess.execute(stmt):
+            out[species_name].append(question_text)
+    return dict(out)
 
 
 if __name__ == "__main__":
-    target_path = datetime.now().strftime(
-        "dump_search_results_%Y_%m_%d_%H_%M_%S.json"
-    )
-    dump_search_results(target_path, 50, 1)
+    grouped = questions_without_links_by_species()
+    for species_name, questions in grouped.items():
+        print(species_name)
+        # for q in questions:
+        #     print(f"  - {q}")
