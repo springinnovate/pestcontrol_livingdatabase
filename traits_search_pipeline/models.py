@@ -34,6 +34,7 @@ class Content(BaseNorm):
     )
     text: Mapped[str] = mapped_column(Text, nullable=False)
 
+    is_valid: Mapped[int] = mapped_column(Integer, nullable=True)
     links: Mapped[List["Link"]] = relationship(
         back_populates="content", cascade="all, delete"
     )

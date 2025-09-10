@@ -11,3 +11,4 @@ pypdf
 pdfminer.six
 aiosqlite
 psutil
+tiktoken

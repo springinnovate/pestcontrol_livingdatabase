@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Iterator, Mapping, List, Dict, Any, Tuple
 import asyncio
 import itertools
-import json
 import logging
 import re
 from multiprocessing import Queue
@@ -13,7 +12,6 @@ from multiprocessing import Queue
 from sqlalchemy import create_engine, select, or_
 from sqlalchemy.orm import Session
 
-from openai import OpenAI
 from models import (
     DB_URI,
     BaseNorm,
@@ -32,6 +30,8 @@ from url_scraper import (
     configure_worker_logger,
     start_process_safe_logging,
 )
+from llm_tools import apply_llm, truncate_to_token_limit
+
 
 DB_ENGINE = create_engine(DB_URI)
 BaseNorm.metadata.create_all(DB_ENGINE)
@@ -100,45 +100,10 @@ UNKNOWN EXAMPLE
 """.strip()
 
 
-def create_openai_context():
-    """Helper to create openai context."""
-    openai_client = OpenAI()
-    openai_context = {
-        "client": openai_client,
-    }
-    return openai_context
-
-
-def apply_llm(question: str, page_text: str) -> List[Dict[str, str]]:
-    """Invoke the question and context on the `SYSTEM_PROMPT`."""
-    user_payload = (
-        "QUESTION:\n"
-        f"{question.strip()}\n\n"
-        "PAGE_TEXT:\n"
-        f"{page_text.strip()}"
-    )
-
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user_payload},
-    ]
-
-    args = {
-        "model": "gpt-4o-mini",
-        "response_format": {
-            "type": "json_object"
-        },  # if supported in your SDK/runtime
-        "messages": messages,
-    }
-    openai_context = create_openai_context()
-    resp = openai_context["client"].chat.completions.create(**args)
-    content = json.loads(resp.choices[0].message.content)
-    return content
-
-
 def iter_unanswered_questions(
     session: Session,
 ) -> Iterator[Mapping[str, object]]:
+    """Loop through all the questions that do not have an 'answer'."""
     stmt = (
         select(
             Question.id.label("question_id"),
@@ -159,7 +124,7 @@ def iter_unanswered_questions(
         .join(
             Answer,
             (Answer.keyword_query_id == QuestionKeyword.keyword_query_id)
-            & (Answer.link_id == Link.id),
+            & (Answer.link_id == Link.id),  # noqa: W503
             isouter=True,
         )
         .where(or_(Answer.id.is_(None), Answer.reason == "page_error"))
@@ -196,13 +161,17 @@ def insert_answer(
     if existing_id is not None:
         logger.info(f"statement exists at {existing_id}")
         return existing_id
-    ans = Answer(
-        keyword_query_id=keyword_query_id,
-        link_id=link_id,
-        answer_text=answer_text,
-        reason=answer["reason"],
-        evidence=answer["evidence"],
-    )
+    try:
+        ans = Answer(
+            keyword_query_id=keyword_query_id,
+            link_id=link_id,
+            answer_text=answer_text,
+            reason=answer["reason"],
+            evidence=answer["evidence"],
+        )
+    except KeyError:
+        logger.exception(f"keyerror on this answer: {answer}")
+        raise
     session.add(ans)
     session.flush()
     logger.info(f"statement inserted at {ans.id}")
@@ -210,10 +179,13 @@ def insert_answer(
 
 
 async def call_llm_async(
-    question_text: str, content_text: str
+    question_text: str, content_text: str, log_queue
 ) -> Dict[str, Any]:
     """Wrapper to sync LLM call in a thread."""
-    return await asyncio.to_thread(apply_llm, question_text, content_text)
+    safe_text = truncate_to_token_limit(content_text)
+    return await asyncio.to_thread(
+        apply_llm, question_text, safe_text, log_queue
+    )
 
 
 async def _worker(
@@ -245,7 +217,7 @@ async def _worker(
             return row, answer
 
         try:
-            answer = await call_llm_async(qtext, content_text)
+            answer = await call_llm_async(qtext, content_text, log_queue)
             return row, answer
         except asyncio.CancelledError:
             logger.info(
@@ -259,9 +231,10 @@ async def _worker(
             raise
 
 
-def get_content_text(
+def _get_content_text(
     session: Session, question_context: Dict[str, str]
 ) -> str | None:
+
     result = dict(question_context)
     result["content_text"] = session.execute(
         select(Content.text).where(Content.id == question_context["content_id"])
@@ -269,7 +242,7 @@ def get_content_text(
     return result
 
 
-async def run_parallel_generation(
+async def process_unanswered_questions(
     max_concurrency: int = 1,
     batch_commit: int = 50,
 ) -> None:
@@ -293,7 +266,7 @@ async def run_parallel_generation(
         main_logger.info("creating tasks")
         tasks = [
             asyncio.create_task(
-                _worker(get_content_text(session, question), sem, log_queue)
+                _worker(_get_content_text(session, question), sem, log_queue)
             )
             for question in unanswered_questions
         ]
@@ -350,4 +323,4 @@ async def run_parallel_generation(
 
 
 if __name__ == "__main__":
-    asyncio.run(run_parallel_generation())
+    asyncio.run(process_unanswered_questions())
