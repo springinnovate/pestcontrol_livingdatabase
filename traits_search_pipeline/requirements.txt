@@ -12,3 +12,5 @@ pdfminer.six
 aiosqlite
 psutil
 tiktoken
+matplotlib
+Pillow

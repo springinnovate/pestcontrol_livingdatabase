@@ -1,3 +1,5 @@
+"""OpenAI llm tools for each of the trait serarch pipeline tools."""
+
 import json
 import re
 import time
@@ -82,18 +84,21 @@ ERROR_PATTERNS = [
     "error:",
     "an error occurred",
     "internal server error",
+    "we've detected unusual activity from your network.",
 ]
 
 
-def quick_error_heuristic(text: str) -> Optional[bool]:
+def guess_if_error_text(text: str) -> Optional[bool]:
     if not text or not text.strip():
-        return False
+        return True
     lower = text.lower()
     if any(pat in lower for pat in ERROR_PATTERNS):
-        return False
+        return True
     compact = re.sub(r"\s+", " ", lower).strip()
     if len(compact) < 40:
-        return False
+        # if after cleaning whitespace, if it's less than 40 characters
+        # it's probably invalid
+        return True
     return None  # unknown -> defer to LLM
 
 
