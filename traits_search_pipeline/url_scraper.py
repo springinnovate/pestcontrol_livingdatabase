@@ -589,7 +589,9 @@ def scrape_urls(
 
 
 @catch_and_log()
-def stream_links(log_queue: MPQueue) -> Iterator[Tuple[int, str, str | None]]:
+def stream_links(
+    log_queue: MPQueue, max_items: int = None
+) -> Iterator[Tuple[int, str, str | None]]:
     def _is_error_like(text: str | None) -> bool:
         if text is None:
             return True
@@ -731,6 +733,7 @@ async def _main():
     ]
     scrape_urls(
         stream_links(log_queue),
+        100,
         manager,
         log_queue,
         listener,

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
-import re
-import json
-import itertools
 from typing import Iterator, Mapping, List, Dict, Any, Tuple
+import asyncio
+import itertools
+import json
+import logging
+import re
+from multiprocessing import Queue
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
@@ -25,7 +27,11 @@ from models import (
 )
 
 from dotenv import load_dotenv
-
+from url_scraper import (
+    set_catch_and_log_logger,
+    configure_worker_logger,
+    start_process_safe_logging,
+)
 
 DB_ENGINE = create_engine(DB_URI)
 BaseNorm.metadata.create_all(DB_ENGINE)
@@ -33,35 +39,65 @@ BaseNorm.metadata.create_all(DB_ENGINE)
 load_dotenv()  # loads the OPENAI_API_KEY
 
 
-SYSTEM_PROMPT: str = (
-    """
-You are a cautious information extraction model. Given a QUESTION and the PAGE_TEXT from a single web page, decide
-whether the page text supports answering the question with a strict yes/no. Only use evidence found in PAGE_TEXT.
-If PAGE_TEXT does not clearly support yes or no, return unknown with a useful reason.
+# 1) Harden the prompt to forbid "answer" and placeholder evidence
 
-Output must be a single, compact JSON object with exactly these keys:
-- "question": the input question (string)
-- "answer": one of ["yes","no","unknown"]
-- "reason": one of:
-   - "supported"                # use when answer is "yes" or "no"
-   - "not_enough_information"   # page has text but not enough to decide
-   - "blank_page"               # PAGE_TEXT is empty/whitespace
-   - "content_unrelated"        # content is unrelated to the topic/species in question
-   - "conflicting_evidence"     # page states contradictory things
-   - "non_english"              # content is not in English if that prevents answering
-   - "page_error"               # garbled, OCR noise, or obvious fetch/render error
-- "evidence": an array with 0–2 short verbatim quotes from PAGE_TEXT that justify the answer. Use [] if "unknown".
-- "page_status": one of ["has_text","blank","error","non_english"] describing PAGE_TEXT itself.
-- "source_url": the URL if provided, else "".
+SYSTEM_PROMPT = """
+You are a cautious information extraction model.
 
-Rules:
-- Answer "yes" only if PAGE_TEXT clearly asserts the proposition; answer "no" only if it clearly denies it.
-- If the page mentions multiple entities, only use evidence about the entity in the question; otherwise use "unknown" with reason "content_unrelated" or "not_enough_information".
-- Do not speculate or use outside knowledge.
-- Keep "evidence" quotes very short (≤200 characters each), and quote verbatim from PAGE_TEXT.
-- Return JSON only. No markdown, no commentary, no code fences.
+Given a QUESTION and PAGE_TEXT from a single web page (optionally SOURCE_URL), decide the answer using ONLY PAGE_TEXT. Do NOT speculate.
+
+STRICT FORMAT
+Return ONE compact JSON object with EXACTLY these top-level keys and NOTHING ELSE:
+- "answer_text": string
+- "reason": string (enum below)
+- "evidence": array of 0–2 strings
+
+Compliance rules:
+- Keys MUST be exactly as above. NEVER use "answer", "answerKey", or any other key.
+- If you cannot comply, output: {"answer_text":"unknown","reason":"page_error","evidence":[]}
+- Output JSON only. No markdown, no comments, no code fences, no trailing commas.
+
+"reason" enum:
+["supported","not_enough_information","blank_page","content_unrelated","conflicting_evidence","non_english","page_error"]
+
+ALLOWED VALUES FOR "answer_text" (infer task type from QUESTION)
+- Predator life stage: "larvae"|"nymphs"|"adults"|"larvae,nymphs"|"larvae,adults"|"nymphs,adults"|"larvae,nymphs,adults"|"unknown"
+- Agricultural pest life stage: same set as above
+- Invasiveness: "yes"|"no"|"unknown"
+- Non-crop habitat use: "yes"|"no"|"unknown"
+- Dietary breadth: "specialist"|"generalist"|"unknown"
+- Wind dispersal: "yes"|"no"|"unknown"
+- Flight ability: "yes"|"no"|"unknown"
+- Seasonal migration: "yes"|"no"|"unknown"
+- Pest status: "yes"|"no"|"unknown"
+
+DECISION RULES
+- Default to "answer_text":"unknown" unless PAGE_TEXT clearly supports an allowed value; then "reason":"supported".
+- Exclusivity like "nymphs only" → that stage.
+- Multiple supported stages → comma-join in canonical order: larvae,nymphs,adults.
+- For "diet": narrow range → "specialist"; broad/diverse → "generalist"; explicit contradictions → "answer_text":"unknown","reason":"conflicting_evidence".
+- "can fly" refers to adult flight unless clearly specified otherwise.
+- If PAGE_TEXT is about a different entity → "content_unrelated".
+- Mentions only higher/lower taxa without linkage → "not_enough_information".
+- Non-English blocking judgment → "non_english".
+- Blank/garbled page → "blank_page" or "page_error" as applicable.
+
+EVIDENCE RULES
+- Provide up to 2 short verbatim quotes (≤200 chars) that directly support "answer_text".
+- NEVER include processing markers or placeholders (e.g., [[...]], <...>, "PDF_SKIPPED", "TRUNCATED"). If PAGE_TEXT was truncated/skipped or otherwise unusable → "evidence":[] and "reason":"page_error".
+- Use [] when "answer_text" is "unknown".
+
+NORMALIZATION
+- Lowercase "answer_text".
+- Use only allowed strings.
+- Output exactly three keys as specified.
+
+VALID EXAMPLE
+{"answer_text":"yes","reason":"supported","evidence":["...exact quote 1...","...exact quote 2..."]}
+
+UNKNOWN EXAMPLE
+{"answer_text":"unknown","reason":"not_enough_information","evidence":[]}
 """.strip()
-)
 
 
 def create_openai_context():
@@ -88,7 +124,7 @@ def apply_llm(question: str, page_text: str) -> List[Dict[str, str]]:
     ]
 
     args = {
-        "model": "gpt-5",
+        "model": "gpt-4o-mini",
         "response_format": {
             "type": "json_object"
         },  # if supported in your SDK/runtime
@@ -103,18 +139,6 @@ def apply_llm(question: str, page_text: str) -> List[Dict[str, str]]:
 def iter_unanswered_questions(
     session: Session,
 ) -> Iterator[Mapping[str, object]]:
-    """Iterate over question–content rows where no answer exists yet.
-
-    Returns:
-        Iterator[Mapping[str, object]] with fields:
-            - question_id (int)
-            - question_text (str)
-            - keyword_query_id (int)
-            - link_id (int)
-            - link_url (str)
-            - content_id (int)
-            - content_text (str)
-    """
     stmt = (
         select(
             Question.id.label("question_id"),
@@ -123,7 +147,6 @@ def iter_unanswered_questions(
             Link.id.label("link_id"),
             Link.url.label("link_url"),
             Content.id.label("content_id"),
-            Content.text.label("content_text"),
         )
         .join(QuestionKeyword, QuestionKeyword.question_id == Question.id)
         .join(SearchHead, SearchHead.question_id == Question.id)
@@ -132,14 +155,13 @@ def iter_unanswered_questions(
             SearchResultLink.search_head_id == SearchHead.question_id,
         )
         .join(Link, Link.id == SearchResultLink.link_id)
-        .join(Content, Content.id == Link.content_id, isouter=True)
+        .join(Content, Content.id == Link.content_id)
         .join(
             Answer,
             (Answer.keyword_query_id == QuestionKeyword.keyword_query_id)
             & (Answer.link_id == Link.id),
             isouter=True,
         )
-        .where(Content.id.is_not(None))
         .where(Answer.id.is_(None))
     ).execution_options(stream_results=True)
 
@@ -152,25 +174,38 @@ def insert_answer(
     keyword_query_id: int,
     link_id: int,
     answer: Dict[str, str],
+    log_queue: Queue,
 ) -> int | None:
     """Insert a new answer if there is not already one in the db."""
+    logger = configure_worker_logger(
+        log_queue, GLOBAL_LOG_LEVEL, "_url_scrape_worker"
+    )
+    logger.debug(f"this is the answer: {answer}")
+    if "answer_text" in answer:
+        answer_text = answer["answer_text"]
+    elif "answer" in answer:
+        answer_text = answer["answer"]
+    else:
+        raise ValueError(f"expected some sort of answer key but got {answer}")
     exists_stmt = select(Answer.id).where(
         Answer.keyword_query_id == keyword_query_id,
         Answer.link_id == link_id,
-        Answer.answer_text == answer["answer"],
+        Answer.answer_text == answer_text,
     )
     existing_id = session.execute(exists_stmt).scalar_one_or_none()
     if existing_id is not None:
+        logger.info(f"statement exists at {existing_id}")
         return existing_id
     ans = Answer(
         keyword_query_id=keyword_query_id,
         link_id=link_id,
-        answer_text=answer["answer"],
+        answer_text=answer_text,
         reason=answer["reason"],
         evidence=answer["evidence"],
     )
     session.add(ans)
     session.flush()
+    logger.info(f"statement inserted at {ans.id}")
     return ans.id
 
 
@@ -182,12 +217,16 @@ async def call_llm_async(
 
 
 async def _worker(
-    row: Dict[str, Any], sem: asyncio.Semaphore
+    row: Dict[str, Any], sem: asyncio.Semaphore, log_queue: Queue
 ) -> Tuple[Dict[str, Any], str | Dict[str, Any] | None]:
+    logger = configure_worker_logger(
+        log_queue, GLOBAL_LOG_LEVEL, "_url_scrape_worker"
+    )
+
     async with sem:
         qtext: str = row["question_text"]
         content_text: str = row["content_text"] or ""
-        print(
+        logger.info(
             f"\n[QUESTION #{row['question_id']}] "
             f"(KeywordQuery #{row['keyword_query_id']}, Link #{row['link_id']})\n"
             f"Q: {qtext.strip()[:120]}{'...' if len(qtext) > 120 else ''}\n"
@@ -195,7 +234,6 @@ async def _worker(
             f"{'-'*80}"
         )
 
-        # If content_text is an error marker like [[some text]], short-circuit with 'unknown - [[some text]]'
         m = re.search(r"\[\[(.*?)\]\]", content_text, flags=re.DOTALL)
         if m:
             err_text = m.group(1).strip()
@@ -209,61 +247,106 @@ async def _worker(
         try:
             answer = await call_llm_async(qtext, content_text)
             return row, answer
-        except Exception as e:
-            print(
-                f"LLM error on question_id={row['question_id']}, link_id={row['link_id']}: {e}"
+        except asyncio.CancelledError:
+            logger.info(
+                f'task cancelled for question_id={row["question_id"]}, link_id={row["link_id"]}'
             )
-            return row, None
+            raise
+        except Exception as e:
+            logger.exception(
+                f'LLM error on question_id={row["question_id"]}, link_id={row["link_id"]}: {e}'
+            )
+            raise
+
+
+def get_content_text(
+    session: Session, question_context: Dict[str, str]
+) -> str | None:
+    result = dict(question_context)
+    result["content_text"] = session.execute(
+        select(Content.text).where(Content.id == question_context["content_id"])
+    ).scalar_one_or_none()
+    return result
 
 
 async def run_parallel_generation(
-    max_concurrency: int = 8,
+    max_concurrency: int = 1,
     batch_commit: int = 50,
 ) -> None:
+    global GLOBAL_LOG_LEVEL
+    GLOBAL_LOG_LEVEL = logging.DEBUG
+    log_queue, listener, manager = start_process_safe_logging(
+        "logs/iterate_content_for_llm.log"
+    )
+    main_logger = configure_worker_logger(log_queue, GLOBAL_LOG_LEVEL, "main")
+    set_catch_and_log_logger(main_logger)
+
     engine = create_engine(DB_URI)
 
-    # snapshot rows first (so DB cursor isn't shared across async tasks)
-    print("snapshot rows")
+    main_logger.info("snapshot rows")
     with Session(engine) as session:
-        # the 'None' is a placeholder so we can put a limit if we need
         unanswered_questions = list(
             itertools.islice(iter_unanswered_questions(session), None)
         )
-
-    sem = asyncio.Semaphore(max_concurrency)
-    print("creating tasks")
-    tasks = [
-        asyncio.create_task(_worker(question, sem))
-        for question in unanswered_questions
-    ]
+        main_logger.info(unanswered_questions)
+        sem = asyncio.Semaphore(max_concurrency)
+        main_logger.info("creating tasks")
+        tasks = [
+            asyncio.create_task(
+                _worker(get_content_text(session, question), sem, log_queue)
+            )
+            for question in unanswered_questions
+        ]
 
     pending_inserts: List[Tuple[int, int, Dict[str, Any]]] = []
     inserted = 0
 
-    for fut in asyncio.as_completed(tasks):
-        row, answer = await fut
-        if not answer:
-            continue
-        kid: int = row["keyword_query_id"]
-        lid: int = row["link_id"]
-        pending_inserts.append((kid, lid, answer))
+    try:
+        for fut in asyncio.as_completed(tasks):
+            try:
+                row, answer = await fut
+            except Exception as e:
+                # cancel all remaining tasks and wait for them to finish
+                for t in tasks:
+                    t.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                main_logger.error(f"aborting due to error: {e}")
+                # optional: flush any already batched inserts before aborting
+                if pending_inserts:
+                    with Session(engine) as session:
+                        for kid_i, lid_i, ans in pending_inserts:
+                            insert_answer(session, kid_i, lid_i, ans, log_queue)
+                        session.commit()
+                    inserted += len(pending_inserts)
+                    pending_inserts.clear()
+                raise
 
-        if len(pending_inserts) >= batch_commit:
+            if not answer:
+                continue
+            kid: int = row["keyword_query_id"]
+            lid: int = row["link_id"]
+            main_logger.debug(f"this is the answer: {answer}")
+            pending_inserts.append((kid, lid, answer))
+
+            if len(pending_inserts) >= batch_commit:
+                with Session(engine) as session:
+                    for kid_i, lid_i, ans in pending_inserts:
+                        insert_answer(session, kid_i, lid_i, ans, log_queue)
+                    session.commit()
+                inserted += len(pending_inserts)
+                pending_inserts.clear()
+
+        if pending_inserts:
             with Session(engine) as session:
                 for kid_i, lid_i, ans in pending_inserts:
-                    insert_answer(session, kid_i, lid_i, ans)
+                    insert_answer(session, kid_i, lid_i, ans, log_queue)
                 session.commit()
             inserted += len(pending_inserts)
-            pending_inserts.clear()
 
-    if pending_inserts:
-        with Session(engine) as session:
-            for kid_i, lid_i, ans in pending_inserts:
-                insert_answer(session, kid_i, lid_i, ans)
-            session.commit()
-        inserted += len(pending_inserts)
-
-    print(f"\nDone. Inserted {inserted} answers.")
+        main_logger.info(f"\nDone. Inserted {inserted} answers.")
+    finally:
+        listener.stop()
+        logging.shutdown()
 
 
 if __name__ == "__main__":
