@@ -58,7 +58,7 @@ Compliance rules:
 - Output JSON only. No markdown, no comments, no code fences, no trailing commas.
 
 "reason" enum:
-["supported","not_enough_information","blank_page","content_unrelated","conflicting_evidence","non_english","page_error"]
+["supported","not_enough_information","blank_page","content_unrelated","conflicting_evidence","non_english","page_error","model_uncertain"]
 
 ALLOWED VALUES FOR "answer_text" (infer task type from QUESTION)
 - Predator life stage: "larvae"|"nymphs"|"adults"|"larvae,nymphs"|"larvae,adults"|"nymphs,adults"|"larvae,nymphs,adults"|"unknown"
@@ -100,7 +100,7 @@ UNKNOWN EXAMPLE
 """.strip()
 
 
-def iter_unanswered_questions(
+def iter_unanswered_question_contexts(
     session: Session,
 ) -> Iterator[Mapping[str, object]]:
     """Loop through all the questions that do not have an 'answer'."""
@@ -128,6 +128,7 @@ def iter_unanswered_questions(
             isouter=True,
         )
         .where(or_(Answer.id.is_(None), Answer.reason == "page_error"))
+        .where(Content.is_valid != 0)
     ).execution_options(stream_results=True)
 
     for row in session.execute(stmt).mappings():
@@ -258,17 +259,17 @@ async def process_unanswered_questions(
 
     main_logger.info("snapshot rows")
     with Session(engine) as session:
-        unanswered_questions = list(
-            itertools.islice(iter_unanswered_questions(session), None)
+        unanswered_question_contexts = list(
+            itertools.islice(iter_unanswered_question_contexts(session), None)
         )
-        main_logger.info(unanswered_questions)
+        main_logger.info(unanswered_question_contexts)
         sem = asyncio.Semaphore(max_concurrency)
         main_logger.info("creating tasks")
         tasks = [
             asyncio.create_task(
                 _worker(_get_content_text(session, question), sem, log_queue)
             )
-            for question in unanswered_questions
+            for question in unanswered_question_contexts
         ]
 
     pending_inserts: List[Tuple[int, int, Dict[str, Any]]] = []
@@ -284,7 +285,6 @@ async def process_unanswered_questions(
                     t.cancel()
                 await asyncio.gather(*tasks, return_exceptions=True)
                 main_logger.error(f"aborting due to error: {e}")
-                # optional: flush any already batched inserts before aborting
                 if pending_inserts:
                     with Session(engine) as session:
                         for kid_i, lid_i, ans in pending_inserts:
