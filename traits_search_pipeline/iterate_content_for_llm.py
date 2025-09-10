@@ -10,7 +10,7 @@ import logging
 import re
 from multiprocessing import Queue
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, select, or_
 from sqlalchemy.orm import Session
 
 from openai import OpenAI
@@ -162,7 +162,7 @@ def iter_unanswered_questions(
             & (Answer.link_id == Link.id),
             isouter=True,
         )
-        .where(Answer.id.is_(None))
+        .where(or_(Answer.id.is_(None), Answer.reason == "page_error"))
     ).execution_options(stream_results=True)
 
     for row in session.execute(stmt).mappings():
