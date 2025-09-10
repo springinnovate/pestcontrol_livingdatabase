@@ -729,9 +729,6 @@ async def _main():
     )
     main_logger = configure_worker_logger(log_queue, GLOBAL_LOG_LEVEL, "main")
     set_catch_and_log_logger(main_logger)
-    temp_links = [
-        (-1, "https://esajournals.onlinelibrary.wiley.com/doi/10.1002/eap.2196")
-    ]
     scrape_urls(
         stream_links(log_queue),
         100,
