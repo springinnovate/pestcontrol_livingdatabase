@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import argparse
 import asyncio
 import logging
@@ -6,17 +5,14 @@ from pathlib import Path
 from typing import List, NamedTuple
 
 import httpx
-from sqlalchemy import create_engine, select, func
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from models import (
     DB_URI,
     Question,
-    KeywordQuery,
-    QuestionKeyword,
-    SearchHead,
     Link,
-    SearchResultLink,
+    QuestionLink,
 )
 
 logging.basicConfig(
@@ -32,7 +28,7 @@ class SEOSearchResult(NamedTuple):
     title: str
 
 
-async def query(
+async def run_serp_query(
     keyword: str, username: str, password: str, timeout: float = 30.0
 ) -> List[SEOSearchResult]:
     url = "https://api.dataforseo.com/v3/serp/google/organic/live/advanced"
@@ -71,21 +67,15 @@ def get_or_create_link(session, url: str) -> int:
     return obj.id
 
 
-def ensure_search_result_link(
-    session, search_head_id: int, link_id: int
-) -> None:
+def map_link_to_question(session, question_id: int, link_id: int) -> None:
     exists = session.scalar(
-        select(func.count())
-        .select_from(SearchResultLink)
-        .where(
-            SearchResultLink.search_head_id == search_head_id,
-            SearchResultLink.link_id == link_id,
+        select(QuestionLink.id).where(
+            QuestionLink.question_id == question_id,
+            QuestionLink.link_id == link_id,
         )
     )
-    if not exists:
-        session.add(
-            SearchResultLink(search_head_id=search_head_id, link_id=link_id)
-        )
+    if exists is None:
+        session.add(QuestionLink(question_id=question_id, link_id=link_id))
 
 
 def fetch_pending(
@@ -93,23 +83,17 @@ def fetch_pending(
 ) -> list[tuple[int, str, str]]:
     stmt = (
         select(
-            SearchHead.question_id.label("search_head_id"),
-            KeywordQuery.query.label("keyword"),
+            Question.id.label("question_id"),
+            Question.keyword_phrase.label("keyword"),
             Question.text.label("question_text"),
         )
-        .join(Question, Question.id == SearchHead.question_id)
-        .join(QuestionKeyword, QuestionKeyword.question_id == Question.id)
-        .join(KeywordQuery, KeywordQuery.id == QuestionKeyword.keyword_query_id)
-        .outerjoin(
-            SearchResultLink,
-            SearchResultLink.search_head_id == SearchHead.question_id,
-        )
-        .where(SearchResultLink.search_head_id.is_(None))
-        .order_by(SearchHead.question_id.asc())
+        .outerjoin(QuestionLink, QuestionLink.question_id == Question.id)
+        .where(QuestionLink.id.is_(None))
+        .order_by(Question.id.asc())
     )
     if limit:
         stmt = stmt.limit(limit)
-    return [(sid, kw, qtxt) for sid, kw, qtxt in session.execute(stmt).all()]
+    return [(qid, kw, qtxt) for qid, kw, qtxt in session.execute(stmt).all()]
 
 
 async def main():
@@ -146,11 +130,6 @@ async def main():
         default=None,
         help="Optional limit of pending SearchHeads to process",
     )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Do not write to the database, just print actions",
-    )
     args = parser.parse_args()
 
     username, password = (
@@ -164,10 +143,12 @@ async def main():
     delay = 1.0 / args.qps if args.qps > 0 else 0.0
 
     async def worker(item: tuple[int, str, str]):
-        search_head_id, keyword, question_text = item
+        question_id, keyword_query, question_text = item
         async with sem:
             try:
-                results = await query(keyword, username, password)
+                results = await run_serp_query(
+                    keyword_query, username, password
+                )
             finally:
                 if delay:
                     await asyncio.sleep(delay)
@@ -175,19 +156,22 @@ async def main():
         with Session() as session:
             urls = [r.url for r in results]
             link_ids = [get_or_create_link(session, u) for u in urls]
-            for lid in link_ids:
-                ensure_search_result_link(session, search_head_id, lid)
+            for link_id in link_ids:
+                map_link_to_question(session, question_id, link_id)
             session.commit()
             LOGGER.info(
-                "updated search_head=%s keyword=%r links_added=%d",
-                search_head_id,
-                keyword,
+                "updated search_head=%s keyword_query=%r links_added=%d",
+                question_id,
+                keyword_query,
                 len(link_ids),
             )
 
     with Session() as session:
         pending = fetch_pending(session, args.limit)
         LOGGER.info("pending search_heads without links: %d", len(pending))
+        for row in pending:
+            print(row)
+        return
 
     tasks = [asyncio.create_task(worker(item)) for item in pending]
     for t in asyncio.as_completed(tasks):
