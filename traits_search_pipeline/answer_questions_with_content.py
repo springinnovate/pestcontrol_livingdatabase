@@ -25,7 +25,7 @@ from models import (
 )
 
 from dotenv import load_dotenv
-from url_scraper import (
+from logging_tools import (
     set_catch_and_log_logger,
     configure_worker_logger,
     start_process_safe_logging,

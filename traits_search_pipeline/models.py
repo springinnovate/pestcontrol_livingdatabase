@@ -1,14 +1,45 @@
-"""SQLAlchemy model definitions for trait pipeline."""
+"""SQLAlchemy model definitions for a normalized traits/question-answer pipeline (v2).
 
+This module defines a normalized schema for:
+  * Species
+  * Questions (each includes its search keyword phrase)
+  * A mapping of species <> questions (many-to-many)
+  * Links (URLs) and fetched Content
+  * Associations of questions <> links (which links are relevant to which questions)
+  * Many answers per (question, link), with JSON-serializable evidence list
+
+Key changes from prior version:
+  * `Question` now stores both the question text and the keyword phrase used to search.
+  * Replaced the previous SpeciesQuestion entity with a simple mapping table that pairs
+    species_id with question_id (no additional scoping state).
+  * Folded keyword queries into `Question` (removed `KeywordQuery`).
+  * Simplified `QuestionLink` to associate a `question_id` directly to a `link_id`
+    (removed `species_question_id`).
+  * Removed `QuestionLinkDiscovery`.
+  * Kept `Content` as its own first-class entity referenced by `Link`.
+  * `Answer` links to a `question_id` and a `link_id`, and stores `evidence` as a JSON list.
+
+Additional integrity:
+  * `Answer` includes a composite foreign key referencing the unique pair
+    (`question_id`, `link_id`) on `QuestionLink`, ensuring answers only exist for
+    established question-link associations.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
 from typing import List
-from sqlalchemy import String
 
 from sqlalchemy import (
+    DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Integer,
     JSON,
+    String,
     Text,
     UniqueConstraint,
+    Index,
 )
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -21,11 +52,24 @@ DB_URI = "sqlite:///data/search_content_index.db"
 
 
 class BaseNorm(DeclarativeBase):
+    """Declarative base for normalized models."""
+
     pass
 
 
 class Content(BaseNorm):
+    """Fetched or extracted document content.
+
+    Attributes:
+        id (int): Surrogate primary key.
+        content_hash (str): Hash of the content for deduplication.
+        text (str): Raw content text.
+        is_valid (int | None): Optional status flag for validation/quality checks.
+        links (list[Link]): Links that reference this content (1:N).
+    """
+
     __tablename__ = "content"
+
     id: Mapped[int] = mapped_column(
         Integer, primary_key=True, autoincrement=True
     )
@@ -34,14 +78,29 @@ class Content(BaseNorm):
     )
     text: Mapped[str] = mapped_column(Text, nullable=False)
 
-    is_valid: Mapped[int] = mapped_column(Integer, nullable=True)
+    # Keep as integer for SQLite simplicity (treat non-zero as True if desired).
+    is_valid: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     links: Mapped[List["Link"]] = relationship(
-        back_populates="content", cascade="all, delete"
+        back_populates="content",
+        passive_deletes=True,
     )
 
 
 class Link(BaseNorm):
+    """A unique URL that may have associated fetched content.
+
+    Attributes:
+        id (int): Surrogate primary key.
+        url (str): Canonical URL (unique).
+        content_id (int | None): Optional FK to Content.
+        content (Content | None): Related content instance.
+        question_links (list[QuestionLink]): Associations of this link to questions.
+        answers (list[Answer]): Convenience view of answers via question_links.
+    """
+
     __tablename__ = "links"
+
     id: Mapped[int] = mapped_column(
         Integer, primary_key=True, autoincrement=True
     )
@@ -49,36 +108,41 @@ class Link(BaseNorm):
         String, nullable=False, unique=True, index=True
     )
     content_id: Mapped[int | None] = mapped_column(
-        ForeignKey("content.id", ondelete="SET NULL"), nullable=True
+        ForeignKey("content.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
 
     content: Mapped[Content | None] = relationship(back_populates="links")
-    search_heads: Mapped[List["SearchHead"]] = relationship(
-        secondary="search_result_links",
-        back_populates="links",
-    )
-    answers: Mapped[List["Answer"]] = relationship(back_populates="link")
 
-
-class Question(BaseNorm):
-    __tablename__ = "questions"
-    id: Mapped[int] = mapped_column(
-        Integer, primary_key=True, autoincrement=True
-    )
-    text: Mapped[str] = mapped_column(
-        Text, nullable=False, unique=True, index=True
+    question_links: Mapped[List["QuestionLink"]] = relationship(
+        back_populates="link",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
-    search_head: Mapped["SearchHead"] = relationship(
-        back_populates="question", uselist=False, cascade="all, delete"
-    )
-    question_keyword: Mapped["QuestionKeyword"] = relationship(
-        back_populates="question", uselist=False, cascade="all, delete"
+    answers: Mapped[List["Answer"]] = relationship(
+        "Answer",
+        back_populates="link",
+        primaryjoin="Link.id == Answer.link_id",
+        foreign_keys="Answer.link_id",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
 
 class Species(BaseNorm):
+    """A species record.
+
+    Attributes:
+        id (int): Surrogate primary key.
+        name (str): Unique species name.
+        questions (list[Question]): Related questions via the mapping table.
+        species_questions (list[SpeciesQuestion]): Mapping rows to questions.
+    """
+
     __tablename__ = "species"
+
     id: Mapped[int] = mapped_column(
         Integer, primary_key=True, autoincrement=True
     )
@@ -86,100 +150,235 @@ class Species(BaseNorm):
         String, nullable=False, unique=True, index=True
     )
 
+    species_questions: Mapped[List["SpeciesQuestion"]] = relationship(
+        back_populates="species",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
-class KeywordQuery(BaseNorm):
-    __tablename__ = "keyword_queries"
+    questions: Mapped[List["Question"]] = relationship(
+        secondary="species_questions",
+        primaryjoin="Species.id==SpeciesQuestion.species_id",
+        secondaryjoin="Question.id==SpeciesQuestion.question_id",
+        viewonly=True,
+    )
+
+
+class Question(BaseNorm):
+    """A reusable question template that includes its search keyword phrase.
+
+    Attributes:
+        id (int): Surrogate primary key.
+        text (str): Unique question text.
+        keyword_phrase (str): Search phrase used to discover relevant links.
+        species (list[Species]): Related species via the mapping table.
+        species_questions (list[SpeciesQuestion]): Mapping rows to species.
+        question_links (list[QuestionLink]): Links associated with this question.
+        answers (list[Answer]): Answers extracted for this question across links.
+    """
+
+    __tablename__ = "questions"
+
     id: Mapped[int] = mapped_column(
         Integer, primary_key=True, autoincrement=True
     )
-    query: Mapped[str] = mapped_column(
-        String, nullable=False, unique=True, index=True
+    text: Mapped[str] = mapped_column(
+        Text, nullable=False, unique=True, index=True
+    )
+    keyword_phrase: Mapped[str] = mapped_column(
+        String, nullable=False, index=True
     )
 
-    question_keywords: Mapped[List["QuestionKeyword"]] = relationship(
-        back_populates="keyword_query"
+    species_questions: Mapped[List["SpeciesQuestion"]] = relationship(
+        back_populates="question",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
+
+    species: Mapped[List["Species"]] = relationship(
+        secondary="species_questions",
+        primaryjoin="Question.id==SpeciesQuestion.question_id",
+        secondaryjoin="Species.id==SpeciesQuestion.species_id",
+        viewonly=True,
+    )
+
+    question_links: Mapped[List["QuestionLink"]] = relationship(
+        back_populates="question",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
     answers: Mapped[List["Answer"]] = relationship(
-        back_populates="keyword_query"
+        "Answer",
+        back_populates="question",
+        primaryjoin="Question.id == Answer.question_id",
+        foreign_keys="Answer.question_id",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
 
-class QuestionKeyword(BaseNorm):
-    __tablename__ = "question_keywords"
-    # 1:1 mapping of question -> keyword query (query is tied directly to the question)
-    question_id: Mapped[int] = mapped_column(
-        ForeignKey("questions.id", ondelete="CASCADE"), primary_key=True
-    )
-    keyword_query_id: Mapped[int] = mapped_column(
-        ForeignKey("keyword_queries.id", ondelete="RESTRICT"),
-        nullable=False,
-    )
+class SpeciesQuestion(BaseNorm):
+    """Mapping between a species and a question (many-to-many).
 
-    question: Mapped[Question] = relationship(back_populates="question_keyword")
-    keyword_query: Mapped[KeywordQuery] = relationship(
-        back_populates="question_keywords"
-    )
+    This table contains no additional scoping state; it simply relates a species to a question.
 
+    Attributes:
+        species_id (int): FK to Species.
+        question_id (int): FK to Question.
+    """
 
-class SearchHead(BaseNorm):
-    __tablename__ = "search_heads"
-    # primary key is the question id; keyword query relation moved to QuestionKeyword
-    question_id: Mapped[int] = mapped_column(
-        ForeignKey("questions.id", ondelete="CASCADE"), primary_key=True
-    )
+    __tablename__ = "species_questions"
+
     species_id: Mapped[int] = mapped_column(
-        ForeignKey("species.id", ondelete="RESTRICT"), nullable=False
-    )
-
-    question: Mapped[Question] = relationship(back_populates="search_head")
-    species: Mapped[Species] = relationship()
-
-    links: Mapped[List[Link]] = relationship(
-        secondary="search_result_links",
-        back_populates="search_heads",
-    )
-
-
-class SearchResultLink(BaseNorm):
-    __tablename__ = "search_result_links"
-    search_head_id: Mapped[int] = mapped_column(
-        ForeignKey("search_heads.question_id", ondelete="CASCADE"),
+        ForeignKey("species.id", ondelete="CASCADE"),
         primary_key=True,
+    )
+    question_id: Mapped[int] = mapped_column(
+        ForeignKey("questions.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "species_id", "question_id", name="uq_species_question"
+        ),
+        Index("ix_species_questions_spp_q", "species_id", "question_id"),
+    )
+
+    species: Mapped[Species] = relationship(back_populates="species_questions")
+    question: Mapped[Question] = relationship(
+        back_populates="species_questions"
+    )
+
+
+class QuestionLink(BaseNorm):
+    """Association of a Question to a Link.
+
+    A link can be reused across multiple questions; this table records which links
+    are relevant to which questions.
+
+    Attributes:
+        id (int): Surrogate primary key.
+        question_id (int): FK to Question.
+        link_id (int): FK to Link.
+        question (Question): Related question.
+        link (Link): Related link.
+        answers (list[Answer]): Answers derived for this (question, link) pair.
+    """
+
+    __tablename__ = "question_links"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True
+    )
+    question_id: Mapped[int] = mapped_column(
+        ForeignKey("questions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     link_id: Mapped[int] = mapped_column(
         ForeignKey("links.id", ondelete="CASCADE"),
-        primary_key=True,
+        nullable=False,
+        index=True,
     )
+
     __table_args__ = (
-        UniqueConstraint(
-            "search_head_id", "link_id", name="uq_search_head_link_id"
-        ),
+        UniqueConstraint("question_id", "link_id", name="uq_question_link"),
+        Index("ix_question_links_q_l", "question_id", "link_id"),
+    )
+
+    question: Mapped[Question] = relationship(back_populates="question_links")
+    link: Mapped[Link] = relationship(back_populates="question_links")
+
+    answers: Mapped[List["Answer"]] = relationship(
+        "Answer",
+        back_populates="question_link",
+        primaryjoin="QuestionLink.id == Answer.question_link_id",
+        foreign_keys="Answer.question_link_id",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
 
 class Answer(BaseNorm):
+    """An extracted answer for a specific (question, link) pair.
+
+    Attributes:
+        id (int): Surrogate primary key.
+        question_link_id (int): FK to QuestionLink for fast joins and cascading.
+        question_id (int): Redundant FK to Question for query ergonomics.
+        link_id (int): Redundant FK to Link for query ergonomics.
+        answer_text (str): Extracted answer text.
+        reason (str): Reason/label for answer state (e.g., 'supported', 'not_enough_information').
+        evidence (list): JSON-serializable list of evidence snippets/objects.
+
+    Notes:
+        A composite foreign key enforces that (question_id, link_id) exists on QuestionLink.
+        Redundant columns (question_id, link_id) speed up common filters and group-bys.
+    """
+
     __tablename__ = "answers"
+
     id: Mapped[int] = mapped_column(
         Integer, primary_key=True, autoincrement=True
     )
 
-    keyword_query_id: Mapped[int] = mapped_column(
-        ForeignKey("keyword_queries.id", ondelete="CASCADE"),
+    # Direct handle to the association row (for cascades & joins)
+    question_link_id: Mapped[int] = mapped_column(
+        ForeignKey("question_links.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    # Redundant, but ergonomic for filtering and reporting
+    question_id: Mapped[int] = mapped_column(
+        ForeignKey("questions.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
     link_id: Mapped[int] = mapped_column(
-        ForeignKey("links.id", ondelete="RESTRICT"),
+        ForeignKey("links.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
 
-    # extracted result
     answer_text: Mapped[str] = mapped_column(Text, nullable=False)
     reason: Mapped[str] = mapped_column(
-        String, nullable=False, default="not_enough_information", index=True
+        String,
+        nullable=False,
+        default="not_enough_information",
+        index=True,
     )
     evidence: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
 
-    keyword_query: Mapped[KeywordQuery] = relationship(back_populates="answers")
-    link: Mapped[Link] = relationship(back_populates="answers")
+    # Enforce that (question_id, link_id) exists in QuestionLink.uq_question_link
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["question_id", "link_id"],
+            ["question_links.question_id", "question_links.link_id"],
+            name="fk_answers_question_link_pair",
+            ondelete="RESTRICT",
+        ),
+        Index("ix_answers_q_l", "question_id", "link_id"),
+    )
+
+    question_link: Mapped["QuestionLink"] = relationship(
+        "QuestionLink",
+        back_populates="answers",
+        primaryjoin="Answer.question_link_id == QuestionLink.id",
+        foreign_keys="Answer.question_link_id",
+    )
+    question: Mapped["Question"] = relationship(
+        "Question",
+        back_populates="answers",
+        primaryjoin="Answer.question_id == Question.id",
+        foreign_keys="Answer.question_id",
+    )
+
+    link: Mapped["Link"] = relationship(
+        "Link",
+        back_populates="answers",
+        primaryjoin="Answer.link_id == Link.id",
+        foreign_keys="Answer.link_id",
+    )
