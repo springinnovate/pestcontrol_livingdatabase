@@ -1,37 +1,28 @@
-from collections import defaultdict
-from sqlalchemy import create_engine, select
-from sqlalchemy.orm import Session
-from models import Species, Question, SearchHead, DB_URI
-
+"""Script to report questions that have no links associted with them."""
 
 from __future__ import annotations
-
-import sys
 from collections import defaultdict
 from typing import Iterable
 
 from sqlalchemy import create_engine, select, func
 from sqlalchemy.orm import Session
 
-# Import your models from wherever they live
-# Adjust this import to match your project structure
 from models import (
-    BaseNorm,
     Species,
     Question,
-    # Mapping tables / link tables
-    # Ensure these classes are defined in your models module
-    # with __tablename__ matching your DB schema:
-    # class SpeciesQuestion(BaseNorm): __tablename__ = 'species_questions'
-    # class QuestionLink(BaseNorm): __tablename__ = 'question_links'
     SpeciesQuestion,
     QuestionLink,
+    DB_URI,
 )
 
 
 def iter_species_questions_without_links(
     session: Session,
-) -> Iterable[tuple[str, str]]:
+) -> Iterable[tuple[str, str]]:  # noqa: D208
+    """Loops through all the questions without links associted.
+
+    returns a (species_name, question_text) iterator
+    """
     stmt = (
         select(Species.name, Question.text)
         .join(SpeciesQuestion, SpeciesQuestion.species_id == Species.id)
@@ -45,13 +36,8 @@ def iter_species_questions_without_links(
 
 
 def main() -> None:
-    if len(sys.argv) != 2:
-        print(
-            "Usage: python list_species_questions_without_links.py /path/to/db.sqlite"
-        )
-        sys.exit(1)
-
-    engine = create_engine(engine_url)
+    """Entry point."""
+    engine = create_engine(DB_URI)
     out: dict[str, list[str]] = defaultdict(list)
     with Session(engine) as session:
         for species_name, question_text in iter_species_questions_without_links(
@@ -63,7 +49,7 @@ def main() -> None:
     for species_name in sorted(out.keys()):
         print(f"[{species_name}]")
         for q in out[species_name]:
-            print(f"[{q}]")
+            print(f"\t[{q}]")
 
 
 if __name__ == "__main__":

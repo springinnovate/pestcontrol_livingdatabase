@@ -149,6 +149,7 @@ async def main():
                 results = await run_serp_query(
                     keyword_query, username, password
                 )
+                print(results)
             finally:
                 if delay:
                     await asyncio.sleep(delay)
@@ -169,9 +170,6 @@ async def main():
     with Session() as session:
         pending = fetch_pending(session, args.limit)
         LOGGER.info("pending search_heads without links: %d", len(pending))
-        for row in pending:
-            print(row)
-        return
 
     tasks = [asyncio.create_task(worker(item)) for item in pending]
     for t in asyncio.as_completed(tasks):
