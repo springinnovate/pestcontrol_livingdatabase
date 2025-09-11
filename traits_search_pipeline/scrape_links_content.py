@@ -31,6 +31,7 @@ from playwright.sync_api import (
     Error as PlaywrightError,
 )
 import psutil
+from dotenv import load_dotenv
 from pypdf import PdfReader
 from readability import Document  # readability-lxml
 from sqlalchemy import select, create_engine
@@ -46,6 +47,8 @@ from logging_tools import (
     start_process_safe_logging,
 )
 from llm_tools import guess_if_error_text
+
+load_dotenv()
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -311,6 +314,9 @@ def _url_scrape_worker(
         if FLARESOLVERR_ENDPOINT
         else None
     )
+    if fs_client is None:
+        logger.error("flaresolver did not load")
+        raise RuntimeError("flaresolver did not load")
 
     def _cookies_to_playwright(
         fs_cookies: list[dict], url_for_default: str
@@ -872,6 +878,8 @@ def db_writer(url_to_content_queue, stop_event, log_queue):
                         is_valid = None
                         if guess_if_error_text(content):
                             is_valid = False
+                        else:
+                            is_valid = 1
                         sess.execute(
                             sqlite_insert(Content)
                             .values(
@@ -917,8 +925,12 @@ async def _main():
         "logs/scraper_errors.log"
     )
     main_logger = configure_worker_logger(log_queue, GLOBAL_LOG_LEVEL, "main")
+    # main_logger.info(FLARESOLVERR_ENDPOINT)
+    # fs = FlareSolverrClient(FLARESOLVERR_ENDPOINT)
+    # main_logger.info(fs)
+    # return
     set_catch_and_log_logger(main_logger)
-    max_items = 1
+    max_items = None
     scrape_urls(
         stream_links(log_queue, max_items),
         100,

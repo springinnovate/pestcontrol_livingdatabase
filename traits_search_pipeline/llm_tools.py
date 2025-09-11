@@ -10,17 +10,7 @@ from sqlalchemy.orm import Session
 import tiktoken
 
 from openai import OpenAI
-from models import (
-    DB_URI,
-    BaseNorm,
-    Question,
-    QuestionKeyword,
-    SearchHead,
-    SearchResultLink,
-    Link,
-    Content,
-    Answer,
-)
+from models import Content
 
 SYSTEM_PROMPT = """
 You are a careful classifier. Decide if PAGE_TEXT is valid human-readable content or an error/placeholder.
