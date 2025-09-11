@@ -9,6 +9,8 @@ import logging.handlers
 from multiprocessing import Queue as MPQueue
 import traceback
 
+_DEFAULT_CATCH_LOGGER: logging.Logger | None = None
+
 
 def start_process_safe_logging(log_path: str, level: int = logging.INFO):
     """Set up logging that works across processes with a queue."""

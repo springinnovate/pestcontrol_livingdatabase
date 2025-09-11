@@ -1,3 +1,9 @@
+"""Make sure flaresolver is running first:
+
+docker run -d --name=flaresolverr -p 8191:8191 -e LOG_LEVEL=info --restart unless-stopped ghcr.io/flaresolverr/flaresolverr:latest
+
+"""
+
 from __future__ import annotations
 from concurrent.futures import ProcessPoolExecutor
 from io import BytesIO
@@ -14,6 +20,8 @@ import logging.handlers
 import os
 import re
 import traceback
+import requests
+from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
 from pdfminer.high_level import extract_text as pm_extract
@@ -37,6 +45,7 @@ from logging_tools import (
     set_catch_and_log_logger,
     start_process_safe_logging,
 )
+from llm_tools import guess_if_error_text
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -58,7 +67,110 @@ SessionLocal = sessionmaker(
     bind=sync_engine, expire_on_commit=False, class_=Session
 )
 
-_DEFAULT_CATCH_LOGGER: logging.Logger | None = None
+# FlareSolverr config (set from env or hardcode here)
+# Example endpoint values:
+#   'http://10.0.0.8:8191/v1'
+#   'http://username:password@10.0.0.8:8191/v1'  # if you protect FS behind basic auth / reverse proxy
+FLARESOLVERR_ENDPOINT = os.getenv("FLARESOLVERR_ENDPOINT")
+
+# Optional: upstream proxy FS should use to reach target sites (supports auth when using sessions)
+# e.g., 'http://user:pass@proxy.example:3128' or 'socks5://proxy.example:1080'
+FLARESOLVERR_UPSTREAM_PROXY = os.getenv("FLARESOLVERR_UPSTREAM_PROXY")
+
+# Optional: minutes after which FS sessions are rotated
+FLARESOLVERR_SESSION_TTL_MIN = int(
+    os.getenv("FLARESOLVERR_SESSION_TTL_MIN", "30")
+)
+
+# Optional: comma-separated domains to always route via FS (suffix match), e.g. 'cloudflaredsite.com, ddos-guard.example'
+FLARESOLVERR_ALWAYS_HOSTS = tuple(
+    h.strip().lower()
+    for h in os.getenv("FLARESOLVERR_ALWAYS_HOSTS", "").split(",")
+    if h.strip()
+)
+
+
+class FlareSolverrClient:
+    def __init__(self, endpoint: str | None):
+        self.endpoint = endpoint.rstrip("/") if endpoint else None
+        self._http = None
+        self._sessions: dict[str, str] = {}
+
+    def _session(self):
+        if self._http is None:
+            self._http = requests.Session()
+        return self._http
+
+    def _post(self, payload: dict) -> dict:
+        if not self.endpoint:
+            raise RuntimeError("FLARESOLVERR_ENDPOINT not configured")
+        r = self._session().post(self.endpoint, json=payload, timeout=120)
+        r.raise_for_status()
+        data = r.json()
+        if data.get("status") != "ok":
+            raise RuntimeError(f'FlareSolverr error: {data.get("message")}')
+        return data
+
+    def ensure_session(
+        self, key: str, upstream_proxy: str | None = None
+    ) -> str:
+        sid = self._sessions.get(key)
+        if sid:
+            return sid
+        payload: dict = {"cmd": "sessions.create"}
+        if upstream_proxy:
+            pu = urlparse(upstream_proxy)
+            # sessions.create supports extracting credentials separately
+            if pu.username or pu.password:
+                base = f"{pu.scheme}://{pu.hostname}"
+                if pu.port:
+                    base += f":{pu.port}"
+                proxy_obj: dict[str, str] = {"url": base}
+                if pu.username:
+                    proxy_obj["username"] = pu.username
+                if pu.password:
+                    proxy_obj["password"] = pu.password
+            else:
+                proxy_obj = {"url": upstream_proxy}
+            payload["proxy"] = proxy_obj
+        data = self._post(payload)
+        sid = data.get("session")
+        if not sid:
+            raise RuntimeError("FlareSolverr did not return session id")
+        self._sessions[key] = sid
+        return sid
+
+    def request_get(
+        self,
+        url: str,
+        session_key: str | None = None,
+        upstream_proxy: str | None = None,
+        max_timeout_ms: int = 60000,
+        session_ttl_minutes: int | None = None,
+    ) -> dict:
+        payload: dict = {
+            "cmd": "request.get",
+            "url": url,
+            "maxTimeout": max_timeout_ms,
+        }
+        if session_key:
+            payload["session"] = self.ensure_session(
+                session_key, upstream_proxy=upstream_proxy
+            )
+            if session_ttl_minutes:
+                payload["session_ttl_minutes"] = session_ttl_minutes
+        elif upstream_proxy:
+            # request.get proxy only supports 'url' (no username/password here)
+            payload["proxy"] = {"url": upstream_proxy}
+        return self._post(payload)["solution"]
+
+    def destroy_all(self) -> None:
+        for sid in list(self._sessions.values()):
+            try:
+                self._post({"cmd": "sessions.destroy", "session": sid})
+            except Exception:
+                pass
+        self._sessions.clear()
 
 
 @catch_and_log()
@@ -194,6 +306,145 @@ def _url_scrape_worker(
     context = None
     processed_count = 0
 
+    fs_client = (
+        FlareSolverrClient(FLARESOLVERR_ENDPOINT)
+        if FLARESOLVERR_ENDPOINT
+        else None
+    )
+
+    def _cookies_to_playwright(
+        fs_cookies: list[dict], url_for_default: str
+    ) -> list[dict]:
+        host = urlparse(url_for_default).hostname or ""
+        out: list[dict] = []
+        for c in fs_cookies or []:
+            item = {
+                "name": c.get("name", ""),
+                "value": c.get("value", ""),
+                "domain": c.get("domain") or host,
+                "path": c.get("path") or "/",
+                "httpOnly": bool(c.get("httpOnly", False)),
+                "secure": bool(c.get("secure", False)),
+            }
+            if c.get("expires"):
+                try:
+                    item["expires"] = int(c["expires"])
+                except Exception:
+                    pass
+            if c.get("sameSite"):
+                item["sameSite"] = c["sameSite"]
+            out.append(item)
+        return out
+
+    def _should_use_flaresolverr(
+        target_url: str, page=None, response=None
+    ) -> bool:
+        if not fs_client:
+            return False
+        host = (urlparse(target_url).hostname or "").lower()
+        if FLARESOLVERR_ALWAYS_HOSTS and any(
+            host.endswith(suf) for suf in FLARESOLVERR_ALWAYS_HOSTS
+        ):
+            return True
+        try:
+            if page is not None and soft_block_detect(page):
+                return True
+        except Exception:
+            pass
+        try:
+            if response is not None:
+                st = getattr(response, "status", None)
+                if isinstance(st, int) and st in (403, 429):
+                    return True
+        except Exception:
+            pass
+        return False
+
+    def _fs_fetch_html_or_pdf(target_url: str) -> Tuple[str, str]:
+        # Use per-host session so cookies persist and proxy auth (if any) is supported.
+        sess_key = urlparse(target_url).hostname or "default"
+        sol = fs_client.request_get(
+            target_url,
+            session_key=sess_key,
+            upstream_proxy=FLARESOLVERR_UPSTREAM_PROXY,
+            max_timeout_ms=NAV_TIMEOUT_MS,
+            session_ttl_minutes=FLARESOLVERR_SESSION_TTL_MIN,
+        )
+        final_url = sol.get("url") or target_url
+        headers = sol.get("headers") or {}
+        ctype = str(headers.get("content-type", "")).lower()
+        ua = sol.get("userAgent") or USER_AGENT
+        # If FS landed on a file (e.g., application/pdf), fetch bytes with an ephemeral context using FS cookies/UA
+        if looks_pdf_from_headers_url(ctype, final_url) or _is_probable_pdf_url(
+            final_url
+        ):
+            tmp_ctx = browser.new_context(
+                user_agent=ua,
+                locale="en-US",
+                timezone_id="America/Los_Angeles",
+                viewport={"width": 1366, "height": 768},
+                java_script_enabled=True,
+                ignore_https_errors=True,
+                extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
+                accept_downloads=True,
+            )
+            try:
+                if sol.get("cookies"):
+                    tmp_ctx.add_cookies(
+                        _cookies_to_playwright(sol["cookies"], final_url)
+                    )
+                resp = tmp_ctx.request.get(final_url, timeout=NAV_TIMEOUT_MS)
+                blob = resp.body()
+                return parse_pdf_bytes(blob, max_pages=PDF_MAX_PAGES), final_url
+            finally:
+                try:
+                    tmp_ctx.close()
+                except PlaywrightError:
+                    pass
+        # Otherwise parse HTML returned by FS directly
+        html = sol.get("response") or ""
+        return extract_text(html, base_url=final_url), final_url
+
+    def _fs_solve_then_download(target_url: str) -> Tuple[str, str]:
+        # Specifically for download flows where goto triggers a download behind a CF challenge
+        sess_key = urlparse(target_url).hostname or "default"
+        sol = fs_client.request_get(
+            target_url,
+            session_key=sess_key,
+            upstream_proxy=FLARESOLVERR_UPSTREAM_PROXY,
+            max_timeout_ms=NAV_TIMEOUT_MS,
+            session_ttl_minutes=FLARESOLVERR_SESSION_TTL_MIN,
+        )
+        ua = sol.get("userAgent") or USER_AGENT
+        dl_ctx = browser.new_context(
+            user_agent=ua,
+            locale="en-US",
+            timezone_id="America/Los_Angeles",
+            viewport={"width": 1366, "height": 768},
+            java_script_enabled=True,
+            ignore_https_errors=True,
+            extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
+            accept_downloads=True,
+        )
+        try:
+            if sol.get("cookies"):
+                dl_ctx.add_cookies(
+                    _cookies_to_playwright(sol["cookies"], target_url)
+                )
+            page2 = dl_ctx.new_page()
+            try:
+                return _download_via_goto(page2, target_url)
+            finally:
+                try:
+                    page2.close()
+                except PlaywrightError:
+                    pass
+        finally:
+            try:
+                dl_ctx.close()
+            except PlaywrightError:
+                pass
+
     def _open_browser():
         nonlocal browser, context
         # close stale handles
@@ -316,12 +567,20 @@ def _url_scrape_worker(
         return text_content, final_url
 
     def _navigate_and_collect_text(target_url: str) -> Tuple[str, str]:
-        # Prefer direct download handling when the URL clearly points to a file.
+        # Use FS immediately for configured hosts or probable download URLs if desired
         page = context.new_page()
         try:
+            # Handle obvious file URLs first with normal path
             if _is_probable_pdf_url(target_url):
-                logger.debug("url looks like a file; handling as download")
-                return _download_via_goto(page, target_url)
+                try:
+                    return _download_via_goto(page, target_url)
+                except PlaywrightError:
+                    if fs_client:
+                        logger.debug(
+                            "download via goto failed; attempting FlareSolverr-assisted download"
+                        )
+                        return _fs_solve_then_download(target_url)
+                    raise
 
             logger.debug(f"goto domcontentloaded: {target_url}")
             response = page.goto(
@@ -329,6 +588,17 @@ def _url_scrape_worker(
                 wait_until="domcontentloaded",
                 timeout=NAV_TIMEOUT_MS,
             )
+
+            # If response indicates block or the page body looks like a block, fall back to FlareSolverr.
+            if _should_use_flaresolverr(
+                target_url, page=page, response=response
+            ):
+                logger.debug(
+                    "soft block or 403/429 detected; using FlareSolverr fallback"
+                )
+                return _fs_fetch_html_or_pdf(target_url)
+
+            # Normal extraction path
             return _extract_text_from_page(page, response, target_url)
 
         except PlaywrightError as e:
@@ -340,10 +610,14 @@ def _url_scrape_worker(
                 try:
                     return _download_via_goto(page, target_url)
                 except PlaywrightError as e2:
-                    # If even the download path fails, try request client as a final fallback.
-                    logger.debug(
-                        f"download via goto failed: {e2}; falling back to request client"
-                    )
+                    logger.debug(f"download via goto failed: {e2}")
+                    if fs_client:
+                        logger.debug(
+                            "attempting FlareSolverr-assisted download after goto failure"
+                        )
+                        return _fs_solve_then_download(target_url)
+                    # Fallback to request client as last resort
+                    logger.debug("falling back to request client without FS")
                     ctype, blob = _fetch_bytes_via_request(target_url)
                     if looks_pdf_from_headers_url(ctype or "", target_url):
                         return (
@@ -354,7 +628,15 @@ def _url_scrape_worker(
                         return blob.decode("utf-8", "ignore"), target_url
                     except Exception:
                         return "", target_url
-            # If it's a different Playwright error, rethrow to outer handler.
+            # Other Playwright errors: try FlareSolverr as a last resort
+            if fs_client:
+                logger.debug(
+                    f"Playwright error encountered; trying FlareSolverr: {e}"
+                )
+                try:
+                    return _fs_fetch_html_or_pdf(target_url)
+                except Exception as e2:
+                    logger.debug(f"FlareSolverr fallback failed: {e2}")
             raise
         finally:
             try:
@@ -418,6 +700,11 @@ def _url_scrape_worker(
                     context.close()
             except PlaywrightError as e:
                 logger.debug(f"ignoring context close error: {e}")
+            try:
+                if fs_client:
+                    fs_client.destroy_all()
+            except Exception:
+                logger.debug("ignoring FlareSolverr cleanup error")
             try:
                 if browser:
                     browser.close()
@@ -582,9 +869,16 @@ def db_writer(url_to_content_queue, stop_event, log_queue):
                         ).hexdigest()
 
                         # insert the new content if it does not exist
+                        is_valid = None
+                        if guess_if_error_text(content):
+                            is_valid = False
                         sess.execute(
                             sqlite_insert(Content)
-                            .values(content_hash=content_hash, text=content)
+                            .values(
+                                content_hash=content_hash,
+                                text=content,
+                                is_valid=is_valid,
+                            )
                             .on_conflict_do_nothing(
                                 index_elements=["content_hash"]
                             )
@@ -624,8 +918,9 @@ async def _main():
     )
     main_logger = configure_worker_logger(log_queue, GLOBAL_LOG_LEVEL, "main")
     set_catch_and_log_logger(main_logger)
+    max_items = 1
     scrape_urls(
-        stream_links(log_queue),
+        stream_links(log_queue, max_items),
         100,
         manager,
         log_queue,
