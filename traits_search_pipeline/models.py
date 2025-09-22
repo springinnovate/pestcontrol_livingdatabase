@@ -110,6 +110,7 @@ class Link(BaseNorm):
         nullable=True,
         index=True,
     )
+    fetch_error: Mapped[str | None] = mapped_column(String, nullable=True)
 
     content: Mapped[Content | None] = relationship(back_populates="links")
 

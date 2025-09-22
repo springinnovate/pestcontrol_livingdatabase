@@ -1,55 +1,57 @@
 """Tools to help with multiprocess logging."""
 
 from pathlib import Path
-from multiprocessing import Manager
 import functools
 import inspect
 import logging
 import logging.handlers
-from multiprocessing import Queue as MPQueue
+from logging.handlers import QueueHandler, QueueListener, RotatingFileHandler
 import traceback
+from logging.handlers import QueueHandler
+import multiprocessing as mp
 
 _DEFAULT_CATCH_LOGGER: logging.Logger | None = None
 
 
-def start_process_safe_logging(log_path: str, level: int = logging.INFO):
-    """Set up logging that works across processes with a queue."""
-    format_str = (
-        "%(asctime)s %(processName)s %(levelname)s "
-        "[%(filename)s:%(lineno)d] %(name)s: %(message)s"
-    )
+FORMAT = "%(asctime)s %(processName)s %(levelname)s [%(filename)s:%(lineno)d] %(name)s: %(message)s"
 
-    class _FlushRotatingFileHandler(logging.handlers.RotatingFileHandler):
-        def emit(self, record):
-            super().emit(record)
-            self.flush()
 
+def start_process_safe_logging(
+    manager, log_path: str, level: int = logging.INFO
+):
+    # create a real mp.Queue (works on Windows if created in main)
+    log_queue = manager.Queue(-1)
+
+    # single writer in parent
     log_path = Path(log_path)
     log_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # file handler in the parent only (single writer)
-    file_handler = _FlushRotatingFileHandler(
+    file_handler = RotatingFileHandler(
         log_path, maxBytes=10_000_000, backupCount=5, encoding="utf-8"
     )
     file_handler.setLevel(level)
-    file_handler.setFormatter(logging.Formatter(format_str))
+    file_handler.setFormatter(logging.Formatter(FORMAT))
 
-    manager = Manager()
-    log_queue = manager.Queue()
-    listener = logging.handlers.QueueListener(
+    listener = QueueListener(
         log_queue, file_handler, respect_handler_level=True
     )
     listener.start()
 
+    # parent: route root logger through the queue
     root = logging.getLogger()
     root.setLevel(level)
-    if not any(isinstance(h, logging.StreamHandler) for h in root.handlers):
-        sh = logging.StreamHandler()
-        sh.setLevel(level)
-        sh.setFormatter(logging.Formatter(format_str))
-        root.addHandler(sh)
+    # remove any pre-existing handlers to avoid double logging / locks
+    for h in list(root.handlers):
+        root.removeHandler(h)
+    root.addHandler(QueueHandler(log_queue))
 
-    return log_queue, listener, manager
+    # optional: also echo to console from parent (not from workers)
+    console = logging.StreamHandler()
+    console.setLevel(level)
+    console.setFormatter(logging.Formatter(FORMAT))
+    # listener can’t write to console; add directly to root in parent:
+    root.addHandler(console)
+
+    return log_queue, listener
 
 
 def _resolve_logger(logger: logging.Logger | str | None) -> logging.Logger:
@@ -63,17 +65,13 @@ def _resolve_logger(logger: logging.Logger | str | None) -> logging.Logger:
 
 
 def configure_worker_logger(
-    log_queue: MPQueue, level: int, logger_name: str
-) -> logging.Logger:
-    """Used per process to get the local logger that's connected globally."""
-    logger = logging.getLogger(logger_name)
+    log_queue, level=logging.INFO, name: str | None = None
+):
+    logger = logging.getLogger(name) if name else logging.getLogger()
     logger.setLevel(level)
     for h in list(logger.handlers):
         logger.removeHandler(h)
-    qh = logging.handlers.QueueHandler(log_queue)
-    qh.setLevel(level)
-    logger.addHandler(qh)
-    set_catch_and_log_logger(logger)
+    logger.addHandler(QueueHandler(log_queue))
     return logger
 
 

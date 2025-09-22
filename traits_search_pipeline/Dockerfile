@@ -8,6 +8,16 @@ ENV PIP_NO_CACHE_DIR=1 \
 
 WORKDIR /app
 
+# Install common system tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    procps \
+    psmisc \
+    htop \
+    less \
+    vim-tiny \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt /app/requirements.txt
 RUN pip install -r requirements.txt
 RUN python -m playwright install --with-deps chromium

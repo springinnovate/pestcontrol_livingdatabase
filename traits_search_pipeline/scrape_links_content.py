@@ -1,17 +1,18 @@
-"""Make sure flaresolver is running first:
+"""Make sure flaresolver is running first.
 
 docker run -d --name=flaresolverr -p 8191:8191 -e LOG_LEVEL=info --restart unless-stopped ghcr.io/flaresolverr/flaresolverr:latest
 
 """
 
 from __future__ import annotations
+import sys
 from concurrent.futures import ProcessPoolExecutor
 from io import BytesIO
 from multiprocessing import Queue as MPQueue, Manager
 from pathlib import Path
 from queue import Empty
 from tempfile import NamedTemporaryFile
-from typing import Iterable, Tuple, Iterator
+from typing import Iterable, Tuple, Iterator, Optional
 import asyncio
 import hashlib
 import html as html_utils
@@ -22,6 +23,8 @@ import re
 import traceback
 import requests
 from urllib.parse import urlparse
+from contextlib import contextmanager, ExitStack
+import threading
 
 from bs4 import BeautifulSoup
 from pdfminer.high_level import extract_text as pm_extract
@@ -70,17 +73,7 @@ SessionLocal = sessionmaker(
     bind=sync_engine, expire_on_commit=False, class_=Session
 )
 
-# FlareSolverr config (set from env or hardcode here)
-# Example endpoint values:
-#   'http://10.0.0.8:8191/v1'
-#   'http://username:password@10.0.0.8:8191/v1'  # if you protect FS behind basic auth / reverse proxy
 FLARESOLVERR_ENDPOINT = os.getenv("FLARESOLVERR_ENDPOINT")
-
-# Optional: upstream proxy FS should use to reach target sites (supports auth when using sessions)
-# e.g., 'http://user:pass@proxy.example:3128' or 'socks5://proxy.example:1080'
-FLARESOLVERR_UPSTREAM_PROXY = os.getenv("FLARESOLVERR_UPSTREAM_PROXY")
-
-# Optional: minutes after which FS sessions are rotated
 FLARESOLVERR_SESSION_TTL_MIN = int(
     os.getenv("FLARESOLVERR_SESSION_TTL_MIN", "30")
 )
@@ -94,10 +87,27 @@ FLARESOLVERR_ALWAYS_HOSTS = tuple(
 
 
 class FlareSolverrClient:
-    def __init__(self, endpoint: str | None):
-        self.endpoint = endpoint.rstrip("/") if endpoint else None
-        self._http = None
-        self._sessions: dict[str, str] = {}
+    def __init__(
+        self,
+        *,
+        shared_semaphore=None,  # multiprocessing.Manager().Semaphore proxy
+        local_max_concurrency: int = 1,  # per-process/thread concurrency
+        request_timeout_sec: float = 120.0,
+    ):
+        try:
+            self._http = None
+            self.endpoint = FLARESOLVERR_ENDPOINT
+            self._sessions: dict[str, str] = {}
+            self._proc_sem = shared_semaphore
+            self._thread_sem = threading.BoundedSemaphore(
+                max(1, int(local_max_concurrency))
+            )
+            self._request_timeout_sec = float(request_timeout_sec)
+        except Exception as e:
+            print("FlareSolverrClient.__init__ ERROR:")
+            print("  exception=", repr(e))
+            print("  traceback:\n" + "".join(traceback.format_exc()))
+            raise
 
     def _session(self):
         if self._http is None:
@@ -107,7 +117,9 @@ class FlareSolverrClient:
     def _post(self, payload: dict) -> dict:
         if not self.endpoint:
             raise RuntimeError("FLARESOLVERR_ENDPOINT not configured")
-        r = self._session().post(self.endpoint, json=payload, timeout=120)
+        r = self._session().post(
+            self.endpoint, json=payload, timeout=self._request_timeout_sec
+        )
         r.raise_for_status()
         data = r.json()
         if data.get("status") != "ok":
@@ -115,7 +127,7 @@ class FlareSolverrClient:
         return data
 
     def ensure_session(
-        self, key: str, upstream_proxy: str | None = None
+        self, key: str, upstream_proxy: Optional[str] = None
     ) -> str:
         sid = self._sessions.get(key)
         if sid:
@@ -123,7 +135,6 @@ class FlareSolverrClient:
         payload: dict = {"cmd": "sessions.create"}
         if upstream_proxy:
             pu = urlparse(upstream_proxy)
-            # sessions.create supports extracting credentials separately
             if pu.username or pu.password:
                 base = f"{pu.scheme}://{pu.hostname}"
                 if pu.port:
@@ -143,36 +154,62 @@ class FlareSolverrClient:
         self._sessions[key] = sid
         return sid
 
+    @contextmanager
+    def _acquire(self, sem):
+        sem.acquire()
+        try:
+            yield
+        finally:
+            sem.release()
+
     def request_get(
         self,
         url: str,
-        session_key: str | None = None,
-        upstream_proxy: str | None = None,
+        session_key: Optional[str] = None,
+        upstream_proxy: Optional[str] = None,
         max_timeout_ms: int = 60000,
-        session_ttl_minutes: int | None = None,
+        session_ttl_minutes: Optional[int] = None,
     ) -> dict:
-        payload: dict = {
-            "cmd": "request.get",
-            "url": url,
-            "maxTimeout": max_timeout_ms,
-        }
-        if session_key:
-            payload["session"] = self.ensure_session(
-                session_key, upstream_proxy=upstream_proxy
+        succeeded = False
+        try:
+            payload: dict = {
+                "cmd": "request.get",
+                "url": url,
+                "maxTimeout": max_timeout_ms,
+            }
+            if session_key:
+                payload["session"] = self.ensure_session(
+                    session_key, upstream_proxy=upstream_proxy
+                )
+                if session_ttl_minutes:
+                    payload["session_ttl_minutes"] = session_ttl_minutes
+            elif upstream_proxy:
+                payload["proxy"] = {"url": upstream_proxy}
+
+            with self._proc_sem:
+                result = self._post(payload)["solution"]
+                succeeded = True
+                return result
+
+        except Exception as e:
+            print("FlareSolverrClient.request_get ERROR:")
+            print(
+                f"  url={url!r} session_key={session_key!r} upstream_proxy_set={bool(upstream_proxy)}"
             )
-            if session_ttl_minutes:
-                payload["session_ttl_minutes"] = session_ttl_minutes
-        elif upstream_proxy:
-            # request.get proxy only supports 'url' (no username/password here)
-            payload["proxy"] = {"url": upstream_proxy}
-        return self._post(payload)["solution"]
+            print("  exception=", repr(e))
+            print("  traceback:\n" + "".join(traceback.format_exc()))
+            raise
+        finally:
+            if succeeded:
+                print("FlareSolverrClient.request_get SUCCESS:")
+                print(f"  url={url!r} session_key={session_key!r}")
 
     def destroy_all(self) -> None:
         for sid in list(self._sessions.values()):
             try:
                 self._post({"cmd": "sessions.destroy", "session": sid})
-            except Exception:
-                pass
+            except Exception as e:
+                print("FlareSolverrClient.destroy_all ERROR:", repr(e))
         self._sessions.clear()
 
 
@@ -299,6 +336,7 @@ def _url_scrape_worker(
     url_link_tuples_process_queue,
     url_to_content_queue,
     stop_processing_event,
+    flaresolver_semaphore,
     log_queue,
 ):
     logger = configure_worker_logger(
@@ -309,14 +347,27 @@ def _url_scrape_worker(
     context = None
     processed_count = 0
 
-    fs_client = (
-        FlareSolverrClient(FLARESOLVERR_ENDPOINT)
-        if FLARESOLVERR_ENDPOINT
-        else None
+    logger.info("flare solver launch attempt")
+    fs_client = FlareSolverrClient(
+        local_max_concurrency=1,
+        shared_semaphore=flaresolver_semaphore,
     )
+    logger.info("flare solver launched")
+
+    print("before if")
+    sys.stdout.flush()
     if fs_client is None:
+        print("fs_client is None")
+        sys.stdout.flush()
+    print("after if, before logger.info")
+    sys.stdout.flush()
+    logger.info("boot reached")  # if it hangs here, it’s logging
+
+    if fs_client is None:
+        logger.info("fs client is none")
         logger.error("flaresolver did not load")
         raise RuntimeError("flaresolver did not load")
+    logger.info("fs client is good")
 
     def _cookies_to_playwright(
         fs_cookies: list[dict], url_for_default: str
@@ -366,63 +417,9 @@ def _url_scrape_worker(
             pass
         return False
 
-    def _fs_fetch_html_or_pdf(target_url: str) -> Tuple[str, str]:
-        # Use per-host session so cookies persist and proxy auth (if any) is supported.
-        sess_key = urlparse(target_url).hostname or "default"
-        sol = fs_client.request_get(
-            target_url,
-            session_key=sess_key,
-            upstream_proxy=FLARESOLVERR_UPSTREAM_PROXY,
-            max_timeout_ms=NAV_TIMEOUT_MS,
-            session_ttl_minutes=FLARESOLVERR_SESSION_TTL_MIN,
-        )
-        final_url = sol.get("url") or target_url
-        headers = sol.get("headers") or {}
-        ctype = str(headers.get("content-type", "")).lower()
+    def _ctx_from_fs_solution(sol: dict, base_url: str):
         ua = sol.get("userAgent") or USER_AGENT
-        # If FS landed on a file (e.g., application/pdf), fetch bytes with an ephemeral context using FS cookies/UA
-        if looks_pdf_from_headers_url(ctype, final_url) or _is_probable_pdf_url(
-            final_url
-        ):
-            tmp_ctx = browser.new_context(
-                user_agent=ua,
-                locale="en-US",
-                timezone_id="America/Los_Angeles",
-                viewport={"width": 1366, "height": 768},
-                java_script_enabled=True,
-                ignore_https_errors=True,
-                extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
-                accept_downloads=True,
-            )
-            try:
-                if sol.get("cookies"):
-                    tmp_ctx.add_cookies(
-                        _cookies_to_playwright(sol["cookies"], final_url)
-                    )
-                resp = tmp_ctx.request.get(final_url, timeout=NAV_TIMEOUT_MS)
-                blob = resp.body()
-                return parse_pdf_bytes(blob, max_pages=PDF_MAX_PAGES), final_url
-            finally:
-                try:
-                    tmp_ctx.close()
-                except PlaywrightError:
-                    pass
-        # Otherwise parse HTML returned by FS directly
-        html = sol.get("response") or ""
-        return extract_text(html, base_url=final_url), final_url
-
-    def _fs_solve_then_download(target_url: str) -> Tuple[str, str]:
-        # Specifically for download flows where goto triggers a download behind a CF challenge
-        sess_key = urlparse(target_url).hostname or "default"
-        sol = fs_client.request_get(
-            target_url,
-            session_key=sess_key,
-            upstream_proxy=FLARESOLVERR_UPSTREAM_PROXY,
-            max_timeout_ms=NAV_TIMEOUT_MS,
-            session_ttl_minutes=FLARESOLVERR_SESSION_TTL_MIN,
-        )
-        ua = sol.get("userAgent") or USER_AGENT
-        dl_ctx = browser.new_context(
+        ctx = browser.new_context(
             user_agent=ua,
             locale="en-US",
             timezone_id="America/Los_Angeles",
@@ -432,24 +429,53 @@ def _url_scrape_worker(
             extra_http_headers={"Accept-Language": "en-US,en;q=0.9"},
             accept_downloads=True,
         )
-        try:
-            if sol.get("cookies"):
-                dl_ctx.add_cookies(
-                    _cookies_to_playwright(sol["cookies"], target_url)
-                )
-            page2 = dl_ctx.new_page()
+        if sol.get("cookies"):
+            ctx.add_cookies(_cookies_to_playwright(sol["cookies"], base_url))
+        return ctx
+
+    def _fs_fetch(
+        target_url: str, *, force_download: bool = False
+    ) -> tuple[str, str]:
+        sol = fs_client.request_get(
+            target_url,
+            max_timeout_ms=NAV_TIMEOUT_MS,
+        )
+        final_url = sol.get("url") or target_url
+        headers = sol.get("headers") or {}
+        ctype = str(headers.get("content-type", "")).lower()
+
+        is_pdf_like = looks_pdf_from_headers_url(
+            ctype, final_url
+        ) or _is_probable_pdf_url(final_url)
+        if force_download or is_pdf_like:
+            ctx = _ctx_from_fs_solution(
+                sol, final_url if not force_download else target_url
+            )
             try:
-                return _download_via_goto(page2, target_url)
+                if force_download:
+                    page = ctx.new_page()
+                    try:
+                        return _download_via_goto(page, target_url)
+                    finally:
+                        try:
+                            page.close()
+                        except PlaywrightError:
+                            pass
+                else:
+                    resp = ctx.request.get(final_url, timeout=NAV_TIMEOUT_MS)
+                    blob = resp.body()
+                    return (
+                        parse_pdf_bytes(blob, max_pages=PDF_MAX_PAGES),
+                        final_url,
+                    )
             finally:
                 try:
-                    page2.close()
+                    ctx.close()
                 except PlaywrightError:
                     pass
-        finally:
-            try:
-                dl_ctx.close()
-            except PlaywrightError:
-                pass
+
+        html = sol.get("response") or ""
+        return extract_text(html, base_url=final_url), final_url
 
     def _open_browser():
         nonlocal browser, context
@@ -573,7 +599,6 @@ def _url_scrape_worker(
         return text_content, final_url
 
     def _navigate_and_collect_text(target_url: str) -> Tuple[str, str]:
-        # Use FS immediately for configured hosts or probable download URLs if desired
         page = context.new_page()
         try:
             # Handle obvious file URLs first with normal path
@@ -585,7 +610,7 @@ def _url_scrape_worker(
                         logger.debug(
                             "download via goto failed; attempting FlareSolverr-assisted download"
                         )
-                        return _fs_solve_then_download(target_url)
+                        return _fs_fetch(target_url)
                     raise
 
             logger.debug(f"goto domcontentloaded: {target_url}")
@@ -602,10 +627,10 @@ def _url_scrape_worker(
                 logger.debug(
                     "soft block or 403/429 detected; using FlareSolverr fallback"
                 )
-                return _fs_fetch_html_or_pdf(target_url)
-
-            # Normal extraction path
-            return _extract_text_from_page(page, response, target_url)
+                return _fs_fetch(target_url)
+            else:
+                # Normal extraction path
+                return _extract_text_from_page(page, response, target_url)
 
         except PlaywrightError as e:
             msg = str(e)
@@ -621,7 +646,7 @@ def _url_scrape_worker(
                         logger.debug(
                             "attempting FlareSolverr-assisted download after goto failure"
                         )
-                        return _fs_solve_then_download(target_url)
+                        return _fs_fetch(target_url)
                     # Fallback to request client as last resort
                     logger.debug("falling back to request client without FS")
                     ctype, blob = _fetch_bytes_via_request(target_url)
@@ -640,7 +665,7 @@ def _url_scrape_worker(
                     f"Playwright error encountered; trying FlareSolverr: {e}"
                 )
                 try:
-                    return _fs_fetch_html_or_pdf(target_url)
+                    return _fs_fetch(target_url)
                 except Exception as e2:
                     logger.debug(f"FlareSolverr fallback failed: {e2}")
             raise
@@ -673,7 +698,7 @@ def _url_scrape_worker(
                         target_url
                     )
                     logger.info(
-                        f"this is the final url {final_url} and text content {text_content}"
+                        f"this is the final url {final_url} and text content {text_content[:200]}..."
                     )
                     url_to_content_queue.put(
                         (link_id, target_url, text_content)
@@ -683,6 +708,27 @@ def _url_scrape_worker(
                         f"queued result for {target_url} (total processed: {processed_count})"
                     )
                 except PlaywrightError as e:
+                    err_txt = (
+                        f"PlaywrightError on {target_url}: {e}\n"
+                        + "".join(
+                            traceback.format_exception(
+                                type(e), e, e.__traceback__
+                            )
+                        )
+                    )
+                    # truncate to avoid gigantic rows
+                    err_txt = err_txt[:2000]
+                    try:
+                        with SessionLocal() as sess:
+                            link = sess.get(Link, link_id)
+                            if link:
+                                link.fetch_error = err_txt
+                                sess.commit()
+                    except Exception as _db_err:
+                        logger.warning(
+                            f"failed to persist fetch_error for link_id={link_id}: {_db_err}"
+                        )
+
                     logger.warning(
                         f"playwright error on {target_url}: {e}; restarting browser/context\n\n"
                         + "".join(
@@ -692,11 +738,32 @@ def _url_scrape_worker(
                         )
                     )
                     _open_browser()
+
                 except Exception as e:
+                    err_txt = (
+                        f"Unhandled scrape error on {target_url}: {e}\n"
+                        + "".join(
+                            traceback.format_exception(
+                                type(e), e, e.__traceback__
+                            )
+                        )
+                    )
+                    err_txt = err_txt[:2000]
+                    try:
+                        with SessionLocal() as sess:
+                            link = sess.get(Link, link_id)
+                            if link:
+                                link.fetch_error = err_txt
+                                sess.commit()
+                    except Exception as _db_err:
+                        logger.warning(
+                            f"failed to persist fetch_error for link_id={link_id}: {_db_err}"
+                        )
+
                     logger.exception(
                         f"unhandled scrape error for {target_url}: {e}"
                     )
-                    stop_processing_event.set()
+                    # stop_processing_event.set()
         except Exception:
             logger.exception("unexpected failure in worker loop")
         finally:
@@ -722,7 +789,7 @@ def _url_scrape_worker(
 @catch_and_log()
 def scrape_urls(
     url_generator: Iterable[str],
-    max_concurrency: int,
+    n_workers: int,
     manager: Manager,
     log_queue: MPQueue,
     listener: logging.handlers.QueueListener,
@@ -731,11 +798,10 @@ def scrape_urls(
     url_link_tuples_process_queue = manager.Queue()
     url_to_content_queue = manager.Queue()
     stop_processing_event = manager.Event()
+    flaresolver_semaphore = manager.Lock()
     logger = configure_worker_logger(log_queue, GLOBAL_LOG_LEVEL, "scrape_urls")
-    n_workers = min(max_concurrency, psutil.cpu_count(logical=False))
     try:
-        logger.info("start writer")
-        logger.info("start _url_scrape_workers")
+        logger.info("start scrape_workers")
         with ProcessPoolExecutor(
             max_workers=n_workers + 1
         ) as pool:  # +1 for the db_writer
@@ -745,6 +811,7 @@ def scrape_urls(
                     url_link_tuples_process_queue,
                     url_to_content_queue,
                     stop_processing_event,
+                    flaresolver_semaphore,
                     log_queue,
                 )
                 for _ in range(n_workers)
@@ -757,7 +824,6 @@ def scrape_urls(
             )
             logger.info("queue up the urls")
             for url_link_tuple in url_generator:
-                logger.info(f'queuing "{url_link_tuple}"')
                 url_link_tuples_process_queue.put(url_link_tuple)
 
             for _ in range(n_workers):
@@ -777,10 +843,15 @@ def scrape_urls(
         logger.info("all done with scrape url, exiting")
 
 
+import os
+
+
 @catch_and_log()
 def stream_links(
-    log_queue: MPQueue, max_items: int = None
-) -> Iterator[Tuple[int, str, str | None]]:
+    log_queue: MPQueue,
+    max_items: int = None,
+    debug_url: str = None,
+) -> Iterator[Tuple[int, str]]:
     def _is_error_like(text: str | None) -> bool:
         if text is None:
             return True
@@ -788,8 +859,6 @@ def stream_links(
         if not t:
             return True
         if t.startswith("Error:"):
-            return True
-        if "[[" in t:
             return True
         if "Traceback" in t:
             return True
@@ -800,11 +869,42 @@ def stream_links(
     logger = configure_worker_logger(
         log_queue, GLOBAL_LOG_LEVEL, "stream_links"
     )
+
+    if debug_url:
+        logger.info(f"debug mode: yielding only url={debug_url!r}")
+        with SessionLocal() as sess:
+            stmt = (
+                select(Link.id, Link.url, Link.fetch_error, Content.text)
+                .outerjoin(Content, Link.content_id == Content.id)
+                .where(Link.url == debug_url)
+                .execution_options(stream_results=True, yield_per=1)
+            )
+            row = sess.execute(stmt).first()
+            if row is None:
+                logger.warning(f"no row found for debug url {debug_url!r}")
+            else:
+                link_id, url, fetch_error, text = row
+                if fetch_error is not None:
+                    logger.warning(
+                        f"debug url has fetch_error; skipping: {fetch_error}"
+                    )
+                elif _is_error_like(text):
+                    logger.debug(
+                        f"yielding debug id={link_id}, url={url}, content_is_none={text is None}"
+                    )
+                    yield (link_id, url)
+                else:
+                    logger.info(
+                        "debug url content is not error-like; nothing to yield"
+                    )
+        logger.info("terminated (debug mode)")
+        return
+
     logger.info("open Session")
     with SessionLocal() as sess:
         logger.info("build statement (links + content)")
         stmt = (
-            select(Link.id, Link.url, Content.text)
+            select(Link.id, Link.url, Link.fetch_error, Content.text)
             .outerjoin(Content, Link.content_id == Content.id)
             .execution_options(stream_results=True, yield_per=500)
         )
@@ -817,10 +917,12 @@ def stream_links(
         logger.info("iterate rows...")
         for row in result:
             scanned += 1
-            link_id, url, text = row
+            link_id, url, fetch_error, text = row
+            if fetch_error is not None:
+                continue
             if _is_error_like(text):
                 yielded += 1
-                if yielded % 100 == 0:
+                if yielded % 1000 == 0:
                     logger.info(
                         f"yielded {yielded} error-like rows so far (scanned={scanned})..."
                     )
@@ -878,8 +980,6 @@ def db_writer(url_to_content_queue, stop_event, log_queue):
                         is_valid = None
                         if guess_if_error_text(content):
                             is_valid = False
-                        else:
-                            is_valid = 1
                         sess.execute(
                             sqlite_insert(Content)
                             .values(
@@ -908,11 +1008,14 @@ def db_writer(url_to_content_queue, stop_event, log_queue):
                                 set_={"content_id": content_id},
                             )
                         )
-                        logger.info(f"{link_id}: {url}: {content}")
+                        logger.info(f"{link_id}: {url}: got content")
                     sess.commit()
                 except Exception:
-                    logger.exception("something bad happened on insert")
+                    logger.exception(
+                        f"something bad happened on insert for {url}"
+                    )
                     sess.rollback()
+                    raise
                 finally:
                     pending.clear()
     logger.info("terminated")
@@ -921,19 +1024,20 @@ def db_writer(url_to_content_queue, stop_event, log_queue):
 async def _main():
     global GLOBAL_LOG_LEVEL
     GLOBAL_LOG_LEVEL = logging.DEBUG
-    log_queue, listener, manager = start_process_safe_logging(
-        "logs/scraper_errors.log"
+    manager = Manager()
+    log_queue, listener = start_process_safe_logging(
+        manager, "logs/scraper_errors.log"
     )
+
     main_logger = configure_worker_logger(log_queue, GLOBAL_LOG_LEVEL, "main")
-    # main_logger.info(FLARESOLVERR_ENDPOINT)
-    # fs = FlareSolverrClient(FLARESOLVERR_ENDPOINT)
-    # main_logger.info(fs)
-    # return
     set_catch_and_log_logger(main_logger)
     max_items = None
+    debug_url = None  # "https://www.researchgate.net/figure/Composition-of-Tree-Sparrow-nestling-diet-at-sites-throughout-the-UK-a-Variation-of_fig1_278239756"
+    scrape_n_concurrent = 1 if debug_url else 5
+    n_workers = min(scrape_n_concurrent, psutil.cpu_count(logical=False))
     scrape_urls(
-        stream_links(log_queue, max_items),
-        100,
+        stream_links(log_queue, max_items=max_items, debug_url=debug_url),
+        n_workers,
         manager,
         log_queue,
         listener,

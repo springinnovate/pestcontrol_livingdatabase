@@ -37,26 +37,12 @@ Classify the provided PAGE_TEXT per the schema. Be decisive. Output only the JSO
 """.strip()
 
 ERROR_PATTERNS = [
-    "enable javascript",
     "you need to enable javascript",
     "please enable javascript",
-    "request failed",
-    "failed to fetch",
-    "network error",
-    "timeout",
-    "timed out",
-    "connection timed out",
     "403 forbidden",
-    "forbidden",
     "401 unauthorized",
     "404 not found",
-    "page not found",
-    "not found",
-    "access denied",
-    "access is denied",
-    "permission denied",
     "too many requests",
-    "rate limit",
     "service unavailable",
     "bad gateway",
     "gateway timeout",
@@ -68,11 +54,6 @@ ERROR_PATTERNS = [
     "akamai",
     "imperva",
     "click here if you are not redirected",
-    "sign in to continue",
-    "login to continue",
-    "please log in",
-    "error:",
-    "an error occurred",
     "internal server error",
     "we've detected unusual activity from your network.",
 ]
@@ -118,7 +99,7 @@ def backfill_is_valid(
     result = session.execute(q)
     pending = []
     for content_obj in result.scalars():
-        decided = quick_error_heuristic(content_obj.text)
+        decided = guess_if_error_text(content_obj.text)
         if decided is None:
             is_valid, label, err_type = evaluate_validity_with_llm(
                 content_obj.text, logger
