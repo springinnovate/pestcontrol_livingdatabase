@@ -1,4 +1,5 @@
 # flaresolverr load balancer
+# To launch multiple flaresolvers do: docker compose up -d --scale flaresolverr=24
 
 services:
   traefik:

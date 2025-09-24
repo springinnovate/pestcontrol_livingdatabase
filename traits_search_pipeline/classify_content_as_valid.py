@@ -13,7 +13,7 @@ import re
 from multiprocessing import Queue
 
 from sqlalchemy import create_engine, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer, load_only
 
 from models import (
     DB_URI,
@@ -33,106 +33,13 @@ from llm_tools import (
     truncate_to_token_limit,
     evaluate_validity_with_llm,
 )
+import psutil
 
 
 DB_ENGINE = create_engine(DB_URI)
 BaseNorm.metadata.create_all(DB_ENGINE)
 
 load_dotenv()  # loads the OPENAI_API_KEY
-
-
-SYSTEM_PROMPT = """
-You are a cautious information extraction model.
-
-Given a QUESTION and PAGE_TEXT from a single web page (optionally SOURCE_URL), decide the answer using ONLY PAGE_TEXT. Do NOT speculate.
-
-STRICT FORMAT
-Return ONE compact JSON object with EXACTLY these top-level keys and NOTHING ELSE:
-- "answer_text": string
-- "reason": string (enum below)
-- "evidence": array of 0–2 strings
-
-Compliance rules:
-- Keys MUST be exactly as above. NEVER use "answer", "answerKey", or any other key.
-- If you cannot comply, output: {"answer_text":"unknown","reason":"page_error","evidence":[]}
-- Output JSON only. No markdown, no comments, no code fences, no trailing commas.
-
-"reason" enum:
-["supported","not_enough_information","blank_page","content_unrelated","conflicting_evidence","non_english","page_error","model_uncertain"]
-
-ALLOWED VALUES FOR "answer_text" (infer task type from QUESTION)
-- Predator life stage: "larvae"|"nymphs"|"adults"|"larvae,nymphs"|"larvae,adults"|"nymphs,adults"|"larvae,nymphs,adults"|"unknown"
-- Agricultural pest life stage: same set as above
-- Invasiveness: "yes"|"no"|"unknown"
-- Non-crop habitat use: "yes"|"no"|"unknown"
-- Dietary breadth: "specialist"|"generalist"|"unknown"
-- Wind dispersal: "yes"|"no"|"unknown"
-- Flight ability: "yes"|"no"|"unknown"
-- Seasonal migration: "yes"|"no"|"unknown"
-- Pest status: "yes"|"no"|"unknown"
-
-DECISION RULES
-- Default to "answer_text":"unknown" unless PAGE_TEXT clearly supports an allowed value; then "reason":"supported".
-- Exclusivity like "nymphs only" → that stage.
-- Multiple supported stages → comma-join in canonical order: larvae,nymphs,adults.
-- For "diet": narrow range → "specialist"; broad/diverse → "generalist"; explicit contradictions → "answer_text":"unknown","reason":"conflicting_evidence".
-- "can fly" refers to adult flight unless clearly specified otherwise.
-- If PAGE_TEXT is about a different entity → "content_unrelated".
-- Mentions only higher/lower taxa without linkage → "not_enough_information".
-- Non-English blocking judgment → "non_english".
-- Blank/garbled page → "blank_page" or "page_error" as applicable.
-
-EVIDENCE RULES
-- Provide up to 2 short verbatim quotes (≤200 chars) that directly support "answer_text".
-- NEVER include processing markers or placeholders (e.g., [[...]], <...>, "PDF_SKIPPED", "TRUNCATED"). If PAGE_TEXT was truncated/skipped or otherwise unusable → "evidence":[] and "reason":"page_error".
-- Use [] when "answer_text" is "unknown".
-
-NORMALIZATION
-- Lowercase "answer_text".
-- Use only allowed strings.
-- Output exactly three keys as specified.
-
-VALID EXAMPLE
-{"answer_text":"yes","reason":"supported","evidence":["...exact quote 1...","...exact quote 2..."]}
-
-UNKNOWN EXAMPLE
-{"answer_text":"unknown","reason":"not_enough_information","evidence":[]}
-""".strip()
-
-
-# def iter_unanswered_question_contexts(
-#     session: Session,
-# ) -> Iterator[Mapping[str, object]]:
-#     """Loop through all the questions that do not have an 'answer'."""
-#     stmt = (
-#         select(
-#             Question.id.label("question_id"),
-#             Question.text.label("question_text"),
-#             QuestionKeyword.keyword_query_id.label("keyword_query_id"),
-#             Link.id.label("link_id"),
-#             Link.url.label("link_url"),
-#             Content.id.label("content_id"),
-#         )
-#         .join(QuestionKeyword, QuestionKeyword.question_id == Question.id)
-#         .join(SearchHead, SearchHead.question_id == Question.id)
-#         .join(
-#             SearchResultLink,
-#             SearchResultLink.search_head_id == SearchHead.question_id,
-#         )
-#         .join(Link, Link.id == SearchResultLink.link_id)
-#         .join(Content, Content.id == Link.content_id)
-#         .join(
-#             Answer,
-#             (Answer.keyword_query_id == QuestionKeyword.keyword_query_id)
-#             & (Answer.link_id == Link.id),  # noqa: W503
-#             isouter=True,
-#         )
-#         .where(or_(Answer.id.is_(None), Answer.reason == "page_error"))
-#         .where(Content.is_valid != 0)
-#     ).execution_options(stream_results=True)
-
-#     for row in session.execute(stmt).mappings():
-#         yield row
 
 
 def insert_answer(
@@ -345,12 +252,17 @@ def _evaluate_validity_worker(
 
             content_id, content_text = item
             logger.info(f"evaluate validity of {content_id}")
-            result = evaluate_validity_with_llm(content_text, logger)
+            clean_text = truncate_to_token_limit(
+                content_text, "gpt-4o-mini", 10000
+            )
+            result = evaluate_validity_with_llm(clean_text, logger)
             logger.info(result)
-            result_content_id_is_valid_queue.put(content_id, result)
-    except Exception:
+            result_content_id_is_valid_queue.put((content_id, result))
+    except Exception as e:
+        print(e)
         stop_processing_event.set()
         logger.exception("something bad happened in _evaluate_validity_worker")
+        raise
 
 
 def _db_content_valid_writer(
@@ -374,8 +286,7 @@ def _db_content_valid_writer(
 
             content_id, is_valid = item
             with Session(DB_ENGINE) as session:
-                stmt = select(Content).where(Content.content_id == content_id)
-                content = session.execute(stmt).scalars().first()
+                content = session.get(Content, content_id)
                 content.is_valid = is_valid
                 session.commit()
 
@@ -385,16 +296,13 @@ def _db_content_valid_writer(
 
 
 def classify_valid_content():
-    log_queue, listener, manager = start_process_safe_logging(
-        "logs/classify_valid_content.log"
-    )
     manager = Manager()
+    log_queue, listener = start_process_safe_logging(
+        manager, "logs/classify_valid_content.log"
+    )
     content_id_text_queue = manager.Queue()
     result_content_id_is_valid_queue = manager.Queue()
     stop_processing_event = manager.Event()
-    log_queue, listener = start_process_safe_logging(
-        manager, "logs/content_valid.log"
-    )
     log_level = logging.DEBUG
     logger = configure_worker_logger(
         log_queue, log_level, "classify_valid_content"
@@ -402,7 +310,7 @@ def classify_valid_content():
     set_catch_and_log_logger(logger)
     try:
         logger.info("start workers")
-        n_workers = 1
+        n_workers = psutil.cpu_count(logical=False)
         with ProcessPoolExecutor(
             max_workers=n_workers + 1
         ) as pool:  # +1 for the db_writer
@@ -427,13 +335,14 @@ def classify_valid_content():
                 stmt = (
                     select(Content)
                     .where(Content.is_valid.is_(None))
+                    .options(
+                        load_only(Content.id),
+                        defer(Content.text),
+                    )
                     .execution_options(stream_results=True, yield_per=10)
                 )
                 for content in session.execute(stmt).scalars():
-                    content_id_text_queue.put(
-                        content.content_id, content.content_text
-                    )
-                    break
+                    content_id_text_queue.put((content.id, content.text))
 
             for _ in range(n_workers):
                 content_id_text_queue.put(None)
@@ -450,10 +359,12 @@ def classify_valid_content():
             writer_future.result()
             logger.info("all done with classify_valid_content url, clean up")
     finally:
-        listener.stop()
         logger.info("all done with classify_valid_content, exiting")
+        listener.stop()
 
 
 if __name__ == "__main__":
+    global GLOBAL_LOG_LEVEL
+    GLOBAL_LOG_LEVEL = logging.DEBUG
     classify_valid_content()
     # asyncio.run(process_unanswered_questions())
