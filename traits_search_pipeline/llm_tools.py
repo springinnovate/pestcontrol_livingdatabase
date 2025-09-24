@@ -97,12 +97,12 @@ PAGE_TEXT: """
     try:
         is_valid = resp.get("is_valid", None)
         if isinstance(is_valid, bool):
-            label = resp.get("label", "valid" if is_valid else "error")
+            label = resp.get("label", "valid" if is_valid else "invalid")
             err_type = resp.get("error_type", "none" if is_valid else "other")
-            return is_valid, label, err_type
+            return is_valid
     except Exception:
         pass
-    return None, "error", "other"
+    return "error"
 
 
 def backfill_is_valid(
