@@ -76,7 +76,23 @@ def guess_if_error_text(text: str) -> Optional[bool]:
 def evaluate_validity_with_llm(
     page_text: str, logger
 ) -> Tuple[Optional[bool], str, str]:
-    resp = apply_llm(QUESTION_PROMPT, page_text, logger)
+    system_prompt = """Classify PAGE_TEXT.
+        Output strictly JSON:
+        {"is_valid": true|false}"""
+    question_prompt = (
+        """Classify the following PAGE_TEXT.
+
+- valid: human-readable content such as posts, comments, articles, or reports (even if extra boilerplate is present).
+- invalid: pages with no meaningful content (errors, placeholders, login/captcha walls, empty text).
+
+Return strictly JSON:
+{"is_valid": true|false}
+
+PAGE_TEXT: """
+        + page_text
+    )
+
+    resp = apply_llm(system_prompt, question_prompt, logger, "gpt-4o-mini")
     # resp is expected to be a dict due to response_format='json_object'
     try:
         is_valid = resp.get("is_valid", None)
@@ -141,22 +157,21 @@ def truncate_to_token_limit(
     return enc.decode(tokens)
 
 
-def apply_llm(question: str, page_text: str, logger) -> List[Dict[str, str]]:
+def apply_llm(
+    system_prompt: str,
+    user_payload: str,
+    logger,
+    openai_model: str,
+) -> List[Dict[str, str]]:
     """Invoke the question and context on the `SYSTEM_PROMPT`."""
-    user_payload = (
-        "QUESTION:\n"
-        f"{question.strip()}\n\n"
-        "PAGE_TEXT:\n"
-        f"{page_text.strip()}"
-    )
 
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_payload},
     ]
 
     args = {
-        "model": "gpt-4o-mini",
+        "model": openai_model,
         "response_format": {
             "type": "json_object"
         },  # if supported in your SDK/runtime

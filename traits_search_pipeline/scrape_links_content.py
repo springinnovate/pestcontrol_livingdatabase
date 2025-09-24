@@ -60,7 +60,7 @@ USER_AGENT = (
 
 PDF_MAX_PAGES = 50
 BATCH_SIZE = 10
-NAV_TIMEOUT_MS = 60000
+NAV_TIMEOUT_MS = 180000
 DOWNLOAD_SENTINEL = "Download is starting"
 
 sync_engine = create_engine(
@@ -798,7 +798,7 @@ def scrape_urls(
     url_link_tuples_process_queue = manager.Queue()
     url_to_content_queue = manager.Queue()
     stop_processing_event = manager.Event()
-    flaresolver_semaphore = manager.Lock()
+    flaresolver_semaphore = manager.Semaphore(n_workers)
     logger = configure_worker_logger(log_queue, GLOBAL_LOG_LEVEL, "scrape_urls")
     try:
         logger.info("start scrape_workers")
@@ -855,6 +855,7 @@ def stream_links(
     def _is_error_like(text: str | None) -> bool:
         if text is None:
             return True
+        return False
         t = text.strip()
         if not t:
             return True
@@ -897,7 +898,7 @@ def stream_links(
                     logger.info(
                         "debug url content is not error-like; nothing to yield"
                     )
-        logger.info("terminated (debug mode)")
+        logger.info("stream_links terminated (debug mode)")
         return
 
     logger.info("open Session")
@@ -918,8 +919,8 @@ def stream_links(
         for row in result:
             scanned += 1
             link_id, url, fetch_error, text = row
-            if fetch_error is not None:
-                continue
+            # if fetch_error is not None :
+            #     continue
             if _is_error_like(text):
                 yielded += 1
                 if yielded % 1000 == 0:
@@ -936,7 +937,18 @@ def stream_links(
                     )
                     break
         logger.info(f"done, scanned={scanned}, yielded={yielded}")
-    logger.info("terminated")
+    logger.info("stream_links terminated")
+
+
+_SURROGATE_RE = re.compile(r"[\ud800-\udfff]")
+
+
+def _utf8_sanitize(s: str) -> str:
+    # strip unpaired surrogates, then ensure utf-8 encodable
+    if not isinstance(s, str):
+        s = str(s)
+    s = _SURROGATE_RE.sub("", s)
+    return s.encode("utf-8", errors="ignore").decode("utf-8", errors="ignore")
 
 
 @catch_and_log()
@@ -973,7 +985,7 @@ def db_writer(url_to_content_queue, stop_event, log_queue):
                 try:
                     for link_id, url, content in pending:
                         content_hash = hashlib.sha256(
-                            content.encode("utf-8")
+                            content.encode("utf-8", errors="ignore")
                         ).hexdigest()
 
                         # insert the new content if it does not exist
@@ -984,7 +996,7 @@ def db_writer(url_to_content_queue, stop_event, log_queue):
                             sqlite_insert(Content)
                             .values(
                                 content_hash=content_hash,
-                                text=content,
+                                text=_utf8_sanitize(content),
                                 is_valid=is_valid,
                             )
                             .on_conflict_do_nothing(
@@ -1018,7 +1030,7 @@ def db_writer(url_to_content_queue, stop_event, log_queue):
                     raise
                 finally:
                     pending.clear()
-    logger.info("terminated")
+    logger.info("db_writer terminated")
 
 
 async def _main():
@@ -1029,11 +1041,13 @@ async def _main():
         manager, "logs/scraper_errors.log"
     )
 
-    main_logger = configure_worker_logger(log_queue, GLOBAL_LOG_LEVEL, "main")
-    set_catch_and_log_logger(main_logger)
+    logger = configure_worker_logger(log_queue, GLOBAL_LOG_LEVEL, "main")
+    set_catch_and_log_logger(logger)
     max_items = None
     debug_url = None  # "https://www.researchgate.net/figure/Composition-of-Tree-Sparrow-nestling-diet-at-sites-throughout-the-UK-a-Variation-of_fig1_278239756"
-    scrape_n_concurrent = 1 if debug_url else 5
+    max_concurrent = 24
+    scrape_n_concurrent = 1 if debug_url or max_items else max_concurrent
+    logger.info(scrape_n_concurrent)
     n_workers = min(scrape_n_concurrent, psutil.cpu_count(logical=False))
     scrape_urls(
         stream_links(log_queue, max_items=max_items, debug_url=debug_url),

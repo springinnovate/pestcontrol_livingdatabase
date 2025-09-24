@@ -1,0 +1,31 @@
+# flaresolverr load balancer
+
+services:
+  traefik:
+    image: traefik:v3.0
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.fs.address=:8191
+      - --log.level=INFO
+    ports:
+      - "8191:8191"            # single public endpoint
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [internal]
+
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    environment:
+      - LOG_LEVEL=info
+      # add any upstream proxy/captcha solver envs here if you use them
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.fs.rule=PathPrefix(`/`)
+      - traefik.http.routers.fs.entrypoints=fs
+      - traefik.http.services.fs.loadbalancer.server.port=8191
+    networks: [internal]
+
+networks:
+  internal:
+    driver: bridge
