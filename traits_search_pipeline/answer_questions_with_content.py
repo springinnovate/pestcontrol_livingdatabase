@@ -98,7 +98,7 @@ UNKNOWN EXAMPLE
 """.strip()
 
 
-def process_unanswered_questions() -> None:
+def process_unanswered_questions(openai_model: str) -> None:
     """Orchestrate parallel LLM answering for unanswered (question, link) pairs.
 
     Spawns a process pool of workers to generate answers with an LLM for each
@@ -114,7 +114,7 @@ def process_unanswered_questions() -> None:
       * Ensure graceful shutdown on completion or error.
 
     Args:
-        None
+        openai_model (str): a valid open AI model to use to do llm processing.
 
     Returns:
         None
@@ -140,6 +140,7 @@ def process_unanswered_questions() -> None:
             worker_futures = [
                 pool.submit(
                     _answer_question_worker,
+                    openai_model,
                     question_id_link_id_queue,
                     result_answer_question_id_link_id_queue,
                     stop_processing_event,
@@ -201,6 +202,7 @@ def process_unanswered_questions() -> None:
 
 
 def _answer_question_worker(
+    openai_model: str,
     question_id_link_id_queue: Any,
     result_answer_question_id_link_id_queue: Any,
     stop_processing_event: Any,
@@ -219,6 +221,7 @@ def _answer_question_worker(
     event is set.
 
     Args:
+        openai_model (str): a valid openai model to use for LLM processing
         question_id_link_id_queue: IPC queue to receive work items; items are tuples
             (question_link_id, question_id, link_id, content_id).
         result_answer_question_id_link_id_queue: IPC queue to emit LLM outputs as
@@ -264,10 +267,10 @@ def _answer_question_worker(
                 logging.getLogger("httpcore").setLevel(logging.WARNING)
                 logging.getLogger("openai").setLevel(logging.WARNING)
                 clean_user_prompt = truncate_to_token_limit(
-                    user_prompt, "gpt-4o", 100000
+                    user_prompt, openai_model, 100000
                 )
                 result = apply_llm(
-                    SYSTEM_PROMPT, clean_user_prompt, logger, "gpt-4o"
+                    SYSTEM_PROMPT, clean_user_prompt, logger, openai_model
                 )
                 if result:
                     result_answer_question_id_link_id_queue.put(
@@ -325,20 +328,36 @@ def _insert_answer_worker(
             # result has the keys ('answer_text', 'reason', 'evidence': [])
 
             with Session(DB_ENGINE) as session:
-                answer = Answer(
-                    question_link_id=question_link_id,
-                    question_id=question_id,
-                    link_id=link_id,
-                    answer_text=result["answer_text"],
-                    reason=result["reason"],
-                    evidence=result["evidence"],
-                )
-                session.add(answer)
-                session.commit()
+                try:
+                    answer = Answer(
+                        question_link_id=question_link_id,
+                        question_id=question_id,
+                        link_id=link_id,
+                        answer_text=result["answer_text"],
+                        reason=result["reason"],
+                        evidence=result["evidence"],
+                    )
+                    session.add(answer)
+                    session.commit()
+                except KeyError:
+                    logger.warning(
+                        f"something weird happened on this result: '{result}'"
+                    )
+                    answer = Answer(
+                        question_link_id=question_link_id,
+                        question_id=question_id,
+                        link_id=link_id,
+                        answer_text="error",
+                        reason=str(result),
+                        evidence="unknown",
+                    )
+                    session.add(answer)
+                    session.commit()
     except Exception:
         stop_processing_event.set()
         logger.exception("something bad happened in _insert_answer_worker")
 
 
 if __name__ == "__main__":
-    process_unanswered_questions()
+    openai_model = "gpt-4o-mini"
+    process_unanswered_questions(openai_model)
