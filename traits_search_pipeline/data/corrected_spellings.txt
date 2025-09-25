@@ -1,53 +1,53 @@
-allodynerus vossii:allodynerus rossii
-amar littorea:amara littorea
-ancistrocerus tricasciatus:ancistrocerus trifasciatus
-antrathocorax prevostii:anthracothorax prevostii
-antreptes siparaja:aethopyga siparaja
-calosoma argentinae:calosoma argentinense
-campsomeriella anulata:campsomeriella annulata
-carabus cancellatum:carabus cancellatus
-catadromas australis:catadromus australis
-chlaenius oreatus:chlaenius ocreatus
-chrysocharis fracilla:chrysocharis flacilla
-closterotomus biclacatus:closterotomus biclavatus
-colocallia esculenta:collocalia esculenta
-coraci leucopygia:coracina leucopygia
-coraci temminckii:coracina temminckii
-cuculatus sparverioides:cuculus sparverioides
-cyphomyrmex opaca:cyphomyrmex opacus
-dicaeum nerhkorni:dicaeum nehrkorni
-dieches:dieuches
-eggreta intermedia:ardea intermed
-empidonax fleavescens:empidonax flavescens
-erigone dendipalpis:erigone dentipalpis
-eumyias payensis:eumyias panayensis
-geocoris lubrus:geocoris lubra
-harpalus pigmaeus:harpalus pygmaeus
-hyperapis sphaeridioides:hyperaspis sphaeridioides
-leptorhoptum robustum:leptorhoptrum robustum
-myrmiocrypta:myrmicocrypta
-ocys harpalo:ocys harpaloides
-orosius argentus:orosius argentatus
-oxycarenus loctosus:oxycarenus luctuosus
-pocadicnemus juncea:pocadicnemis juncea
-pocadicnemus pumila:pocadicnemis pumila
-praon abiectum:praon abjectum
-procryptocerus hyleus:procryptocerus hylaeus
-platystethus cornotus:platystethus cornutus
-rhipidura teysmannii:rhipidura teysmanni
-rhopalosipum rufiabdominalis:rhopalosiphum rufiabdominale
-rhytisternus liopluerus:rhytisternus liopleurus
-riviella:rivellia
-strumigenys lousiane:strumigenys louisianae
-tatuidrus:tatuidris
-tetragonoderes viridis:tetragonoderus viridis
-thrips imaginus:thrips imaginis
-trichoglossus ortus:trichoglossus ornatus
-trechus quadristriatis:trechus quadristriatus
-merops ortus:merops ornatus
-zimmerius villissimus:zimmerius vilissimus
-ziras:zyras
-stilichus:stilicus
-tiphia rufomandibutata:tiphia rufomandibulata
-tiphia stenocarinata:tiphia sternocarinata
-philocthus lunatus:philochthus lunulatus
+allodynerus vossii,allodynerus rossii
+amar littorea,amara littorea
+ancistrocerus tricasciatus,ancistrocerus trifasciatus
+antrathocorax prevostii,anthracothorax prevostii
+antreptes siparaja,aethopyga siparaja
+calosoma argentinae,calosoma argentinense
+campsomeriella anulata,campsomeriella annulata
+carabus cancellatum,carabus cancellatus
+catadromas australis,catadromus australis
+chlaenius oreatus,chlaenius ocreatus
+chrysocharis fracilla,chrysocharis flacilla
+closterotomus biclacatus,closterotomus biclavatus
+colocallia esculenta,collocalia esculenta
+coraci leucopygia,coracina leucopygia
+coraci temminckii,coracina temminckii
+cuculatus sparverioides,cuculus sparverioides
+cyphomyrmex opaca,cyphomyrmex opacus
+dicaeum nerhkorni,dicaeum nehrkorni
+dieches,dieuches
+eggreta intermedia,ardea intermed
+empidonax fleavescens,empidonax flavescens
+erigone dendipalpis,erigone dentipalpis
+eumyias payensis,eumyias panayensis
+geocoris lubrus,geocoris lubra
+harpalus pigmaeus,harpalus pygmaeus
+hyperapis sphaeridioides,hyperaspis sphaeridioides
+leptorhoptum robustum,leptorhoptrum robustum
+myrmiocrypta,myrmicocrypta
+ocys harpalo,ocys harpaloides
+orosius argentus,orosius argentatus
+oxycarenus loctosus,oxycarenus luctuosus
+pocadicnemus juncea,pocadicnemis juncea
+pocadicnemus pumila,pocadicnemis pumila
+praon abiectum,praon abjectum
+procryptocerus hyleus,procryptocerus hylaeus
+platystethus cornotus,platystethus cornutus
+rhipidura teysmannii,rhipidura teysmanni
+rhopalosipum rufiabdominalis,rhopalosiphum rufiabdominale
+rhytisternus liopluerus,rhytisternus liopleurus
+riviella,rivellia
+strumigenys lousiane,strumigenys louisianae
+tatuidrus,tatuidris
+tetragonoderes viridis,tetragonoderus viridis
+thrips imaginus,thrips imaginis
+trichoglossus ortus,trichoglossus ornatus
+trechus quadristriatis,trechus quadristriatus
+merops ortus,merops ornatus
+zimmerius villissimus,zimmerius vilissimus
+ziras,zyras
+stilichus,stilicus
+tiphia rufomandibutata,tiphia rufomandibulata
+tiphia stenocarinata,tiphia sternocarinata
+philocthus lunatus,philochthus lunulatus
