@@ -147,7 +147,7 @@ def process_unanswered_questions() -> None:
                 )
                 for _ in range(n_workers)
             ]
-            writer_future = pool.submit(
+            answer_insert_future = pool.submit(
                 _insert_answer_worker,
                 result_answer_question_id_link_id_queue,
                 stop_processing_event,
@@ -190,11 +190,13 @@ def process_unanswered_questions() -> None:
             logger.info("_answer_question_worker are finished, signal to stop")
             result_answer_question_id_link_id_queue.put(None)
             stop_processing_event.set()
-            logger.info("await writer task")
-            writer_future.result()
-            logger.info("all done with classify_valid_content url, clean up")
+            logger.info("await _insert_answer_worker")
+            answer_insert_future.result()
+            logger.info(
+                "all done with process_unanswered_questions url, clean up"
+            )
     finally:
-        logger.info("all done with classify_valid_content, exiting")
+        logger.info("all done with process_unanswered_questions, exiting")
         listener.stop()
 
 
