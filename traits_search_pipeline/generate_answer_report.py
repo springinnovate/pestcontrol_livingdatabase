@@ -35,18 +35,16 @@ def _snippet(text: str, n: int = SNIPPET_LEN) -> str:
 
 
 def generate_species_qna_report(session: Session) -> str:
-    """
-    Build a text report grouped as:
-    [species]
-        [question]
-           [answer] [context]
-           …
+    """Build a flat text report of all answers.
+
+    Each row contains a csv readable:
+        [species],[question],[answer],[context snippet],[url]
 
     Args:
         session: SQLAlchemy ORM session.
 
     Returns:
-        str: Formatted report.
+        str: Formatted report with one line per (species, question, etc).
     """
     stmt = (
         select(
