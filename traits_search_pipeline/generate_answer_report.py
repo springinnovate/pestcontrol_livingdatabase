@@ -74,15 +74,12 @@ def generate_species_qna_report(session: Session) -> str:
     for (species_name,), species_group in groupby(
         rows, key=lambda r: (r.species_name,)
     ):
-        # lines.append(f"[{species_name}]")
 
-        # group by question within species
         def qkey(r):
             return (r.question_id, r.question_text)
 
         for (_, question_text), q_group in groupby(species_group, key=qkey):
             for r in q_group:
-                # ctx = _snippet(r.content_text)
                 lines.append(
                     f'"{species_name}","{question_text}","{r.answer_text}","{r.reason}","{r.url}"'
                 )
