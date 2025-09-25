@@ -340,6 +340,9 @@ def _insert_answer_worker(
                     session.add(answer)
                     session.commit()
                 except KeyError:
+                    # this keyerror happens sometimes when the LLM incorrectly
+                    # formats the structured return value, so we record it
+                    # but keep going
                     logger.warning(
                         f"something weird happened on this result: '{result}'"
                     )
