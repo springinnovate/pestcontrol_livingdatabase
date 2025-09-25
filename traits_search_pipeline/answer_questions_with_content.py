@@ -4,22 +4,22 @@ from __future__ import annotations
 
 from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import Manager
-from typing import Iterator, Mapping, List, Dict, Any, Tuple
+from typing import Any
 from queue import Empty
-import asyncio
-import itertools
 import logging
-import re
-from multiprocessing import Queue
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, select, exists
 from sqlalchemy.orm import Session
+import psutil
 
 from models import (
     DB_URI,
     BaseNorm,
     Content,
     Answer,
+    QuestionLink,
+    Question,
+    Link,
 )
 
 from dotenv import load_dotenv
@@ -28,15 +28,13 @@ from logging_tools import (
     configure_worker_logger,
     start_process_safe_logging,
 )
-from llm_tools import (
-    apply_llm,
-    truncate_to_token_limit,
-    evaluate_validity_with_llm,
-)
-
+from llm_tools import apply_llm
 
 DB_ENGINE = create_engine(DB_URI)
 BaseNorm.metadata.create_all(DB_ENGINE)
+
+GLOBAL_LOG_LEVEL = logging.DEBUG
+
 
 load_dotenv()  # loads the OPENAI_API_KEY
 
@@ -100,360 +98,241 @@ UNKNOWN EXAMPLE
 """.strip()
 
 
-# def iter_unanswered_question_contexts(
-#     session: Session,
-# ) -> Iterator[Mapping[str, object]]:
-#     """Loop through all the questions that do not have an 'answer'."""
-#     stmt = (
-#         select(
-#             Question.id.label("question_id"),
-#             Question.text.label("question_text"),
-#             QuestionKeyword.keyword_query_id.label("keyword_query_id"),
-#             Link.id.label("link_id"),
-#             Link.url.label("link_url"),
-#             Content.id.label("content_id"),
-#         )
-#         .join(QuestionKeyword, QuestionKeyword.question_id == Question.id)
-#         .join(SearchHead, SearchHead.question_id == Question.id)
-#         .join(
-#             SearchResultLink,
-#             SearchResultLink.search_head_id == SearchHead.question_id,
-#         )
-#         .join(Link, Link.id == SearchResultLink.link_id)
-#         .join(Content, Content.id == Link.content_id)
-#         .join(
-#             Answer,
-#             (Answer.keyword_query_id == QuestionKeyword.keyword_query_id)
-#             & (Answer.link_id == Link.id),  # noqa: W503
-#             isouter=True,
-#         )
-#         .where(or_(Answer.id.is_(None), Answer.reason == "page_error"))
-#         .where(Content.is_valid != 0)
-#     ).execution_options(stream_results=True)
+def process_unanswered_questions() -> None:
+    """Orchestrate parallel LLM answering for unanswered (question, link) pairs.
 
-#     for row in session.execute(stmt).mappings():
-#         yield row
+    Spawns a process pool of workers to generate answers with an LLM for each
+    (question, link) that lacks an Answer, and a dedicated writer process that
+    persists results into the database. Uses inter-process queues for task and
+    result passing, and a shared event to coordinate shutdown.
 
+    Steps:
+      * Initialize process-safe logging and shared IPC primitives.
+      * Query unanswered QuestionLink/Link pairs with non-null Content.
+      * Enqueue tasks to worker processes.
+      * Collect model outputs and persist them via the writer.
+      * Ensure graceful shutdown on completion or error.
 
-def insert_answer(
-    session: Session,
-    keyword_query_id: int,
-    link_id: int,
-    answer: Dict[str, str],
-    log_queue: Queue,
-) -> int | None:
-    """Insert a new answer if there is not already one in the db."""
-    logger = configure_worker_logger(
-        log_queue, GLOBAL_LOG_LEVEL, "_url_scrape_worker"
-    )
-    logger.debug(f"this is the answer: {answer}")
-    if "answer_text" in answer:
-        answer_text = answer["answer_text"]
-    elif "answer" in answer:
-        answer_text = answer["answer"]
-    else:
-        raise ValueError(f"expected some sort of answer key but got {answer}")
-    exists_stmt = select(Answer.id).where(
-        Answer.keyword_query_id == keyword_query_id,
-        Answer.link_id == link_id,
-        Answer.answer_text == answer_text,
-    )
-    existing_id = session.execute(exists_stmt).scalar_one_or_none()
-    if existing_id is not None:
-        logger.info(f"statement exists at {existing_id}")
-        return existing_id
-    try:
-        ans = Answer(
-            keyword_query_id=keyword_query_id,
-            link_id=link_id,
-            answer_text=answer_text,
-            reason=answer["reason"],
-            evidence=answer["evidence"],
-        )
-    except KeyError:
-        logger.exception(f"keyerror on this answer: {answer}")
-        raise
-    session.add(ans)
-    session.flush()
-    logger.info(f"statement inserted at {ans.id}")
-    return ans.id
+    Args:
+        None
 
+    Returns:
+        None
 
-async def call_llm_async(
-    question_text: str, content_text: str, log_queue
-) -> Dict[str, Any]:
-    """Wrapper to sync LLM call in a thread."""
-    safe_text = truncate_to_token_limit(content_text)
-    return await asyncio.to_thread(
-        apply_llm, question_text, safe_text, log_queue
-    )
-
-
-async def _worker(
-    row: Dict[str, Any], sem: asyncio.Semaphore, log_queue: Queue
-) -> Tuple[Dict[str, Any], str | Dict[str, Any] | None]:
-    logger = configure_worker_logger(
-        log_queue, GLOBAL_LOG_LEVEL, "_url_scrape_worker"
-    )
-
-    async with sem:
-        qtext: str = row["question_text"]
-        content_text: str = row["content_text"] or ""
-        logger.info(
-            f"\n[QUESTION #{row['question_id']}] "
-            f"(KeywordQuery #{row['keyword_query_id']}, Link #{row['link_id']})\n"
-            f"Q: {qtext.strip()[:120]}{'...' if len(qtext) > 120 else ''}\n"
-            f"Content: {content_text.strip()[:200]}{'...' if len(content_text) > 200 else ''}\n"
-            f"{'-'*80}"
-        )
-
-        m = re.search(r"\[\[(.*?)\]\]", content_text, flags=re.DOTALL)
-        if m:
-            err_text = m.group(1).strip()
-            answer = {
-                "answer": "unknown",
-                "reason": "page_error",
-                "evidence": [f"[[{err_text}]]"],
-            }
-            return row, answer
-
-        try:
-            answer = await call_llm_async(qtext, content_text, log_queue)
-            return row, answer
-        except asyncio.CancelledError:
-            logger.info(
-                f'task cancelled for question_id={row["question_id"]}, link_id={row["link_id"]}'
-            )
-            raise
-        except Exception as e:
-            logger.exception(
-                f'LLM error on question_id={row["question_id"]}, link_id={row["link_id"]}: {e}'
-            )
-            raise
-
-
-def _get_content_text(
-    session: Session, question_context: Dict[str, str]
-) -> str | None:
-
-    result = dict(question_context)
-    result["content_text"] = session.execute(
-        select(Content.text).where(Content.id == question_context["content_id"])
-    ).scalar_one_or_none()
-    return result
-
-
-async def process_unanswered_questions(
-    max_concurrency: int = 1,
-    batch_commit: int = 50,
-) -> None:
-    global GLOBAL_LOG_LEVEL
-    GLOBAL_LOG_LEVEL = logging.DEBUG
-    log_queue, listener, manager = start_process_safe_logging(
-        "logs/iterate_content_for_llm.log"
-    )
-
-    main_logger = configure_worker_logger(log_queue, GLOBAL_LOG_LEVEL, "main")
-    set_catch_and_log_logger(main_logger)
-
-    engine = create_engine(DB_URI)
-
-    main_logger.info("snapshot rows")
-    with Session(engine) as session:
-        unanswered_question_contexts = list(
-            itertools.islice(iter_unanswered_question_contexts(session), None)
-        )
-        main_logger.info(unanswered_question_contexts)
-        sem = asyncio.Semaphore(max_concurrency)
-        main_logger.info("creating tasks")
-        tasks = [
-            asyncio.create_task(
-                _worker(_get_content_text(session, question), sem, log_queue)
-            )
-            for question in unanswered_question_contexts
-        ]
-
-    pending_inserts: List[Tuple[int, int, Dict[str, Any]]] = []
-    inserted = 0
-
-    try:
-        for fut in asyncio.as_completed(tasks):
-            try:
-                row, answer = await fut
-            except Exception as e:
-                # cancel all remaining tasks and wait for them to finish
-                for t in tasks:
-                    t.cancel()
-                await asyncio.gather(*tasks, return_exceptions=True)
-                main_logger.error(f"aborting due to error: {e}")
-                if pending_inserts:
-                    with Session(engine) as session:
-                        for kid_i, lid_i, ans in pending_inserts:
-                            insert_answer(session, kid_i, lid_i, ans, log_queue)
-                        session.commit()
-                    inserted += len(pending_inserts)
-                    pending_inserts.clear()
-                raise
-
-            if not answer:
-                continue
-            kid: int = row["keyword_query_id"]
-            lid: int = row["link_id"]
-            main_logger.debug(f"this is the answer: {answer}")
-            pending_inserts.append((kid, lid, answer))
-
-            if len(pending_inserts) >= batch_commit:
-                with Session(engine) as session:
-                    for kid_i, lid_i, ans in pending_inserts:
-                        insert_answer(session, kid_i, lid_i, ans, log_queue)
-                    session.commit()
-                inserted += len(pending_inserts)
-                pending_inserts.clear()
-
-        if pending_inserts:
-            with Session(engine) as session:
-                for kid_i, lid_i, ans in pending_inserts:
-                    insert_answer(session, kid_i, lid_i, ans, log_queue)
-                session.commit()
-            inserted += len(pending_inserts)
-
-        main_logger.info(f"\nDone. Inserted {inserted} answers.")
-    finally:
-        listener.stop()
-        logging.shutdown()
-
-
-def _evaluate_validity_worker(
-    content_id_text_queue,
-    result_content_id_is_valid_queue,
-    stop_processing_event,
-    log_queue,
-):
-    try:
-        logger = configure_worker_logger(
-            log_queue, GLOBAL_LOG_LEVEL, "_evaluate_validity_worker"
-        )
-        while not stop_processing_event.is_set():
-            try:
-                item = content_id_text_queue.get(timeout=1)
-            except Empty:
-                logger.info("task queue empty; polling again")
-                continue
-            if item is None:
-                # sentinel, quit
-                return
-
-            content_id, content_text = item
-            logger.info(f"evaluate validity of {content_id}")
-            result = evaluate_validity_with_llm(content_text, logger)
-            logger.info(result)
-            result_content_id_is_valid_queue.put(content_id, result)
-    except Exception:
-        stop_processing_event.set()
-        logger.exception("something bad happened in _evaluate_validity_worker")
-
-
-def _db_content_valid_writer(
-    result_content_id_is_valid_queue,
-    stop_processing_event,
-    log_queue,
-):
-    try:
-        logger = configure_worker_logger(
-            log_queue, GLOBAL_LOG_LEVEL, "_evaluate_validity_worker"
-        )
-        while not stop_processing_event.is_set():
-            try:
-                item = result_content_id_is_valid_queue.get(timeout=1)
-            except Empty:
-                logger.info("task queue empty; polling again")
-                continue
-            if item is None:
-                # sentinel, quit
-                return
-
-            content_id, is_valid = item
-            with Session(DB_ENGINE) as session:
-                stmt = select(Content).where(Content.content_id == content_id)
-                content = session.execute(stmt).scalars().first()
-                content.is_valid = is_valid
-                session.commit()
-
-    except Exception:
-        stop_processing_event.set()
-        logger.exception("something bad happened in _db_content_valid_writer")
-
-
-def classify_valid_content():
-    log_queue, listener, manager = start_process_safe_logging(
-        "logs/classify_valid_content.log"
-    )
+    Raises:
+        Exception: Propagates unexpected errors after attempting cleanup.
+    """
     manager = Manager()
-    content_id_text_queue = manager.Queue()
-    result_content_id_is_valid_queue = manager.Queue()
-    stop_processing_event = manager.Event()
     log_queue, listener = start_process_safe_logging(
-        manager, "logs/content_valid.log"
+        manager, "logs/iterate_content_for_llm.log", GLOBAL_LOG_LEVEL
     )
-    log_level = logging.DEBUG
-    logger = configure_worker_logger(
-        log_queue, log_level, "classify_valid_content"
-    )
+    logger = configure_worker_logger(log_queue, GLOBAL_LOG_LEVEL, "main")
     set_catch_and_log_logger(logger)
+    question_id_link_id_queue = manager.Queue()
+    result_answer_question_id_link_id_queue = manager.Queue()
+    stop_processing_event = manager.Event()
     try:
         logger.info("start workers")
-        n_workers = 1
+        n_workers = psutil.cpu_count(logical=False)
         with ProcessPoolExecutor(
             max_workers=n_workers + 1
         ) as pool:  # +1 for the db_writer
             worker_futures = [
                 pool.submit(
-                    _evaluate_validity_worker,
-                    content_id_text_queue,
-                    result_content_id_is_valid_queue,
+                    _answer_question_worker,
+                    question_id_link_id_queue,
+                    result_answer_question_id_link_id_queue,
                     stop_processing_event,
                     log_queue,
                 )
                 for _ in range(n_workers)
             ]
             writer_future = pool.submit(
-                _db_content_valid_writer,
-                result_content_id_is_valid_queue,
+                _insert_answer_worker,
+                result_answer_question_id_link_id_queue,
                 stop_processing_event,
                 log_queue,
             )
             logger.info("queue up the contents")
+
             with Session(DB_ENGINE) as session:
-                stmt = (
-                    select(Content)
-                    .where(Content.is_valid.is_(None))
-                    .execution_options(stream_results=True, yield_per=10)
+                not_answered = ~exists(
+                    select(Answer.id).where(
+                        Answer.question_id == QuestionLink.question_id,
+                        Answer.link_id == QuestionLink.link_id,
+                    )
                 )
-                for content in session.execute(stmt).scalars():
-                    content_id_text_queue.put(
-                        content.content_id, content.content_text
+
+                stmt = (
+                    select(QuestionLink, Link)
+                    .join_from(QuestionLink, Link, QuestionLink.link)
+                    .where(Link.content_id.is_not(None))
+                    .where(not_answered)
+                    .execution_options(stream_results=True, yield_per=200)
+                )
+
+                for question_link, link in session.execute(stmt):
+                    question_id_link_id_queue.put(
+                        (
+                            question_link.id,
+                            question_link.question_id,
+                            question_link.link_id,
+                            link.content_id,
+                        )
                     )
                     break
 
             for _ in range(n_workers):
-                content_id_text_queue.put(None)
+                question_id_link_id_queue.put(None)
 
-            logger.info("wait for _evaluate_validity_worker to finish")
+            logger.info("wait for _answer_question_worker to finish")
             for f in worker_futures:
                 f.result()
-            logger.info(
-                "_evaluate_validity_worker are finished, signal to stop"
-            )
-            result_content_id_is_valid_queue.put(None)
+            logger.info("_answer_question_worker are finished, signal to stop")
+            result_answer_question_id_link_id_queue.put(None)
             stop_processing_event.set()
             logger.info("await writer task")
             writer_future.result()
             logger.info("all done with classify_valid_content url, clean up")
     finally:
-        listener.stop()
         logger.info("all done with classify_valid_content, exiting")
+        listener.stop()
+
+
+def _answer_question_worker(
+    question_id_link_id_queue: Any,
+    result_answer_question_id_link_id_queue: Any,
+    stop_processing_event: Any,
+    log_queue: Any,
+) -> None:
+    """Worker process that generates an Answer for each (question, link, content).
+
+    Consumes items of the form:
+        (question_link_id: int, question_id: int, link_id: int, content_id: int)
+    from the task queue, fetches the corresponding Question and Content rows,
+    constructs a prompt, calls the LLM, and pushes a result tuple to the result
+    queue:
+        (question_link_id: int, question_id: int, link_id: int, result: dict)
+
+    The worker exits when it receives a sentinel (None) or when the shared stop
+    event is set.
+
+    Args:
+        question_id_link_id_queue: IPC queue to receive work items; items are tuples
+            (question_link_id, question_id, link_id, content_id).
+        result_answer_question_id_link_id_queue: IPC queue to emit LLM outputs as
+            tuples (question_link_id, question_id, link_id, result_dict).
+        stop_processing_event: Shared event used to signal a cooperative shutdown.
+        log_queue: IPC queue for process-safe logging.
+
+    Returns:
+        None
+
+    Raises:
+        Exception: On unrecoverable errors; sets the stop event and logs the
+            exception before exiting.
+    """
+    try:
+        logger = configure_worker_logger(
+            log_queue, GLOBAL_LOG_LEVEL, "_answer_question_worker"
+        )
+        while not stop_processing_event.is_set():
+            try:
+                item = question_id_link_id_queue.get(timeout=1)
+            except Empty:
+                logger.info("task queue empty; polling again")
+                continue
+            if item is None:
+                # sentinel, quit
+                return
+            question_link_id, question_id, link_id, content_id = item
+
+            with Session(DB_ENGINE) as session:
+                content = session.scalar(
+                    select(Content).where(Content.id == content_id)
+                )
+                question = session.scalar(
+                    select(Question).where(Question.id == question_id)
+                )
+                logger.debug(f"processing {question_link_id}")
+
+                user_prompt = (
+                    f"QUESTION: {question.text} PAGE_TEXT: {content.text}"
+                )
+
+                logging.getLogger("httpcore").setLevel(logging.WARNING)
+                logging.getLogger("openai").setLevel(logging.WARNING)
+                result = apply_llm(SYSTEM_PROMPT, user_prompt, logger, "gpt-4o")
+                if result:
+                    result_answer_question_id_link_id_queue.put(
+                        (question_link_id, question_id, link_id, result)
+                    )
+    except Exception:
+        stop_processing_event.set()
+        logger.exception("something bad happened in _answer_question_worker")
+
+
+def _insert_answer_worker(
+    result_answer_question_id_link_id_queue: Any,
+    stop_processing_event: Any,
+    log_queue: Any,
+) -> None:
+    """Writer process that persists Answer rows produced by workers.
+
+    Consumes items of the form:
+        (question_link_id: int, question_id: int, link_id: int, result: dict)
+    where result has keys:
+        - 'answer_text': str
+        - 'reason': str
+        - 'evidence': list
+    It inserts a new Answer row per item and commits the transaction. The writer
+    exits on a sentinel (None) or when the shared stop event is set.
+
+    Args:
+        result_answer_question_id_link_id_queue: IPC queue providing result tuples
+            (question_link_id, question_id, link_id, result_dict).
+        stop_processing_event: Shared event used to signal a cooperative shutdown.
+        log_queue: IPC queue for process-safe logging.
+
+    Returns:
+        None
+
+    Raises:
+        Exception: On database or unexpected errors; sets the stop event and logs
+            the exception before exiting.
+    """
+    try:
+        logger = configure_worker_logger(
+            log_queue, GLOBAL_LOG_LEVEL, "_evaluate_validity_worker"
+        )
+        while not stop_processing_event.is_set():
+            try:
+                item = result_answer_question_id_link_id_queue.get(timeout=1)
+            except Empty:
+                logger.info("task queue empty; polling again")
+                continue
+            if item is None:
+                # sentinel, quit
+                return
+
+            question_link_id, question_id, link_id, result = item
+            # result has the keys ('answer_text', 'reason', 'evidence': [])
+
+            with Session(DB_ENGINE) as session:
+                answer = Answer(
+                    question_link_id=question_link_id,
+                    question_id=question_id,
+                    link_id=link_id,
+                    answer_text=result["answer_text"],
+                    reason=result["reason"],
+                    evidence=result["evidence"],
+                )
+                session.add(answer)
+                session.commit()
+    except Exception:
+        stop_processing_event.set()
+        logger.exception("something bad happened in _insert_answer_worker")
 
 
 if __name__ == "__main__":
-    classify_valid_content()
-    # asyncio.run(process_unanswered_questions())
+    process_unanswered_questions()
