@@ -28,7 +28,7 @@ from logging_tools import (
     configure_worker_logger,
     start_process_safe_logging,
 )
-from llm_tools import apply_llm
+from llm_tools import apply_llm, truncate_to_token_limit
 
 DB_ENGINE = create_engine(DB_URI)
 BaseNorm.metadata.create_all(DB_ENGINE)
@@ -261,7 +261,12 @@ def _answer_question_worker(
 
                 logging.getLogger("httpcore").setLevel(logging.WARNING)
                 logging.getLogger("openai").setLevel(logging.WARNING)
-                result = apply_llm(SYSTEM_PROMPT, user_prompt, logger, "gpt-4o")
+                clean_user_prompt = truncate_to_token_limit(
+                    user_prompt, "gpt-4o", 100000
+                )
+                result = apply_llm(
+                    SYSTEM_PROMPT, clean_user_prompt, logger, "gpt-4o"
+                )
                 if result:
                     result_answer_question_id_link_id_queue.put(
                         (question_link_id, question_id, link_id, result)
