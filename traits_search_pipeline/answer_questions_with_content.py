@@ -180,7 +180,6 @@ def process_unanswered_questions() -> None:
                             link.content_id,
                         )
                     )
-                    break
 
             for _ in range(n_workers):
                 question_id_link_id_queue.put(None)
