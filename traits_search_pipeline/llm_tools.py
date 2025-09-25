@@ -1,16 +1,18 @@
 """OpenAI llm tools for each of the trait serarch pipeline tools."""
 
+from typing import Dict, Optional, Tuple, List
 import json
+import random
 import re
 import time
-from typing import Dict, Optional, Tuple, List
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 import tiktoken
 
-from openai import OpenAI
+from openai import OpenAI, RateLimitError
 from models import Content
+
 
 SYSTEM_PROMPT = """
 You are a careful classifier. Decide if PAGE_TEXT is valid human-readable content or an error/placeholder.
@@ -178,10 +180,18 @@ def apply_llm(
         "messages": messages,
     }
     openai_context = create_openai_context()
-    resp = openai_context["client"].chat.completions.create(**args)
-    try:
-        content = json.loads(resp.choices[0].message.content)
-    except json.decoder.JSONDecodeError:
-        logger.exception(f"error with response: {resp}")
-        raise
-    return content
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            resp = openai_context["client"].chat.completions.create(**args)
+            content = json.loads(resp.choices[0].message.content)
+            return content
+        except RateLimitError as e:
+            wait = (2**attempt) + random.uniform(0, 0.5)
+            logger.warning(f"rate limited, retrying in {wait:.2f}s: {e}")
+            time.sleep(wait)
+            continue
+        except json.decoder.JSONDecodeError:
+            logger.exception(f"error with response: {resp}")
+            raise
