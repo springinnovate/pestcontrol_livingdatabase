@@ -56,21 +56,40 @@ def generate_species_qna_report(session: Session) -> str:
             Answer.answer_text.label("answer_text"),
             Answer.reason.label("reason"),
             Link.url.label("url"),
-            Content.text.label("content_text"),
         )
         .join(SpeciesQuestion, SpeciesQuestion.species_id == Species.id)
         .join(Question, Question.id == SpeciesQuestion.question_id)
         .join(QuestionLink, QuestionLink.question_id == Question.id)
         .join(Answer, Answer.question_link_id == QuestionLink.id)
         .join(Link, Link.id == QuestionLink.link_id)
-        .join(Content, Content.id == Link.content_id)
         .order_by("species_name", "question_id", "answer_id")
     )
 
     rows: List[Tuple] = session.execute(stmt).all()
 
+    # species-question pairs with NO links at all
+    no_link_stmt = (
+        select(
+            Species.id.label("species_id"),
+            Species.name.label("species_name"),
+            Question.id.label("question_id"),
+            Question.text.label("question_text"),
+        )
+        .join(SpeciesQuestion, SpeciesQuestion.species_id == Species.id)
+        .join(Question, Question.id == SpeciesQuestion.question_id)
+        .outerjoin(QuestionLink, QuestionLink.question_id == Question.id)
+        .where(QuestionLink.id.is_(None))
+        .order_by("species_name", "question_id")
+    )
+    no_link_rows = session.execute(no_link_stmt).all()
+
+    # collect species-question keys that already have at least one answer row
+    have_answer_keys = {(r.species_id, r.question_id) for r in rows}
+
     lines: List[str] = []
     lines.append("species,question,answer,reason,url")
+
+    # answered rows
     for (species_name,), species_group in groupby(
         rows, key=lambda r: (r.species_name,)
     ):
@@ -86,6 +105,19 @@ def generate_species_qna_report(session: Session) -> str:
                 lines.append(
                     f'"{species_name}","{base_question_text}","{r.answer_text}","{r.reason}","{r.url}"'
                 )
+
+    # add missing rows for species-question pairs with no links at all
+    for r in no_link_rows:
+        key = (r.species_id, r.question_id)
+        if key in have_answer_keys:
+            continue
+        base_question_text = r.question_text.replace(
+            r.species_name, "[species]"
+        )
+        lines.append(
+            f'"{r.species_name}","{base_question_text}","none","no links found in search","n/a"'
+        )
+
     return "\n".join(lines)
 
 
