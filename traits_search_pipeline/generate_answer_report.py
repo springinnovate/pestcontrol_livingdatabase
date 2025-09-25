@@ -80,8 +80,11 @@ def generate_species_qna_report(session: Session) -> str:
 
         for (_, question_text), q_group in groupby(species_group, key=qkey):
             for r in q_group:
+                base_question_text = question_text.replace(
+                    species_name, "[species]"
+                )
                 lines.append(
-                    f'"{species_name}","{question_text}","{r.answer_text}","{r.reason}","{r.url}"'
+                    f'"{species_name}","{base_question_text}","{r.answer_text}","{r.reason}","{r.url}"'
                 )
     return "\n".join(lines)
 
@@ -105,5 +108,5 @@ def write_species_qna_report(session: Session, path: str) -> None:
 if __name__ == "__main__":
     with Session(DB_ENGINE) as session:
         timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-        filename = f"species_question_answer_report_{timestamp}.txt"
+        filename = f"species_question_answer_report_{timestamp}.csv"
         write_species_qna_report(session, filename)
