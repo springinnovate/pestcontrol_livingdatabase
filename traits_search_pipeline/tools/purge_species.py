@@ -1,4 +1,7 @@
-"""Purge a species and its related links/answers etc from the db."""
+"""Purge a species and its related links/answers etc from the db.
+
+run at the command line like this: python -m tools.purge_species species_name
+"""
 
 from pathlib import Path
 import argparse
@@ -35,6 +38,7 @@ def delete_species_cascade(
       - QuestionLinks for those questions
       - SpeciesQuestion mappings for that species
       - Orphan Questions (only those no longer linked to any species)
+      - Global scrub: any Questions with no SpeciesQuestion and no QuestionLink
       - Finally the Species row itself
     Leaves Link records intact.
 
@@ -51,7 +55,8 @@ def delete_species_cascade(
             "answer_ids": [],
             "question_link_ids": [],
             "species_question_pairs": [],  # (species_id, question_id)
-            "question_ids": [],
+            "question_ids": [],  # species-scoped orphan questions
+            "global_orphan_question_ids": [],  # global scrub pass
             "species_ids": [],
         },
     }
@@ -70,7 +75,6 @@ def delete_species_cascade(
         )
 
         if dry_run:
-            # answers that would be deleted
             answer_ids = (
                 session.execute(
                     select(Answer.id).where(
@@ -85,7 +89,6 @@ def delete_species_cascade(
             stats["preview"]["answer_ids"] = answer_ids
             stats["answers_deleted"] = len(answer_ids)
 
-            # question_links that would be deleted
             question_link_ids = (
                 session.execute(
                     select(QuestionLink.id).where(
@@ -100,7 +103,6 @@ def delete_species_cascade(
             stats["preview"]["question_link_ids"] = question_link_ids
             stats["question_links_deleted"] = len(question_link_ids)
 
-            # species_question mappings that would be deleted
             species_question_pairs = session.execute(
                 select(
                     SpeciesQuestion.species_id, SpeciesQuestion.question_id
@@ -111,7 +113,6 @@ def delete_species_cascade(
             ]
             stats["species_questions_deleted"] = len(species_question_pairs)
 
-            # orphan questions that would be deleted
             orphan_question_subquery = (
                 select(Question.id)
                 .where(
@@ -122,21 +123,40 @@ def delete_species_cascade(
                 )
                 .subquery()
             )
-            question_ids = (
+            species_orphan_q_ids = (
                 session.execute(select(orphan_question_subquery.c.id))
                 .scalars()
                 .all()
             )
-            stats["preview"]["question_ids"] = question_ids
-            stats["questions_deleted"] = len(question_ids)
+            stats["preview"]["question_ids"] = species_orphan_q_ids
+            stats["questions_deleted"] = len(species_orphan_q_ids)
 
-            # species that would be deleted
+            # global scrub preview: questions with no SpeciesQuestion AND no QuestionLink
+            global_orphan_question_subquery = (
+                select(Question.id)
+                .where(
+                    ~exists().where(SpeciesQuestion.question_id == Question.id),
+                    ~exists().where(QuestionLink.question_id == Question.id),
+                )
+                .subquery()
+            )
+            global_orphan_q_ids = (
+                session.execute(select(global_orphan_question_subquery.c.id))
+                .scalars()
+                .all()
+            )
+            stats["preview"]["global_orphan_question_ids"] = global_orphan_q_ids
+
+            # add to total questions_deleted (avoid double count by set union)
+            stats["questions_deleted"] = len(
+                set(species_orphan_q_ids) | set(global_orphan_q_ids)
+            )
+
             stats["preview"]["species_ids"] = [species_select.id]
             stats["species_deleted"] = 1
 
             return stats
 
-        # delete Answers for those questions
         del_answers = session.execute(
             delete(Answer)
             .where(
@@ -148,7 +168,6 @@ def delete_species_cascade(
         )
         stats["answers_deleted"] = len(del_answers.fetchall())
 
-        # delete QuestionLinks for those questions
         del_q_links = session.execute(
             delete(QuestionLink)
             .where(
@@ -160,7 +179,6 @@ def delete_species_cascade(
         )
         stats["question_links_deleted"] = len(del_q_links.fetchall())
 
-        # delete mappings for this species
         delete_speciesquestion = session.execute(
             delete(SpeciesQuestion)
             .where(SpeciesQuestion.species_id == species_select.id)
@@ -170,7 +188,6 @@ def delete_species_cascade(
             delete_speciesquestion.fetchall()
         )
 
-        # delete questions (orphans only)
         orphan_question_subquery = (
             select(Question.id)
             .where(
@@ -184,9 +201,28 @@ def delete_species_cascade(
             .where(Question.id.in_(select(orphan_question_subquery.c.id)))
             .returning(Question.id)
         )
-        stats["questions_deleted"] = len(del_questions.fetchall())
+        species_orphan_deleted = len(del_questions.fetchall())
+        stats["questions_deleted"] += species_orphan_deleted
 
-        # delete the Species row last
+        # final global scrub: remove any Questions with no SpeciesQuestion and no QuestionLink
+        global_orphan_question_subquery = (
+            select(Question.id)
+            .where(
+                ~exists().where(SpeciesQuestion.question_id == Question.id),
+                ~exists().where(QuestionLink.question_id == Question.id),
+            )
+            .subquery()
+        )
+        del_global_questions = session.execute(
+            delete(Question)
+            .where(
+                Question.id.in_(select(global_orphan_question_subquery.c.id))
+            )
+            .returning(Question.id)
+        )
+        global_orphan_deleted = len(del_global_questions.fetchall())
+        stats["questions_deleted"] += global_orphan_deleted
+
         del_species = session.execute(
             delete(Species)
             .where(Species.id == species_select.id)
