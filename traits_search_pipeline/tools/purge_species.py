@@ -7,7 +7,6 @@ from pathlib import Path
 import argparse
 import datetime
 import logging
-import sqlite3
 import shutil
 
 from sqlalchemy import create_engine, select, delete, exists
@@ -61,57 +60,52 @@ def delete_species_cascade(
         },
     }
 
-    with session.begin():
-        species_select = session.execute(
-            select(Species).where(Species.name == species_name)
-        ).scalar_one_or_none()
-        if species_select is None:
-            return stats
+    try:
+        with session.begin():
+            species_select = session.execute(
+                select(Species).where(Species.name == species_name)
+            ).scalar_one_or_none()
+            if species_select is None:
+                return stats
 
-        question_ids_subquery = (
-            select(SpeciesQuestion.question_id)
-            .where(SpeciesQuestion.species_id == species_select.id)
-            .subquery()
-        )
+            question_ids_subquery = (
+                select(SpeciesQuestion.question_id)
+                .where(SpeciesQuestion.species_id == species_select.id)
+                .subquery()
+            )
 
-        if dry_run:
-            answer_ids = (
-                session.execute(
-                    select(Answer.id).where(
-                        Answer.question_id.in_(
-                            select(question_ids_subquery.c.question_id)
-                        )
+            del_answers = session.execute(
+                delete(Answer)
+                .where(
+                    Answer.question_id.in_(
+                        select(question_ids_subquery.c.question_id)
                     )
                 )
-                .scalars()
-                .all()
+                .returning(Answer.id)
             )
-            stats["preview"]["answer_ids"] = answer_ids
-            stats["answers_deleted"] = len(answer_ids)
+            stats["answers_deleted"] = len(del_answers.fetchall())
 
-            question_link_ids = (
-                session.execute(
-                    select(QuestionLink.id).where(
-                        QuestionLink.question_id.in_(
-                            select(question_ids_subquery.c.question_id)
-                        )
+            del_q_links = session.execute(
+                delete(QuestionLink)
+                .where(
+                    QuestionLink.question_id.in_(
+                        select(question_ids_subquery.c.question_id)
                     )
                 )
-                .scalars()
-                .all()
+                .returning(QuestionLink.id)
             )
-            stats["preview"]["question_link_ids"] = question_link_ids
-            stats["question_links_deleted"] = len(question_link_ids)
+            stats["question_links_deleted"] = len(del_q_links.fetchall())
 
-            species_question_pairs = session.execute(
-                select(
+            delete_speciesquestion = session.execute(
+                delete(SpeciesQuestion)
+                .where(SpeciesQuestion.species_id == species_select.id)
+                .returning(
                     SpeciesQuestion.species_id, SpeciesQuestion.question_id
-                ).where(SpeciesQuestion.species_id == species_select.id)
-            ).all()
-            stats["preview"]["species_question_pairs"] = [
-                (sid, qid) for sid, qid in species_question_pairs
-            ]
-            stats["species_questions_deleted"] = len(species_question_pairs)
+                )
+            )
+            stats["species_questions_deleted"] = len(
+                delete_speciesquestion.fetchall()
+            )
 
             orphan_question_subquery = (
                 select(Question.id)
@@ -123,15 +117,15 @@ def delete_species_cascade(
                 )
                 .subquery()
             )
-            species_orphan_q_ids = (
-                session.execute(select(orphan_question_subquery.c.id))
-                .scalars()
-                .all()
+            del_questions = session.execute(
+                delete(Question)
+                .where(Question.id.in_(select(orphan_question_subquery.c.id)))
+                .returning(Question.id)
             )
-            stats["preview"]["question_ids"] = species_orphan_q_ids
-            stats["questions_deleted"] = len(species_orphan_q_ids)
+            species_orphan_deleted = len(del_questions.fetchall())
+            stats["questions_deleted"] += species_orphan_deleted
 
-            # global scrub preview: questions with no SpeciesQuestion AND no QuestionLink
+            # final global scrub: remove any Questions with no SpeciesQuestion and no QuestionLink
             global_orphan_question_subquery = (
                 select(Question.id)
                 .where(
@@ -140,97 +134,33 @@ def delete_species_cascade(
                 )
                 .subquery()
             )
-            global_orphan_q_ids = (
-                session.execute(select(global_orphan_question_subquery.c.id))
-                .scalars()
-                .all()
-            )
-            stats["preview"]["global_orphan_question_ids"] = global_orphan_q_ids
-
-            # add to total questions_deleted (avoid double count by set union)
-            stats["questions_deleted"] = len(
-                set(species_orphan_q_ids) | set(global_orphan_q_ids)
-            )
-
-            stats["preview"]["species_ids"] = [species_select.id]
-            stats["species_deleted"] = 1
-
-            return stats
-
-        del_answers = session.execute(
-            delete(Answer)
-            .where(
-                Answer.question_id.in_(
-                    select(question_ids_subquery.c.question_id)
+            del_global_questions = session.execute(
+                delete(Question)
+                .where(
+                    Question.id.in_(
+                        select(global_orphan_question_subquery.c.id)
+                    )
                 )
+                .returning(Question.id)
             )
-            .returning(Answer.id)
-        )
-        stats["answers_deleted"] = len(del_answers.fetchall())
+            global_orphan_deleted = len(del_global_questions.fetchall())
+            stats["questions_deleted"] += global_orphan_deleted
 
-        del_q_links = session.execute(
-            delete(QuestionLink)
-            .where(
-                QuestionLink.question_id.in_(
-                    select(question_ids_subquery.c.question_id)
-                )
+            del_species = session.execute(
+                delete(Species)
+                .where(Species.id == species_select.id)
+                .returning(Species.id)
             )
-            .returning(QuestionLink.id)
-        )
-        stats["question_links_deleted"] = len(del_q_links.fetchall())
+            stats["species_deleted"] = len(del_species.fetchall())
 
-        delete_speciesquestion = session.execute(
-            delete(SpeciesQuestion)
-            .where(SpeciesQuestion.species_id == species_select.id)
-            .returning(SpeciesQuestion.species_id, SpeciesQuestion.question_id)
-        )
-        stats["species_questions_deleted"] = len(
-            delete_speciesquestion.fetchall()
-        )
-
-        orphan_question_subquery = (
-            select(Question.id)
-            .where(
-                Question.id.in_(select(question_ids_subquery.c.question_id)),
-                ~exists().where(SpeciesQuestion.question_id == Question.id),
-            )
-            .subquery()
-        )
-        del_questions = session.execute(
-            delete(Question)
-            .where(Question.id.in_(select(orphan_question_subquery.c.id)))
-            .returning(Question.id)
-        )
-        species_orphan_deleted = len(del_questions.fetchall())
-        stats["questions_deleted"] += species_orphan_deleted
-
-        # final global scrub: remove any Questions with no SpeciesQuestion and no QuestionLink
-        global_orphan_question_subquery = (
-            select(Question.id)
-            .where(
-                ~exists().where(SpeciesQuestion.question_id == Question.id),
-                ~exists().where(QuestionLink.question_id == Question.id),
-            )
-            .subquery()
-        )
-        del_global_questions = session.execute(
-            delete(Question)
-            .where(
-                Question.id.in_(select(global_orphan_question_subquery.c.id))
-            )
-            .returning(Question.id)
-        )
-        global_orphan_deleted = len(del_global_questions.fetchall())
-        stats["questions_deleted"] += global_orphan_deleted
-
-        del_species = session.execute(
-            delete(Species)
-            .where(Species.id == species_select.id)
-            .returning(Species.id)
-        )
-        stats["species_deleted"] = len(del_species.fetchall())
-
-    return stats
+            if dry_run:
+                session.rollback()
+            else:
+                session.commit()
+                return stats
+    except Exception:
+        session.rollback()
+        raise
 
 
 def main():
