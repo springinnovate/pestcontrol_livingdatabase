@@ -157,7 +157,7 @@ def delete_species_cascade(
                 session.rollback()
             else:
                 session.commit()
-                return stats
+            return stats
     except Exception:
         session.rollback()
         raise
@@ -179,7 +179,7 @@ def main():
 
     dry_run = not args.not_dry_run
     if not dry_run:
-        # fast file-copy backup (no sqlite backup API)
+        # file-copy backup
         _db_path_str = DB_URI.replace("sqlite:////", "/").replace(
             "sqlite:///", ""
         )
