@@ -6,7 +6,6 @@ run at the command line like this: python -m tools.purge_species species_name
 from pathlib import Path
 import argparse
 import datetime
-import logging
 import shutil
 
 from sqlalchemy import create_engine, select, delete, exists
@@ -14,7 +13,6 @@ from sqlalchemy.orm import Session
 
 from models import (
     DB_URI,
-    BaseNorm,
     Species,
     SpeciesQuestion,
     Question,
@@ -24,14 +22,12 @@ from models import (
 
 
 DB_ENGINE = create_engine(DB_URI)
-BaseNorm.metadata.create_all(DB_ENGINE)
-GLOBAL_LOG_LEVEL = logging.DEBUG
 
 
 def delete_species_cascade(
     session: Session, species_name: str, dry_run: bool = False
 ) -> dict:
-    """
+    """# noqa: D205, D210, D415
     Delete a species and all downstream records tied to it:
       - Answers for questions linked to the species
       - QuestionLinks for those questions
@@ -125,7 +121,6 @@ def delete_species_cascade(
             species_orphan_deleted = len(del_questions.fetchall())
             stats["questions_deleted"] += species_orphan_deleted
 
-            # final global scrub: remove any Questions with no SpeciesQuestion and no QuestionLink
             global_orphan_question_subquery = (
                 select(Question.id)
                 .where(
@@ -164,6 +159,11 @@ def delete_species_cascade(
 
 
 def main():
+    """CLI entry point for deleting a species and related records from the database.
+
+    By default, runs in dry-run mode to show what would be deleted. Use
+    --not_dry_run to perform the actual deletion (after making a backup).
+    """
     parser = argparse.ArgumentParser(
         description="Delete a species and downstream records from the database."
     )
