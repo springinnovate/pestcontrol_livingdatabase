@@ -1,0 +1,236 @@
+"""Purge a species and its related links/answers etc from the db."""
+
+from pathlib import Path
+import argparse
+import datetime
+import logging
+import sqlite3
+import shutil
+
+from sqlalchemy import create_engine, select, delete, exists
+from sqlalchemy.orm import Session
+
+from models import (
+    DB_URI,
+    BaseNorm,
+    Species,
+    SpeciesQuestion,
+    Question,
+    QuestionLink,
+    Answer,
+)
+
+
+DB_ENGINE = create_engine(DB_URI)
+BaseNorm.metadata.create_all(DB_ENGINE)
+GLOBAL_LOG_LEVEL = logging.DEBUG
+
+
+def delete_species_cascade(
+    session: Session, species_name: str, dry_run: bool = False
+) -> dict:
+    """
+    Delete a species and all downstream records tied to it:
+      - Answers for questions linked to the species
+      - QuestionLinks for those questions
+      - SpeciesQuestion mappings for that species
+      - Orphan Questions (only those no longer linked to any species)
+      - Finally the Species row itself
+    Leaves Link records intact.
+
+    If dry_run=True, no rows are deleted; instead, ids and counts of rows
+    that would be deleted are returned in 'preview'.
+    """
+    stats = {
+        "answers_deleted": 0,
+        "question_links_deleted": 0,
+        "species_questions_deleted": 0,
+        "questions_deleted": 0,
+        "species_deleted": 0,
+        "preview": {
+            "answer_ids": [],
+            "question_link_ids": [],
+            "species_question_pairs": [],  # (species_id, question_id)
+            "question_ids": [],
+            "species_ids": [],
+        },
+    }
+
+    with session.begin():
+        species_select = session.execute(
+            select(Species).where(Species.name == species_name)
+        ).scalar_one_or_none()
+        if species_select is None:
+            return stats
+
+        question_ids_subquery = (
+            select(SpeciesQuestion.question_id)
+            .where(SpeciesQuestion.species_id == species_select.id)
+            .subquery()
+        )
+
+        if dry_run:
+            # answers that would be deleted
+            answer_ids = (
+                session.execute(
+                    select(Answer.id).where(
+                        Answer.question_id.in_(
+                            select(question_ids_subquery.c.question_id)
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            stats["preview"]["answer_ids"] = answer_ids
+            stats["answers_deleted"] = len(answer_ids)
+
+            # question_links that would be deleted
+            question_link_ids = (
+                session.execute(
+                    select(QuestionLink.id).where(
+                        QuestionLink.question_id.in_(
+                            select(question_ids_subquery.c.question_id)
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            stats["preview"]["question_link_ids"] = question_link_ids
+            stats["question_links_deleted"] = len(question_link_ids)
+
+            # species_question mappings that would be deleted
+            species_question_pairs = session.execute(
+                select(
+                    SpeciesQuestion.species_id, SpeciesQuestion.question_id
+                ).where(SpeciesQuestion.species_id == species_select.id)
+            ).all()
+            stats["preview"]["species_question_pairs"] = [
+                (sid, qid) for sid, qid in species_question_pairs
+            ]
+            stats["species_questions_deleted"] = len(species_question_pairs)
+
+            # orphan questions that would be deleted
+            orphan_question_subquery = (
+                select(Question.id)
+                .where(
+                    Question.id.in_(
+                        select(question_ids_subquery.c.question_id)
+                    ),
+                    ~exists().where(SpeciesQuestion.question_id == Question.id),
+                )
+                .subquery()
+            )
+            question_ids = (
+                session.execute(select(orphan_question_subquery.c.id))
+                .scalars()
+                .all()
+            )
+            stats["preview"]["question_ids"] = question_ids
+            stats["questions_deleted"] = len(question_ids)
+
+            # species that would be deleted
+            stats["preview"]["species_ids"] = [species_select.id]
+            stats["species_deleted"] = 1
+
+            return stats
+
+        # delete Answers for those questions
+        del_answers = session.execute(
+            delete(Answer)
+            .where(
+                Answer.question_id.in_(
+                    select(question_ids_subquery.c.question_id)
+                )
+            )
+            .returning(Answer.id)
+        )
+        stats["answers_deleted"] = len(del_answers.fetchall())
+
+        # delete QuestionLinks for those questions
+        del_q_links = session.execute(
+            delete(QuestionLink)
+            .where(
+                QuestionLink.question_id.in_(
+                    select(question_ids_subquery.c.question_id)
+                )
+            )
+            .returning(QuestionLink.id)
+        )
+        stats["question_links_deleted"] = len(del_q_links.fetchall())
+
+        # delete mappings for this species
+        delete_speciesquestion = session.execute(
+            delete(SpeciesQuestion)
+            .where(SpeciesQuestion.species_id == species_select.id)
+            .returning(SpeciesQuestion.species_id, SpeciesQuestion.question_id)
+        )
+        stats["species_questions_deleted"] = len(
+            delete_speciesquestion.fetchall()
+        )
+
+        # delete questions (orphans only)
+        orphan_question_subquery = (
+            select(Question.id)
+            .where(
+                Question.id.in_(select(question_ids_subquery.c.question_id)),
+                ~exists().where(SpeciesQuestion.question_id == Question.id),
+            )
+            .subquery()
+        )
+        del_questions = session.execute(
+            delete(Question)
+            .where(Question.id.in_(select(orphan_question_subquery.c.id)))
+            .returning(Question.id)
+        )
+        stats["questions_deleted"] = len(del_questions.fetchall())
+
+        # delete the Species row last
+        del_species = session.execute(
+            delete(Species)
+            .where(Species.id == species_select.id)
+            .returning(Species.id)
+        )
+        stats["species_deleted"] = len(del_species.fetchall())
+
+    return stats
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Delete a species and downstream records from the database."
+    )
+    parser.add_argument(
+        "species_name", help="The exact name of the species to delete."
+    )
+    parser.add_argument(
+        "--not_dry_run",
+        action="store_true",
+        help="Actually perform the delete. By default, the script runs in dry-run mode.",
+    )
+    args = parser.parse_args()
+
+    dry_run = not args.not_dry_run
+    if not dry_run:
+        # fast file-copy backup (no sqlite backup API)
+        _db_path_str = DB_URI.replace("sqlite:////", "/").replace(
+            "sqlite:///", ""
+        )
+        _db_path = Path(_db_path_str).resolve()
+
+        _backup_path = _db_path.with_suffix(
+            _db_path.suffix + f".{datetime.datetime.now():%Y%m%d_%H%M%S}.bak"
+        )
+        shutil.copy2(_db_path, _backup_path)
+        print(f"Backup written to {_backup_path}")
+
+    with Session(DB_ENGINE) as session:
+        result = delete_species_cascade(
+            session, species_name=args.species_name, dry_run=dry_run
+        )
+        print(result)
+
+
+if __name__ == "__main__":
+    main()
