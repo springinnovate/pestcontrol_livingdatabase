@@ -1056,7 +1056,6 @@ incagonum:"incagonum" predator larvae nymphs adults:Are incagonum larvae, nymphs
 katanga:"katanga" predator larvae nymphs adults:Are katanga larvae, nymphs, or adults when they are predators?
 labidura:"labidura" predator larvae nymphs adults:Are labidura larvae, nymphs, or adults when they are predators?
 lachnomyrmex:"lachnomyrmex" predator larvae nymphs adults:Are lachnomyrmex larvae, nymphs, or adults when they are predators?
-larvae:"larvae" predator larvae nymphs adults:Are larvae larvae, nymphs, or adults when they are predators?
 lathrobium:"lathrobium" predator larvae nymphs adults:Are lathrobium larvae, nymphs, or adults when they are predators?
 lebiinus:"lebiinus" predator larvae nymphs adults:Are lebiinus larvae, nymphs, or adults when they are predators?
 leistus:"leistus" predator larvae nymphs adults:Are leistus larvae, nymphs, or adults when they are predators?
@@ -2610,7 +2609,6 @@ incagonum:"incagonum" invasive exotic:Are incagonum invasive (otherwise known as
 katanga:"katanga" invasive exotic:Are katanga invasive (otherwise known as exotic)?
 labidura:"labidura" invasive exotic:Are labidura invasive (otherwise known as exotic)?
 lachnomyrmex:"lachnomyrmex" invasive exotic:Are lachnomyrmex invasive (otherwise known as exotic)?
-larvae:"larvae" invasive exotic:Are larvae invasive (otherwise known as exotic)?
 lathrobium:"lathrobium" invasive exotic:Are lathrobium invasive (otherwise known as exotic)?
 lebiinus:"lebiinus" invasive exotic:Are lebiinus invasive (otherwise known as exotic)?
 leistus:"leistus" invasive exotic:Are leistus invasive (otherwise known as exotic)?
@@ -4015,7 +4013,6 @@ incagonum:"incagonum" non-crop habitat:Does incagonum utilize non-crop habitat?
 katanga:"katanga" non-crop habitat:Does katanga utilize non-crop habitat?
 labidura:"labidura" non-crop habitat:Does labidura utilize non-crop habitat?
 lachnomyrmex:"lachnomyrmex" non-crop habitat:Does lachnomyrmex utilize non-crop habitat?
-larvae:"larvae" non-crop habitat:Does larvae utilize non-crop habitat?
 lathrobium:"lathrobium" non-crop habitat:Does lathrobium utilize non-crop habitat?
 lebiinus:"lebiinus" non-crop habitat:Does lebiinus utilize non-crop habitat?
 leistus:"leistus" non-crop habitat:Does leistus utilize non-crop habitat?
@@ -5420,7 +5417,6 @@ incagonum:"incagonum" dietary specialist generalist:Is incagonum a dietary speci
 katanga:"katanga" dietary specialist generalist:Is katanga a dietary specialist or generalist?
 labidura:"labidura" dietary specialist generalist:Is labidura a dietary specialist or generalist?
 lachnomyrmex:"lachnomyrmex" dietary specialist generalist:Is lachnomyrmex a dietary specialist or generalist?
-larvae:"larvae" dietary specialist generalist:Is larvae a dietary specialist or generalist?
 lathrobium:"lathrobium" dietary specialist generalist:Is lathrobium a dietary specialist or generalist?
 lebiinus:"lebiinus" dietary specialist generalist:Is lebiinus a dietary specialist or generalist?
 leistus:"leistus" dietary specialist generalist:Is leistus a dietary specialist or generalist?
@@ -6825,7 +6821,6 @@ incagonum:"incagonum" disperse by wind:Does incagonum disperse by wind?
 katanga:"katanga" disperse by wind:Does katanga disperse by wind?
 labidura:"labidura" disperse by wind:Does labidura disperse by wind?
 lachnomyrmex:"lachnomyrmex" disperse by wind:Does lachnomyrmex disperse by wind?
-larvae:"larvae" disperse by wind:Does larvae disperse by wind?
 lathrobium:"lathrobium" disperse by wind:Does lathrobium disperse by wind?
 lebiinus:"lebiinus" disperse by wind:Does lebiinus disperse by wind?
 leistus:"leistus" disperse by wind:Does leistus disperse by wind?
@@ -8230,7 +8225,6 @@ incagonum:"incagonum" can fly:Can incagonum fly?
 katanga:"katanga" can fly:Can katanga fly?
 labidura:"labidura" can fly:Can labidura fly?
 lachnomyrmex:"lachnomyrmex" can fly:Can lachnomyrmex fly?
-larvae:"larvae" can fly:Can larvae fly?
 lathrobium:"lathrobium" can fly:Can lathrobium fly?
 lebiinus:"lebiinus" can fly:Can lebiinus fly?
 leistus:"leistus" can fly:Can leistus fly?
@@ -9635,7 +9629,6 @@ incagonum:"incagonum" seasonal migration:Does incagonum seasonally migrate?
 katanga:"katanga" seasonal migration:Does katanga seasonally migrate?
 labidura:"labidura" seasonal migration:Does labidura seasonally migrate?
 lachnomyrmex:"lachnomyrmex" seasonal migration:Does lachnomyrmex seasonally migrate?
-larvae:"larvae" seasonal migration:Does larvae seasonally migrate?
 lathrobium:"lathrobium" seasonal migration:Does lathrobium seasonally migrate?
 lebiinus:"lebiinus" seasonal migration:Does lebiinus seasonally migrate?
 leistus:"leistus" seasonal migration:Does leistus seasonally migrate?
@@ -11040,7 +11033,6 @@ incagonum:"incagonum" pest:Is incagonum a pest?
 katanga:"katanga" pest:Is katanga a pest?
 labidura:"labidura" pest:Is labidura a pest?
 lachnomyrmex:"lachnomyrmex" pest:Is lachnomyrmex a pest?
-larvae:"larvae" pest:Is larvae a pest?
 lathrobium:"lathrobium" pest:Is lathrobium a pest?
 lebiinus:"lebiinus" pest:Is lebiinus a pest?
 leistus:"leistus" pest:Is leistus a pest?
