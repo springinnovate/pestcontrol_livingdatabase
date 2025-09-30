@@ -487,7 +487,7 @@ def main():
                         )
                     )
                     inserted += 1
-                    if inserted == n_workers:
+                    if args.limit is not None and inserted >= args.limit:
                         break
             for _ in range(n_workers):
                 keyword_payload_queue.put(None)
