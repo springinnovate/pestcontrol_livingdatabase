@@ -7,8 +7,6 @@ import logging
 import logging.handlers
 from logging.handlers import QueueHandler, QueueListener, RotatingFileHandler
 import traceback
-from logging.handlers import QueueHandler
-import multiprocessing as mp
 
 _DEFAULT_CATCH_LOGGER: logging.Logger | None = None
 
@@ -48,7 +46,7 @@ def start_process_safe_logging(
     console = logging.StreamHandler()
     console.setLevel(level)
     console.setFormatter(logging.Formatter(FORMAT))
-    # listener can’t write to console; add directly to root in parent:
+    # listener can't write to console; add directly to root in parent:
     root.addHandler(console)
 
     return log_queue, listener
@@ -72,6 +70,7 @@ def configure_worker_logger(
     for h in list(logger.handlers):
         logger.removeHandler(h)
     logger.addHandler(QueueHandler(log_queue))
+    logger.propagate = False  # Prevent double logging
     return logger
 
 

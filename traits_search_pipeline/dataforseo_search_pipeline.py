@@ -25,6 +25,7 @@ from queue import Empty
 
 import psutil
 import httpx
+import httpcore
 from sqlalchemy import create_engine, select, exists, and_
 from sqlalchemy.orm import Session, load_only, raiseload
 
@@ -138,6 +139,28 @@ def run_serp_query(
         ]
 
 
+def _safe_run_serp_query(
+    keyword: str,
+    username: str,
+    password: str,
+    retries: int = 3,
+    delay: float = 2.0,
+):
+    """Run SERP query with retry logic for read timeouts."""
+    for attempt in range(1, retries + 1):
+        try:
+            return run_serp_query(keyword, username, password)
+        except httpcore.ReadTimeout:
+            if attempt == retries:
+                raise
+            time.sleep(delay * attempt)  # backoff
+        except httpx.TimeoutException:
+            # catch broader httpx timeout as well if needed
+            if attempt == retries:
+                raise
+            time.sleep(delay * attempt)
+
+
 def serp_query_worker(
     username: str,
     password: str,
@@ -185,9 +208,18 @@ def serp_query_worker(
                 if keyword_payload is None:
                     logger.info("got a None, terminating")
                     return
-                results = run_serp_query(
-                    keyword_payload.keyword_phrase, username, password
-                )
+                try:
+                    results = _safe_run_serp_query(
+                        keyword_payload.keyword_phrase,
+                        username,
+                        password,
+                        retries=5,
+                    )
+                except Exception:
+                    logger.warning(
+                        f"could not fetch {keyword_payload.keyword_phrase}"
+                    )
+                    continue
                 for search_result in results:
                     link_result_payload_queue.put(
                         LinkResultPayload(
@@ -407,7 +439,8 @@ def main():
         log_queue, listener = start_process_safe_logging(
             manager, "logs/dataforseo_search_pipeline.log", GLOBAL_LOG_LEVEL
         )
-        logger = configure_worker_logger(log_queue, GLOBAL_LOG_LEVEL, "main")
+        logger = logging.getLogger("main")
+        logger.setLevel(GLOBAL_LOG_LEVEL)
         set_catch_and_log_logger(logger)
 
         username, password = (
@@ -472,7 +505,6 @@ def main():
                 inserted = 0
                 for question, link in session.execute(stmt):
                     if link:
-                        # logger.debug(question.id)
                         logger.debug(f"link exists {link}")
                         continue
                     logger.debug(
