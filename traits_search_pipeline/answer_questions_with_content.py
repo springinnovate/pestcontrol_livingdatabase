@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from concurrent.futures import ProcessPoolExecutor
+from collections import deque
 from multiprocessing import Manager
 from typing import Any
 from queue import Empty
 import logging
+import re
+import time
 
-from sqlalchemy import create_engine, select, exists
+from sqlalchemy import create_engine, select, func, and_, or_
 from sqlalchemy.orm import Session
 import psutil
 
@@ -29,6 +32,7 @@ from logging_tools import (
     start_process_safe_logging,
 )
 from llm_tools import apply_llm, truncate_to_token_limit
+from huggingface_tools import generate, GenConfig
 
 DB_ENGINE = create_engine(DB_URI)
 BaseNorm.metadata.create_all(DB_ENGINE)
@@ -127,13 +131,14 @@ def process_unanswered_questions(openai_model: str) -> None:
         manager, "logs/iterate_content_for_llm.log", GLOBAL_LOG_LEVEL
     )
     logger = configure_worker_logger(log_queue, GLOBAL_LOG_LEVEL, "main")
+    logger.warning("hello")
     set_catch_and_log_logger(logger)
     question_id_link_id_queue = manager.Queue()
     result_answer_question_id_link_id_queue = manager.Queue()
     stop_processing_event = manager.Event()
     try:
         logger.info("start workers")
-        n_workers = psutil.cpu_count(logical=False)
+        n_workers = 1  # psutil.cpu_count(logical=False)
         with ProcessPoolExecutor(
             max_workers=n_workers + 1
         ) as pool:  # +1 for the db_writer
@@ -154,33 +159,55 @@ def process_unanswered_questions(openai_model: str) -> None:
                 stop_processing_event,
                 log_queue,
             )
-            logger.info("queue up the contents")
+            logger.info("queue up the questions")
 
             with Session(DB_ENGINE) as session:
-                not_answered = ~exists(
-                    select(Answer.id).where(
-                        Answer.question_id == QuestionLink.question_id,
-                        Answer.link_id == QuestionLink.link_id,
-                    )
-                )
-
                 stmt = (
                     select(QuestionLink, Link)
                     .join_from(QuestionLink, Link, QuestionLink.link)
-                    .where(Link.content_id.is_not(None))
-                    .where(not_answered)
+                    .join(
+                        Content, Content.id == Link.content_id
+                    )  # only links with content
+                    .outerjoin(
+                        Answer,
+                        and_(
+                            Answer.question_id == QuestionLink.question_id,
+                            Answer.link_id == QuestionLink.link_id,
+                        ),
+                    )
+                    .where(
+                        or_(Content.is_valid.is_(None), Content.is_valid != 0)
+                    )  # exclude invalid==0
+                    .group_by(
+                        QuestionLink.id,
+                        Link.id,
+                        Link.content_id,
+                        Link.url,
+                        Link.fetch_error,
+                        Content.id,
+                        Content.is_valid,
+                    )
+                    .having(func.count(Answer.id) == 0)
                     .execution_options(stream_results=True, yield_per=200)
                 )
 
-                for question_link, link in session.execute(stmt):
-                    question_id_link_id_queue.put(
-                        (
-                            question_link.id,
-                            question_link.question_id,
-                            question_link.link_id,
-                            link.content_id,
-                        )
+                with open("questions_to-answer.txt", "w") as file:
+                    file.write(
+                        "question_link.id,question_link.question_id,question_link.link_id,link.content_id\n"
                     )
+                    for question_link, link in session.execute(stmt):
+                        # file.write(f"{question_link.question_id}\n")
+                        file.write(
+                            f"{question_link.id},{question_link.question_id},{question_link.link_id},{link.content_id}\n"
+                        )
+                        question_id_link_id_queue.put(
+                            (
+                                question_link.id,
+                                question_link.question_id,
+                                question_link.link_id,
+                                link.content_id,
+                            )
+                        )
 
             for _ in range(n_workers):
                 question_id_link_id_queue.put(None)
@@ -199,6 +226,42 @@ def process_unanswered_questions(openai_model: str) -> None:
     finally:
         logger.info("all done with process_unanswered_questions, exiting")
         listener.stop()
+
+
+import re
+
+
+def build_context_windows(
+    text: str,
+    key_substring: str,
+    buffer_chars: int,
+):
+    # allow arbitrary whitespace between words of the quoted phrase
+    words = key_substring.strip().split()
+    if not words:
+        return []
+    pattern = r"\b" + r"\s+".join(map(re.escape, words)) + r"\b"
+    windows = []
+    for m in re.finditer(pattern, text, flags=re.I | re.S | re.M):
+        start, end = m.span()
+        s = max(0, start - buffer_chars)
+        e = min(len(text), end + buffer_chars)
+
+        # expand to nearest whitespace so we don't cut mid-word
+        while s > 0 and not text[s].isspace():
+            s -= 1
+        while e < len(text) and not text[e - 1].isspace():
+            e += 1
+
+        snippet = text[s:e].strip()
+        # add ellipses if we trimmed
+        if s > 0:
+            snippet = "… " + snippet
+        if e < len(text):
+            snippet = snippet + " …"
+
+        windows.append(snippet)
+    return windows
 
 
 def _answer_question_worker(
@@ -240,6 +303,12 @@ def _answer_question_worker(
         logger = configure_worker_logger(
             log_queue, GLOBAL_LOG_LEVEL, "_answer_question_worker"
         )
+        logging.getLogger("httpcore").setLevel(logging.WARNING)
+        logging.getLogger("openai").setLevel(logging.WARNING)
+        logging.getLogger("urllib3").setLevel(logging.WARNING)
+        last_time = 0
+        ewma = None
+        alpha = 0.02
         while not stop_processing_event.is_set():
             try:
                 item = question_id_link_id_queue.get(timeout=1)
@@ -249,6 +318,23 @@ def _answer_question_worker(
             if item is None:
                 # sentinel, quit
                 return
+            try:
+                queue_len = question_id_link_id_queue.qsize()
+                current_time = time.time()
+                per_item = current_time - last_time
+                if ewma is None:
+                    ewma = per_item
+                else:
+                    ewma = alpha * per_item + (1 - alpha) * ewma
+                eta_seconds = max(0.0, ewma * queue_len)
+                eta_str = time.strftime(
+                    "%H:%M:%S", time.gmtime(int(round(eta_seconds)))
+                )
+                logger.info(f"{queue_len} elements left to process {eta_str}")
+                last_time = current_time
+            except NotImplementedError:
+                logger.info("unknown number of elements left ot process")
+
             question_link_id, question_id, link_id, content_id = item
 
             with Session(DB_ENGINE) as session:
@@ -258,24 +344,98 @@ def _answer_question_worker(
                 question = session.scalar(
                     select(Question).where(Question.id == question_id)
                 )
-                logger.debug(f"processing {question_link_id}")
+                # logger.debug(f"processing {question_link_id}")
 
-                user_prompt = (
-                    f"QUESTION: {question.text} PAGE_TEXT: {content.text}"
+                required_phrase_match = re.search(
+                    r'"([^"]+)"', question.keyword_phrase
                 )
-
-                logging.getLogger("httpcore").setLevel(logging.WARNING)
-                logging.getLogger("openai").setLevel(logging.WARNING)
-                clean_user_prompt = truncate_to_token_limit(
-                    user_prompt, openai_model, 100000
-                )
-                result = apply_llm(
-                    SYSTEM_PROMPT, clean_user_prompt, logger, openai_model
-                )
-                if result:
+                quoted_phrase = required_phrase_match.group(1).lower()
+                normalized_content_text = re.sub(
+                    r"\s+", " ", content.text.lower()
+                ).strip()
+                if quoted_phrase not in normalized_content_text:
+                    logger.warning(f"{quoted_phrase} not in the context text")
+                    result = {
+                        "answer_text": "not relevant context",
+                        "reason": f"{quoted_phrase} not found in the context",
+                        "evidence": [],
+                    }
                     result_answer_question_id_link_id_queue.put(
                         (question_link_id, question_id, link_id, result)
                     )
+                # TODO: for debugging, skip all other questions
+                context_windows = build_context_windows(
+                    normalized_content_text, quoted_phrase, 1500
+                )
+
+                cfg = GenConfig(
+                    max_new_tokens=256,
+                    temperature=0.1,
+                    top_p=0.9,
+                    top_k=50,
+                    repetition_penalty=1.05,
+                )
+
+                local_model = "mistralai/Mistral-7B-Instruct-v0.3"
+                for index, context in enumerate(context_windows):
+                    logger.info(
+                        f"trying {index+1} of {len(context_windows)} for {question.text}"
+                    )
+                    result = generate(
+                        model_name=local_model,
+                        question=question.text,
+                        page_text=context,
+                        device="cuda",
+                        cfg=cfg,
+                    )
+                    if result and result["parsed"]["answer_text"] != "unknown":
+                        logger.info(
+                            f"found answer {index+1} of {len(context_windows)} as "
+                            + result["parsed"]["answer_text"]
+                            + " reason: "
+                            + result["parsed"]["reason"]
+                            + " evidence"
+                            + str(result["parsed"]["evidence"])
+                        )
+                        result_answer_question_id_link_id_queue.put(
+                            (
+                                question_link_id,
+                                question_id,
+                                link_id,
+                                result["parsed"],
+                            )
+                        )
+                        break
+                logger.info(
+                    f"local model didn't find answer for {question.text}"
+                )
+                result = {
+                    "answer_text": f"local model did not answer: {local_model}",
+                    "reason": "local model failed",
+                    "evidence": [],
+                }
+                result_answer_question_id_link_id_queue.put(
+                    (question_link_id, question_id, link_id, result)
+                )
+
+                # generate()
+
+                # logger.info(
+                #     f"this is the phrase: {quoted_phrase} and this is the context windows for it: {context_windows}"
+                # )
+                # return
+
+                # user_prompt = f"QUESTION: {question.text} PAGE_TEXT: {normalized_content_text}"
+                # clean_user_prompt = truncate_to_token_limit(
+                #     user_prompt, openai_model, 100000
+                # )
+                # result = apply_llm(
+                #     SYSTEM_PROMPT, clean_user_prompt, logger, openai_model
+                # )
+                # if result:
+                #     result_answer_question_id_link_id_queue.put(
+                #         (question_link_id, question_id, link_id, result)
+                #     )
     except Exception:
         stop_processing_event.set()
         logger.exception("something bad happened in _answer_question_worker")
@@ -312,11 +472,11 @@ def _insert_answer_worker(
     """
     try:
         logger = configure_worker_logger(
-            log_queue, GLOBAL_LOG_LEVEL, "_evaluate_validity_worker"
+            log_queue, GLOBAL_LOG_LEVEL, "_insert_answer_worker"
         )
         while not stop_processing_event.is_set():
             try:
-                item = result_answer_question_id_link_id_queue.get(timeout=1)
+                item = result_answer_question_id_link_id_queue.get(timeout=10)
             except Empty:
                 logger.info("task queue empty; polling again")
                 continue

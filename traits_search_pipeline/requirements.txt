@@ -16,3 +16,5 @@ matplotlib
 Pillow
 transformers
 accelerate
+protobuf
+sentencepiece
