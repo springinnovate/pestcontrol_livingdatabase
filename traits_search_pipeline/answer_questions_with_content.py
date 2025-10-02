@@ -1,4 +1,10 @@
-"""Iterate through unanswered questions to answer them."""
+"""Iterate through unanswered questions to answer them.
+
+docker build -t pcld_trait_search_env:latest . && docker run --rm -it --gpus all -v "%CD%":/app -w /app pcld_trait_search_env:latest
+python answer_questions_with_content.py
+
+
+"""
 
 from __future__ import annotations
 
@@ -10,6 +16,7 @@ from queue import Empty
 import logging
 import re
 import time
+from typing import List, Tuple, Optional
 
 from sqlalchemy import create_engine, select, func, and_, or_
 from sqlalchemy.orm import Session
@@ -42,11 +49,13 @@ GLOBAL_LOG_LEVEL = logging.DEBUG
 
 load_dotenv()  # loads the OPENAI_API_KEY
 
+OPENAI_MODEL = "gpt-4.1-mini"
+
 
 SYSTEM_PROMPT = """
 You are a cautious information extraction model.
 
-Given a QUESTION and PAGE_TEXT from a single web page (optionally SOURCE_URL), decide the answer using ONLY PAGE_TEXT. Do NOT speculate.
+Given a QUESTION and a CONTEXT_WINDOW (excerpted text from a single web page; optionally SOURCE_URL), decide the answer using ONLY the CONTEXT_WINDOW (you may use the QUESTION for disambiguation rules below). Do NOT use outside knowledge. Do NOT speculate.
 
 STRICT FORMAT
 Return ONE compact JSON object with EXACTLY these top-level keys and NOTHING ELSE:
@@ -74,19 +83,21 @@ ALLOWED VALUES FOR "answer_text" (infer task type from QUESTION)
 - Pest status: "yes"|"no"|"unknown"
 
 DECISION RULES
-- Default to "answer_text":"unknown" unless PAGE_TEXT clearly supports an allowed value; then "reason":"supported".
-- Exclusivity like "nymphs only" → that stage.
-- Multiple supported stages → comma-join in canonical order: larvae,nymphs,adults.
-- For "diet": narrow range → "specialist"; broad/diverse → "generalist"; explicit contradictions → "answer_text":"unknown","reason":"conflicting_evidence".
+- Treat CONTEXT_WINDOW as a partial snippet: absence of evidence outside this snippet MUST NOT be assumed. Default to {"answer_text":"unknown","reason":"not_enough_information"} unless the CONTEXT_WINDOW clearly supports an allowed value; then "reason":"supported".
+- Species abbreviation handling: If either the QUESTION or the CONTEXT_WINDOW introduces a species by its full genus + species name (e.g., "Acalymma vittatum"), you may treat later occurrences of the abbreviated form with the same initial (e.g., "A. vittatum") or with no initial at all in the CONTEXT_WINDOW as the same entity.
+- Coreference within snippet: pronouns like "it", "the species", and repeated common names refer to the last explicitly named target species unless the text clearly switches subjects.
+- Exclusivity like "nymphs only" -> that stage.
+- Multiple supported stages -> comma-join in canonical order: larvae,nymphs,adults.
+- For "diet": narrow range -> "specialist"; broad/diverse -> "generalist"; explicit contradictions -> {"answer_text":"unknown","reason":"conflicting_evidence"}.
 - "can fly" refers to adult flight unless clearly specified otherwise.
-- If PAGE_TEXT is about a different entity → "content_unrelated".
-- Mentions only higher/lower taxa without linkage → "not_enough_information".
-- Non-English blocking judgment → "non_english".
-- Blank/garbled page → "blank_page" or "page_error" as applicable.
+- If CONTEXT_WINDOW is about a different entity -> "content_unrelated".
+- Mentions only higher/lower taxa without explicit linkage to the target species -> "not_enough_information".
+- Non-English blocking judgment -> "non_english".
+- Blank/garbled/unusable snippet -> "blank_page" or "page_error" as applicable.
 
 EVIDENCE RULES
-- Provide up to 2 short verbatim quotes (≤200 chars) that directly support "answer_text".
-- NEVER include processing markers or placeholders (e.g., [[...]], <...>, "PDF_SKIPPED", "TRUNCATED"). If PAGE_TEXT was truncated/skipped or otherwise unusable → "evidence":[] and "reason":"page_error".
+- Provide up to 2 short verbatim quotes (≤200 chars) copied exactly from CONTEXT_WINDOW that directly support "answer_text".
+- NEVER include processing markers or placeholders (e.g., [[...]], <...>, "PDF_SKIPPED", "TRUNCATED"). If the snippet shows truncation or is otherwise unusable -> "evidence":[] and "reason":"page_error".
 - Use [] when "answer_text" is "unknown".
 
 NORMALIZATION
@@ -102,7 +113,7 @@ UNKNOWN EXAMPLE
 """.strip()
 
 
-def process_unanswered_questions(openai_model: str) -> None:
+def process_unanswered_questions() -> None:
     """Orchestrate parallel LLM answering for unanswered (question, link) pairs.
 
     Spawns a process pool of workers to generate answers with an LLM for each
@@ -138,14 +149,16 @@ def process_unanswered_questions(openai_model: str) -> None:
     stop_processing_event = manager.Event()
     try:
         logger.info("start workers")
-        n_workers = 1  # psutil.cpu_count(logical=False)
+        if OPENAI_MODEL is None:
+            n_workers = 1
+        else:
+            n_workers = psutil.cpu_count(logical=False)
         with ProcessPoolExecutor(
             max_workers=n_workers + 1
         ) as pool:  # +1 for the db_writer
             worker_futures = [
                 pool.submit(
                     _answer_question_worker,
-                    openai_model,
                     question_id_link_id_queue,
                     result_answer_question_id_link_id_queue,
                     stop_processing_event,
@@ -195,7 +208,9 @@ def process_unanswered_questions(openai_model: str) -> None:
                     file.write(
                         "question_link.id,question_link.question_id,question_link.link_id,link.content_id\n"
                     )
-                    for question_link, link in session.execute(stmt):
+                    for index, (question_link, link) in enumerate(
+                        session.execute(stmt)
+                    ):
                         # file.write(f"{question_link.question_id}\n")
                         file.write(
                             f"{question_link.id},{question_link.question_id},{question_link.link_id},{link.content_id}\n"
@@ -228,20 +243,37 @@ def process_unanswered_questions(openai_model: str) -> None:
         listener.stop()
 
 
-import re
-
-
 def build_context_windows(
     text: str,
     key_substring: str,
     buffer_chars: int,
-):
-    # allow arbitrary whitespace between words of the quoted phrase
+    overlap_threshold: float = 0.5,
+    min_separation_chars: int = 100,
+    max_windows: Optional[int] = None,
+) -> List[str]:
+    """
+    Extracts buffered context windows around occurrences of `key_substring`,
+    then merges highly overlapping/nearby windows to avoid redundancy.
+
+    Args:
+        text: Full source text.
+        key_substring: Substring (can be multi-word). Arbitrary whitespace between words is allowed.
+        buffer_chars: Number of chars to include before/after each match before merge.
+        overlap_threshold: If two windows overlap by > this fraction of the smaller window, merge them.
+        min_separation_chars: Also merge if the gap between windows is <= this many chars.
+        max_windows: If provided, truncate the final list to this many windows.
+
+    Returns:
+        List of merged snippets with ellipses where trimmed.
+    """
+    # build pattern that tolerates arbitrary whitespace between words
     words = key_substring.strip().split()
     if not words:
         return []
     pattern = r"\b" + r"\s+".join(map(re.escape, words)) + r"\b"
-    windows = []
+
+    # collect raw [s,e) windows expanded by buffer and snapped to whitespace
+    intervals: List[Tuple[int, int]] = []
     for m in re.finditer(pattern, text, flags=re.I | re.S | re.M):
         start, end = m.span()
         s = max(0, start - buffer_chars)
@@ -250,22 +282,63 @@ def build_context_windows(
         # expand to nearest whitespace so we don't cut mid-word
         while s > 0 and not text[s].isspace():
             s -= 1
-        while e < len(text) and not text[e - 1].isspace():
+        while e < len(text) and (e == 0 or not text[e - 1].isspace()):
             e += 1
+            if e >= len(text):
+                e = len(text)
+                break
 
+        intervals.append((s, e))
+
+    if not intervals:
+        return []
+
+    # sort by start
+    intervals.sort(key=lambda se: se[0])
+
+    # helper: compute fractional overlap relative to smaller interval
+    def frac_overlap(a: Tuple[int, int], b: Tuple[int, int]) -> float:
+        s1, e1 = a
+        s2, e2 = b
+        inter = max(0, min(e1, e2) - max(s1, s2))
+        len1 = e1 - s1
+        len2 = e2 - s2
+        smaller = max(1, min(len1, len2))
+        return inter / smaller
+
+    # merge intervals if highly overlapping or very close
+    merged: List[Tuple[int, int]] = []
+    cur_s, cur_e = intervals[0]
+    for s, e in intervals[1:]:
+        cur = (cur_s, cur_e)
+        nxt = (s, e)
+        close_enough = (s - cur_e) <= max(0, min_separation_chars)
+        if frac_overlap(cur, nxt) > overlap_threshold or close_enough:
+            # merge
+            cur_e = max(cur_e, e)
+            cur_s = min(cur_s, s)
+        else:
+            merged.append((cur_s, cur_e))
+            cur_s, cur_e = s, e
+    merged.append((cur_s, cur_e))
+
+    # materialize snippets with ellipses if trimmed
+    windows: List[str] = []
+    for s, e in merged:
         snippet = text[s:e].strip()
-        # add ellipses if we trimmed
         if s > 0:
             snippet = "… " + snippet
         if e < len(text):
             snippet = snippet + " …"
-
         windows.append(snippet)
+
+    if max_windows is not None:
+        windows = windows[:max_windows]
+
     return windows
 
 
 def _answer_question_worker(
-    openai_model: str,
     question_id_link_id_queue: Any,
     result_answer_question_id_link_id_queue: Any,
     stop_processing_event: Any,
@@ -284,7 +357,6 @@ def _answer_question_worker(
     event is set.
 
     Args:
-        openai_model (str): a valid openai model to use for LLM processing
         question_id_link_id_queue: IPC queue to receive work items; items are tuples
             (question_link_id, question_id, link_id, content_id).
         result_answer_question_id_link_id_queue: IPC queue to emit LLM outputs as
@@ -308,10 +380,10 @@ def _answer_question_worker(
         logging.getLogger("urllib3").setLevel(logging.WARNING)
         last_time = 0
         ewma = None
-        alpha = 0.02
+        alpha = 0.001
         while not stop_processing_event.is_set():
             try:
-                item = question_id_link_id_queue.get(timeout=1)
+                item = question_id_link_id_queue.get(timeout=5)
             except Empty:
                 logger.info("task queue empty; polling again")
                 continue
@@ -346,28 +418,68 @@ def _answer_question_worker(
                 )
                 # logger.debug(f"processing {question_link_id}")
 
-                required_phrase_match = re.search(
-                    r'"([^"]+)"', question.keyword_phrase
-                )
-                quoted_phrase = required_phrase_match.group(1).lower()
-                normalized_content_text = re.sub(
-                    r"\s+", " ", content.text.lower()
-                ).strip()
-                if quoted_phrase not in normalized_content_text:
-                    logger.warning(f"{quoted_phrase} not in the context text")
-                    result = {
-                        "answer_text": "not relevant context",
-                        "reason": f"{quoted_phrase} not found in the context",
-                        "evidence": [],
-                    }
-                    result_answer_question_id_link_id_queue.put(
-                        (question_link_id, question_id, link_id, result)
-                    )
-                # TODO: for debugging, skip all other questions
-                context_windows = build_context_windows(
-                    normalized_content_text, quoted_phrase, 1500
+            required_phrase_match = re.search(
+                r'"([^"]+)"', question.keyword_phrase
+            )
+            # this just gets the last word
+            quoted_phrase = (
+                required_phrase_match.group(1).lower().split(" ")[-1]
+            )
+            normalized_content_text = re.sub(
+                r"\s+", " ", content.text.lower()
+            ).strip()
+            if quoted_phrase not in normalized_content_text:
+                logger.warning(f"{quoted_phrase} not in the context text")
+                result = {
+                    "answer_text": "not relevant context",
+                    "reason": f"{quoted_phrase} not found in the context",
+                    "evidence": [],
+                    "context": normalized_content_text,
+                }
+                result_answer_question_id_link_id_queue.put(
+                    (question_link_id, question_id, link_id, result)
                 )
 
+            context_windows = build_context_windows(
+                normalized_content_text, quoted_phrase, 1500
+            )
+
+            if OPENAI_MODEL is not None:
+                for index, context in enumerate(context_windows):
+                    logger.info(
+                        f"trying {OPENAI_MODEL} {index+1} of {len(context_windows)} for {question.text}"
+                    )
+                    user_prompt = (
+                        f"QUESTION: {question.text} "
+                        f"CONTEXT_WINDOW: {context}"
+                    )
+                    clean_user_prompt = truncate_to_token_limit(
+                        user_prompt, OPENAI_MODEL, 10000
+                    )
+                    result = apply_llm(
+                        SYSTEM_PROMPT, clean_user_prompt, logger, OPENAI_MODEL
+                    )
+                    if result:
+                        # pick +/- 40 characters around the keyword as conteext
+                        quoted_index = context.lower().find(
+                            quoted_phrase.lower()
+                        )
+                        if quoted_index != -1:
+                            start = max(0, quoted_index - 40)
+                            end = min(len(context), quoted_index + 40)
+                            snippet = context[start:end].strip()
+                            if start > 0:
+                                snippet = "… " + snippet
+                            if end < len(context):
+                                snippet = snippet + " …"
+                            result["context_preview"] = snippet
+                        else:
+                            result["context_preview"] = context[:80]
+                        result["context"] = context
+                        result_answer_question_id_link_id_queue.put(
+                            (question_link_id, question_id, link_id, result)
+                        )
+            else:
                 cfg = GenConfig(
                     max_new_tokens=256,
                     temperature=0.1,
@@ -418,24 +530,13 @@ def _answer_question_worker(
                     (question_link_id, question_id, link_id, result)
                 )
 
-                # generate()
+            # generate()
 
-                # logger.info(
-                #     f"this is the phrase: {quoted_phrase} and this is the context windows for it: {context_windows}"
-                # )
-                # return
+            # logger.info(
+            #     f"this is the phrase: {quoted_phrase} and this is the context windows for it: {context_windows}"
+            # )
+            # return
 
-                # user_prompt = f"QUESTION: {question.text} PAGE_TEXT: {normalized_content_text}"
-                # clean_user_prompt = truncate_to_token_limit(
-                #     user_prompt, openai_model, 100000
-                # )
-                # result = apply_llm(
-                #     SYSTEM_PROMPT, clean_user_prompt, logger, openai_model
-                # )
-                # if result:
-                #     result_answer_question_id_link_id_queue.put(
-                #         (question_link_id, question_id, link_id, result)
-                #     )
     except Exception:
         stop_processing_event.set()
         logger.exception("something bad happened in _answer_question_worker")
@@ -496,6 +597,7 @@ def _insert_answer_worker(
                         answer_text=result["answer_text"],
                         reason=result["reason"],
                         evidence=result["evidence"],
+                        context=result.get("context", None),
                     )
                     session.add(answer)
                     session.commit()
@@ -522,5 +624,4 @@ def _insert_answer_worker(
 
 
 if __name__ == "__main__":
-    openai_model = "gpt-4o-mini"
-    process_unanswered_questions(openai_model)
+    process_unanswered_questions()

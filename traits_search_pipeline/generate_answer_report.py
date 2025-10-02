@@ -56,6 +56,7 @@ def generate_species_qna_report(session: Session) -> str:
             Answer.answer_text.label("answer_text"),
             Answer.reason.label("reason"),
             Answer.evidence.label("evidence"),
+            Answer.context.label("context"),
             Link.url.label("url"),
         )
         .join(SpeciesQuestion, SpeciesQuestion.species_id == Species.id)
@@ -88,7 +89,7 @@ def generate_species_qna_report(session: Session) -> str:
     have_answer_keys = {(r.species_id, r.question_id) for r in rows}
 
     lines: List[str] = []
-    lines.append("species,question,answer,reason,evidence,url")
+    lines.append("species,question,answer,reason,evidence,url,context example")
 
     # answered rows
     for (species_name,), species_group in groupby(
@@ -103,13 +104,27 @@ def generate_species_qna_report(session: Session) -> str:
                 base_question_text = question_text.replace(
                     species_name, "[species]"
                 )
+                context = r.context
+                quoted_index = context.lower().find(species_name.lower())
+                if quoted_index != -1:
+                    start = max(0, quoted_index - 40)
+                    end = min(len(context), quoted_index + 40)
+                    snippet = context[start:end].strip()
+                    if start > 0:
+                        snippet = "... " + snippet
+                    if end < len(context):
+                        snippet = snippet + " ..."
+                    context_example = snippet
+                else:
+                    context_example = context[:80]
+
                 lines.append(
                     f'"{species_name}","{base_question_text}","{r.answer_text}","{r.reason}","'
                     + " ... ".join(
                         e.replace("\n", " ").replace("\r", " ").strip()
                         for e in r.evidence
                     )
-                    + f'","{r.url}"'
+                    + f'","{r.url}","{context_example}"'
                 )
 
     # add missing rows for species-question pairs with no links at all
@@ -139,7 +154,7 @@ def write_species_qna_report(session: Session, path: str) -> None:
         None
     """
     report = generate_species_qna_report(session)
-    with open(path, "w", encoding="utf-8") as f:
+    with open(path, "w", encoding="utf-8-sig", newline="") as f:
         f.write(report)
 
 

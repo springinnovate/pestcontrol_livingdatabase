@@ -346,10 +346,10 @@ class Answer(BaseNorm):
     reason: Mapped[str] = mapped_column(
         String,
         nullable=False,
-        default="not_enough_information",
         index=True,
     )
     evidence: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    context: Mapped[str] = mapped_column(String, nullable=False)
 
     # Enforce that (question_id, link_id) exists in QuestionLink.uq_question_link
     __table_args__ = (
