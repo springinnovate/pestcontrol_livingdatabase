@@ -55,6 +55,7 @@ def generate_species_qna_report(session: Session) -> str:
             Answer.id.label("answer_id"),
             Answer.answer_text.label("answer_text"),
             Answer.reason.label("reason"),
+            Answer.evidence.label("evidence"),
             Link.url.label("url"),
         )
         .join(SpeciesQuestion, SpeciesQuestion.species_id == Species.id)
@@ -87,7 +88,7 @@ def generate_species_qna_report(session: Session) -> str:
     have_answer_keys = {(r.species_id, r.question_id) for r in rows}
 
     lines: List[str] = []
-    lines.append("species,question,answer,reason,url")
+    lines.append("species,question,answer,reason,evidence,url")
 
     # answered rows
     for (species_name,), species_group in groupby(
@@ -103,7 +104,12 @@ def generate_species_qna_report(session: Session) -> str:
                     species_name, "[species]"
                 )
                 lines.append(
-                    f'"{species_name}","{base_question_text}","{r.answer_text}","{r.reason}","{r.url}"'
+                    f'"{species_name}","{base_question_text}","{r.answer_text}","{r.reason}","'
+                    + " ... ".join(
+                        e.replace("\n", " ").replace("\r", " ").strip()
+                        for e in r.evidence
+                    )
+                    + f'","{r.url}"'
                 )
 
     # add missing rows for species-question pairs with no links at all
