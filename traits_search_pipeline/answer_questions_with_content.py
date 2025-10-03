@@ -177,9 +177,7 @@ def process_unanswered_questions() -> None:
                 stmt = (
                     select(QuestionLink, Link)
                     .join_from(QuestionLink, Link, QuestionLink.link)
-                    .join(
-                        Content, Content.id == Link.content_id
-                    )  # only links with content
+                    .join(Content, Content.id == Link.content_id)
                     .outerjoin(
                         Answer,
                         and_(
