@@ -20,6 +20,7 @@ import logging
 import logging.handlers
 import os
 import re
+import random
 import traceback
 import requests
 from urllib.parse import urlparse
@@ -37,7 +38,7 @@ import psutil
 from dotenv import load_dotenv
 from pypdf import PdfReader
 from readability import Document  # readability-lxml
-from sqlalchemy import select, create_engine
+from sqlalchemy import select, create_engine, func
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 import trafilatura
@@ -681,7 +682,7 @@ def _url_scrape_worker(
         try:
             while not stop_processing_event.is_set():
                 try:
-                    item = url_link_tuples_process_queue.get(timeout=1)
+                    item = url_link_tuples_process_queue.get(timeout=5)
                 except Empty:
                     logger.info("task queue empty; polling again")
                     continue
@@ -838,6 +839,9 @@ def scrape_urls(
             logger.info("await writer task")
             writer_future.result()
             logger.info("all done with scrape url, clean up")
+    except Exception:
+        logger.exception("error in scrape_urls, stopping processing")
+        stop_processing_event.set()
     finally:
         listener.stop()
         logger.info("all done with scrape url, exiting")
@@ -878,6 +882,7 @@ def stream_links(
                 select(Link.id, Link.url, Link.fetch_error, Content.text)
                 .outerjoin(Content, Link.content_id == Content.id)
                 .where(Link.url == debug_url)
+                .order_by(func.random())
                 .execution_options(stream_results=True, yield_per=1)
             )
             row = sess.execute(stmt).first()
@@ -919,8 +924,8 @@ def stream_links(
         for row in result:
             scanned += 1
             link_id, url, fetch_error, text = row
-            # if fetch_error is not None :
-            #     continue
+            if fetch_error is not None:
+                continue
             if _is_error_like(text):
                 yielded += 1
                 if yielded % 1000 == 0:
@@ -968,7 +973,7 @@ def db_writer(url_to_content_queue, stop_event, log_queue):
             )
             break
         try:
-            payload = url_to_content_queue.get()
+            payload = url_to_content_queue.get(timeout=5)
             if payload is None:
                 logger.info("got a sentinel, all work done, shutting down...")
                 stop_event.set()
@@ -977,6 +982,7 @@ def db_writer(url_to_content_queue, stop_event, log_queue):
                 pending.append((link_id, url, content))
         except Empty:
             logger.info("no content to write, waiting for some...")
+            continue
 
         if pending and (len(pending) >= BATCH_SIZE or stop_event.is_set()):
             logger.info(f"attempting to write {len(pending)} content items")
@@ -1045,7 +1051,7 @@ async def _main():
     set_catch_and_log_logger(logger)
     max_items = None
     debug_url = None  # "https://www.researchgate.net/figure/Composition-of-Tree-Sparrow-nestling-diet-at-sites-throughout-the-UK-a-Variation-of_fig1_278239756"
-    max_concurrent = 24
+    max_concurrent = psutil.cpu_count(logical=False)
     scrape_n_concurrent = 1 if debug_url or max_items else max_concurrent
     logger.info(scrape_n_concurrent)
     n_workers = min(scrape_n_concurrent, psutil.cpu_count(logical=False))

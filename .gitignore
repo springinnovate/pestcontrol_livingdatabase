@@ -4,3 +4,9 @@ secrets
 *.lock
 *.pkl
 app/live_database/*
+traits_search_pipeline/logs/
+traits_search_pipeline/.env
+traits_search_pipeline/data/search_content_index*
+.env
+letsencrypt/
+traits_search_pipeline/data/backup/

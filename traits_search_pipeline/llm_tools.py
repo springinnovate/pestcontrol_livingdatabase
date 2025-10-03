@@ -5,6 +5,7 @@ import json
 import random
 import re
 import time
+import unicodedata
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -159,6 +160,50 @@ def truncate_to_token_limit(
     return enc.decode(tokens)
 
 
+def _robust_json_loads(s):
+    s = s if isinstance(s, str) else str(s)
+    try:
+        return json.loads(s)
+    except json.JSONDecodeError:
+        pass
+
+    s = re.sub(
+        r"^\s*```(?:json)?\s*|\s*```\s*$", "", s, flags=re.I | re.M
+    ).strip()
+    try:
+        return json.loads(s)
+    except json.JSONDecodeError:
+        pass
+
+    s = unicodedata.normalize("NFC", s)
+    s = (
+        s.replace("“", '"')
+        .replace("”", '"')
+        .replace("„", '"')
+        .replace("‟", '"')
+        .replace("‘", "'")
+        .replace("’", "'")
+        .replace("‚", "'")
+        .replace("‛", "'")
+    )
+    s = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", " ", s)
+    s = re.sub(r"\\u(?![0-9a-fA-F]{4})", r"\\\\u", s)
+    try:
+        return json.loads(s)
+    except json.JSONDecodeError:
+        pass
+
+    s = re.sub(r'\\(?!["\\/bfnrtu])', r"\\\\", s)
+    try:
+        return json.loads(s)
+    except json.JSONDecodeError:
+        return {
+            "answer_text": "json decode error - rerun later",
+            "reason": "json decode error - rerun later",
+            "evidence": [s],
+        }
+
+
 def apply_llm(
     system_prompt: str,
     user_payload: str,
@@ -185,7 +230,7 @@ def apply_llm(
         attempt += 1
         try:
             resp = openai_context["client"].chat.completions.create(**args)
-            content = json.loads(resp.choices[0].message.content)
+            content = _robust_json_loads(resp.choices[0].message.content)
             return content
         except RateLimitError as e:
             wait = (2**attempt) + random.uniform(0, 0.5)

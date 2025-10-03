@@ -14,3 +14,7 @@ psutil
 tiktoken
 matplotlib
 Pillow
+transformers
+accelerate
+protobuf
+sentencepiece
