@@ -825,7 +825,6 @@ def scrape_urls(
             )
             logger.info("queue up the urls")
             for url_link_tuple in url_generator:
-                logger.debug(url_link_tuple)
                 url_link_tuples_process_queue.put(url_link_tuple)
 
             for _ in range(n_workers):
