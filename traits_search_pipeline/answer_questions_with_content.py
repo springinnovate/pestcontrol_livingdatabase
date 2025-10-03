@@ -201,6 +201,18 @@ def process_unanswered_questions() -> None:
                     .execution_options(stream_results=True, yield_per=200)
                 )
 
+                for index, (question_link, link) in enumerate(
+                    session.execute(stmt)
+                ):
+                    question_id_link_id_queue.put(
+                        (
+                            question_link.id,
+                            question_link.question_id,
+                            question_link.link_id,
+                            link.content_id,
+                        )
+                    )
+
             for _ in range(n_workers):
                 question_id_link_id_queue.put(None)
 
