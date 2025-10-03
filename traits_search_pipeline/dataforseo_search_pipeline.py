@@ -283,7 +283,7 @@ def db_link_inserter_worker(
         )
         while not stop_processing_event.is_set():
             try:
-                item = link_result_payload_queue.get(timeout=1)
+                item = link_result_payload_queue.get(timeout=10)
                 if item is None:
                     logger.info("got none, quitting")
                     return
@@ -486,13 +486,9 @@ def main():
                 stmt = (
                     select(Question, Link)
                     .options(
-                        load_only(
-                            Question.id
-                        ),  # exclude Question.text, keyword_phrase
-                        load_only(
-                            Link.id, Link.url
-                        ),  # only small fields on Link
-                        raiseload("*"),  # prevent accidental lazy loads
+                        load_only(Question.id),
+                        load_only(Link.id, Link.url),
+                        raiseload("*"),
                     )
                     .join(
                         QuestionLink,
