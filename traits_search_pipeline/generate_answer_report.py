@@ -26,12 +26,6 @@ SNIPPET_LEN = 40
 DB_ENGINE = create_engine(DB_URI)
 
 
-def _snippet(text: str, n: int = SNIPPET_LEN) -> str:
-    return (
-        (text[:n].rstrip() + "...") if text and len(text) > n else (text or "")
-    )
-
-
 def generate_species_qna_report(session: Session) -> str:
     """Build a flat text report of all answers.
 
@@ -105,8 +99,8 @@ def generate_species_qna_report(session: Session) -> str:
                 context = r.context
                 quoted_index = context.lower().find(species_name.lower())
                 if quoted_index != -1:
-                    start = max(0, quoted_index - 40)
-                    end = min(len(context), quoted_index + 40)
+                    start = max(0, quoted_index - SNIPPET_LEN)
+                    end = min(len(context), quoted_index + SNIPPET_LEN)
                     snippet = context[start:end].strip()
                     if start > 0:
                         snippet = "... " + snippet
@@ -114,7 +108,7 @@ def generate_species_qna_report(session: Session) -> str:
                         snippet = snippet + " ..."
                     context_example = snippet
                 else:
-                    context_example = context[:80]
+                    context_example = context[: SNIPPET_LEN * 2]
 
                 lines.append(
                     f'"{species_name}","{base_question_text}","{r.answer_text}","{r.reason}","'
