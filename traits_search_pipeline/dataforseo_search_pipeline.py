@@ -448,7 +448,7 @@ def main():
 
         if args.keywords:
             result = run_serp_query(args.keywords, username, password)
-            print(result)
+            logger.info(f"RESULT: {result}")
             return
 
         delay = 1.0 / args.qps if args.qps > 0 else 0.0
