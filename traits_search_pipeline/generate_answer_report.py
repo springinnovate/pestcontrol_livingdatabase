@@ -6,10 +6,13 @@ species, then question, showing each answer alongside a short content snippet.
 """
 
 from datetime import datetime
+from itertools import groupby
+from pathlib import Path
 from typing import List, Tuple
+from urllib.parse import urlparse
+
 from sqlalchemy import select, create_engine
 from sqlalchemy.orm import Session
-from itertools import groupby
 
 from models import (
     DB_URI,
@@ -24,6 +27,7 @@ from models import (
 SNIPPET_LEN = 40
 
 DB_ENGINE = create_engine(DB_URI)
+REPORT_DIR = Path("reports")
 
 
 def generate_species_qna_report(session: Session) -> str:
@@ -81,7 +85,9 @@ def generate_species_qna_report(session: Session) -> str:
     have_answer_keys = {(r.species_id, r.question_id) for r in rows}
 
     lines: List[str] = []
-    lines.append("species,question,answer,reason,evidence,url,context example")
+    lines.append(
+        "species,question,answer,reason,evidence,url,host,context example"
+    )
 
     # answered rows
     for (species_name,), species_group in groupby(
@@ -110,13 +116,15 @@ def generate_species_qna_report(session: Session) -> str:
                 else:
                     context_example = context[: SNIPPET_LEN * 2]
 
+                host = urlparse(r.url).netloc
                 lines.append(
-                    f'"{species_name}","{base_question_text}","{r.answer_text}","{r.reason}","'
+                    f'"{species_name}","{base_question_text}",'
+                    f'"{r.answer_text}","{r.reason}","'
                     + " ... ".join(  # noqa: W503
                         e.replace("\n", " ").replace("\r", " ").strip()
                         for e in r.evidence
                     )
-                    + f'","{r.url}","{context_example}"'  # noqa: W503
+                    + f'","{r.url}","{host}","{context_example}"'  # noqa: W503
                 )
 
     # add missing rows for species-question pairs with no links at all
@@ -128,7 +136,8 @@ def generate_species_qna_report(session: Session) -> str:
             r.species_name, "[species]"
         )
         lines.append(
-            f'"{r.species_name}","{base_question_text}","none","no links found in search","n/a"'
+            f'"{r.species_name}","{base_question_text}","none",'
+            f'"no links found in search","n/a"'
         )
 
     return "\n".join(lines)
@@ -152,5 +161,10 @@ def write_species_qna_report(session: Session, path: str) -> None:
 if __name__ == "__main__":
     with Session(DB_ENGINE) as session:
         timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
-        filename = f"species_question_answer_report_{timestamp}.csv"
-        write_species_qna_report(session, filename)
+
+        report_path = (
+            REPORT_DIR / f"species_question_answer_report_{timestamp}.csv"
+        )
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        write_species_qna_report(session, report_path)
+        print(f"report located at: {report_path}")
