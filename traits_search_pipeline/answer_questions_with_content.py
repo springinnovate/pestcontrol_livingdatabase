@@ -187,7 +187,7 @@ def process_unanswered_questions() -> None:
                     )
                     .where(
                         or_(Content.is_valid.is_(None), Content.is_valid != 0)
-                    )  # exclude invalid==0
+                    )
                     .group_by(
                         QuestionLink.id,
                         Link.id,
@@ -208,7 +208,6 @@ def process_unanswered_questions() -> None:
                     for index, (question_link, link) in enumerate(
                         session.execute(stmt)
                     ):
-                        # file.write(f"{question_link.question_id}\n")
                         file.write(
                             f"{question_link.id},{question_link.question_id},{question_link.link_id},{link.content_id}\n"
                         )
