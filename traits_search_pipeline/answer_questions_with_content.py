@@ -323,9 +323,9 @@ def build_context_windows(
     for s, e in merged:
         snippet = text[s:e].strip()
         if s > 0:
-            snippet = "… " + snippet
+            snippet = "... " + snippet
         if e < len(text):
-            snippet = snippet + " …"
+            snippet = snippet + " ..."
         windows.append(snippet)
 
     if max_windows is not None:
@@ -465,9 +465,9 @@ def _answer_question_worker(
                             end = min(len(context), quoted_index + 40)
                             snippet = context[start:end].strip()
                             if start > 0:
-                                snippet = "… " + snippet
+                                snippet = "... " + snippet
                             if end < len(context):
-                                snippet = snippet + " …"
+                                snippet = snippet + " ..."
                             result["context_preview"] = snippet
                         else:
                             result["context_preview"] = context[:80]
