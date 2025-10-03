@@ -142,7 +142,6 @@ def process_unanswered_questions() -> None:
         manager, "logs/iterate_content_for_llm.log", GLOBAL_LOG_LEVEL
     )
     logger = configure_worker_logger(log_queue, GLOBAL_LOG_LEVEL, "main")
-    logger.warning("hello")
     set_catch_and_log_logger(logger)
     question_id_link_id_queue = manager.Queue()
     result_answer_question_id_link_id_queue = manager.Queue()
