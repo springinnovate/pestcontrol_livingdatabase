@@ -412,12 +412,12 @@ def _answer_question_worker(
                 question = session.scalar(
                     select(Question).where(Question.id == question_id)
                 )
-                # logger.debug(f"processing {question_link_id}")
 
             required_phrase_match = re.search(
                 r'"([^"]+)"', question.keyword_phrase
             )
-            # this just gets the last word
+            # this just gets the last word even if there's only one so it's
+            # okay to skip the first word of the phrase if it's a genus
             quoted_phrase = (
                 required_phrase_match.group(1).lower().split(" ")[-1]
             )
