@@ -1,5 +1,4 @@
-"""
-Generate a species–question–answer report from the database.
+"""Generate a species–question–answer report from the database.
 
 This script queries all Species, their associated Questions, and the recorded
 Answers (with supporting Content). It outputs a plain-text report grouped by
@@ -18,7 +17,6 @@ from models import (
     Question,
     Answer,
     Link,
-    Content,
     SpeciesQuestion,
     QuestionLink,
 )
@@ -120,11 +118,11 @@ def generate_species_qna_report(session: Session) -> str:
 
                 lines.append(
                     f'"{species_name}","{base_question_text}","{r.answer_text}","{r.reason}","'
-                    + " ... ".join(
+                    + " ... ".join(  # noqa: W503
                         e.replace("\n", " ").replace("\r", " ").strip()
                         for e in r.evidence
                     )
-                    + f'","{r.url}","{context_example}"'
+                    + f'","{r.url}","{context_example}"'  # noqa: W503
                 )
 
     # add missing rows for species-question pairs with no links at all
@@ -143,8 +141,7 @@ def generate_species_qna_report(session: Session) -> str:
 
 
 def write_species_qna_report(session: Session, path: str) -> None:
-    """
-    Generate and write the species-question-answer report to a file.
+    """Generate and write the species-question-answer report to a file.
 
     Args:
         session: SQLAlchemy ORM session.
