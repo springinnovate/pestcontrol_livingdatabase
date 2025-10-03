@@ -33,7 +33,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1 && \
     update-alternatives --install /usr/bin/pip pip /usr/bin/pip3 1
 
-# (Optional) Speed up pip a bit and avoid warning about no distutils
 RUN python -m pip install --upgrade pip setuptools wheel
 
 RUN pip install --index-url https://download.pytorch.org/whl/cu121 \
@@ -41,14 +40,8 @@ RUN pip install --index-url https://download.pytorch.org/whl/cu121 \
                torch torchvision torchaudio
 
 COPY requirements.txt /app/requirements.txt
-
-# If your requirements.txt does NOT pin torch+CUDA, uncomment one of the lines below:
-# CUDA 12.1 wheels:
-# RUN pip install --extra-index-url https://download.pytorch.org/whl/cu121 torch torchvision torchaudio
-# Or rely on your requirements.txt (recommended if already pinned):
 RUN pip install -r requirements.txt
 
-# Playwright browser deps + Chromium
 RUN python -m pip install playwright && python -m playwright install --with-deps chromium
 
 CMD ["bash"]
