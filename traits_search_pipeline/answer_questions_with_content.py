@@ -201,25 +201,6 @@ def process_unanswered_questions() -> None:
                     .execution_options(stream_results=True, yield_per=200)
                 )
 
-                with open("questions_to-answer.txt", "w") as file:
-                    file.write(
-                        "question_link.id,question_link.question_id,question_link.link_id,link.content_id\n"
-                    )
-                    for index, (question_link, link) in enumerate(
-                        session.execute(stmt)
-                    ):
-                        file.write(
-                            f"{question_link.id},{question_link.question_id},{question_link.link_id},{link.content_id}\n"
-                        )
-                        question_id_link_id_queue.put(
-                            (
-                                question_link.id,
-                                question_link.question_id,
-                                question_link.link_id,
-                                link.content_id,
-                            )
-                        )
-
             for _ in range(n_workers):
                 question_id_link_id_queue.put(None)
 
