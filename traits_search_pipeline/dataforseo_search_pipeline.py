@@ -155,7 +155,6 @@ def _safe_run_serp_query(
                 raise
             time.sleep(delay * attempt)  # backoff
         except httpx.TimeoutException:
-            # catch broader httpx timeout as well if needed
             if attempt == retries:
                 raise
             time.sleep(delay * attempt)
