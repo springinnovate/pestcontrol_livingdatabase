@@ -10,3 +10,4 @@ traits_search_pipeline/data/search_content_index*
 .env
 letsencrypt/
 traits_search_pipeline/data/backup/
+traits_search_pipeline/reports/
