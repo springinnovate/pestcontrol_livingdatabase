@@ -5,7 +5,6 @@ import json
 import random
 import re
 import time
-import re
 import unicodedata
 
 from sqlalchemy import select
@@ -195,7 +194,14 @@ def _robust_json_loads(s):
         pass
 
     s = re.sub(r'\\(?!["\\/bfnrtu])', r"\\\\", s)
-    return json.loads(s)
+    try:
+        return json.loads(s)
+    except json.JSONDecodeError:
+        return {
+            "answer_text": "json decode error - rerun later",
+            "reason": "json decode error - rerun later",
+            "evidence": [s],
+        }
 
 
 def apply_llm(
