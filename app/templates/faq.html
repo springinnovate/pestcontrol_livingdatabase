@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+  <title>FAQ - Pest Control "Living Database"</title>
+  <link href='https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css' rel='stylesheet'>
+</head>
+<body>
+  <nav class='navbar navbar-expand-lg navbar-light bg-light'>
+    <div class='container-fluid'>
+      <a class='navbar-brand' href='#'>Pest Control Database</a>
+      <button class='navbar-toggler' type='button' data-bs-toggle='collapse' data-bs-target='#navbarNav'
+        aria-controls='navbarNav' aria-expanded='false' aria-label='Toggle navigation'>
+        <span class='navbar-toggler-icon'></span>
+      </button>
+      <div class='collapse navbar-collapse' id='navbarNav'>
+        <ul class='navbar-nav ms-auto'>
+          <li class='nav-item'>
+            <a class='nav-link' href="{{ url_for('home') }}">Home</a>
+          </li>
+          <li class='nav-item'>
+            <a class='nav-link' href="{{ url_for('about') }}">About</a>
+          </li>
+          <li class='nav-item'>
+            <a class='nav-link active' href="{{ url_for('faq') }}">FAQ</a>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </nav>
+
+  <div class='container mt-5'>
+  <h1 class='text-center mb-4'>Frequently Asked Questions</h1>
+
+  <h2 class='mt-5'>General questions</h2>
+  <ul>
+    <li>
+      <strong>Who are you?</strong><br>
+      We are a team of scientists initially funded by the USDA to combine field-based data with earth observations in an interactive database for the pest control science community! See the About Page to learn more.
+    </li>
+    <li>
+      <strong>I don’t study pests, can I still use the tools on the PCLD?</strong><br>
+      Of course! To download EO data, you just need to input coordinates and years. Anyone can search through the database to find field-collected information from studies centered around pest control in agriculture. Many studies include many types of data, from landscape complexity to trait information.
+    </li>
+    <li>
+      <strong>Can I use the database without contributing?</strong><br>
+      Yes! Anyone can use the database.
+    </li>
+    <li>
+      <strong>How do I cite the database?</strong><br>
+      Coming soon.
+    </li>
+  </ul>
+
+  <h2 class='mt-5'>Questions about who to talk to</h2>
+  <ul>
+    <li>
+      <strong>Who do I contact with questions about how to use the PCLD?</strong><br>
+      Becky Chaplin-Kramer at
+      <a href='mailto:becky.chaplin-kramer@wwf.org'>becky.chaplin-kramer@wwf.org</a>
+    </li>
+    <li>
+      <strong>Oh no, I think there is a problem with the PCLD that needs a software solution. How can I help?</strong><br>
+      Describe the issue in an email to Richard Sharp at
+      <a href='mailto:rich@springinnovate.org'>rich@springinnovate.org</a>.
+    </li>
+  </ul>
+
+  <h2 class='mt-5'>Questions about uploading data</h2>
+  <ul>
+    <li>
+      <strong>I want to upload data but I don’t know if I can get it into the right template, how do I know?</strong><br>
+      Check out the information on uploading data in our about page. Only a few pieces of information are required: the response data (e.g., abundance, biomass, etc.), coordinates, and year.
+      <br>
+      If you are still concerned that you did not fill out metadata or data templates correctly, contact
+      <a href='mailto:becky.chaplin-kramer@wwf.org'>Becky Chaplin-Kramer</a>
+      or
+      <a href='mailto:rich@springinnovate.org'>Richard Sharp</a>.
+    </li>
+    <li>
+      <strong>I have data that I would like to share, but there are privacy restrictions for the coordinates. Does the PCLD have an option to upload data without coordinates or to hold private data and only share some information?</strong><br>
+      Currently, the PCLD does not host private or restricted data. If you are interested in that functionality, please reach out to us. We are considering adding this ability pending audience interest.
+    </li>
+  </ul>
+
+  <h2 class='mt-5'>Questions about downloading data</h2>
+  <ul>
+    <li>
+      <strong>What if I want to download the whole database?</strong><br>
+      Sure! Hit submit without entering any queries or filters. Then you can get the whole database.
+    </li>
+    <li>
+      <strong>I can’t find the dataset or species that I want information on, and I think I should be able to get it!</strong><br>
+      The PCLD is a living database that is growing as the community adds data and species to it. Check your spelling and categorical queries to make sure they make sense. It could just be that we don’t have it yet! If so, let us know.
+    </li>
+  </ul>
+
+  <h2 class='mt-5'>Earth observation data</h2>
+  <ul>
+    <li>
+      <strong>I want to download or look at datasets that aren’t currently offered.</strong><br>
+      Contact
+      <a href='mailto:becky.chaplin-kramer@wwf.org'>Becky Chaplin-Kramer</a>
+      if you think we should host an EO dataset that the entire community would be interested in.
+    </li>
+    <li>
+      <strong>The viewer keeps crashing or stopping.</strong><br>
+      Try zooming in on a smaller space so less data needs to be loaded at once. Refresh the page if it stalls. Ensure the years entered match the years available in the original data source. If you have repeated issues, contact us.
+    </li>
+    <li>
+      <strong>Do I have to add data in order to use EO tools? Does it need to be pest data?</strong><br>
+      No, to download EO data, you just need to input coordinates and years.
+    </li>
+  </ul>
+</div>
+</body>
+</html>

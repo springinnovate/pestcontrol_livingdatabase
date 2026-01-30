@@ -285,6 +285,11 @@ def favicon():
     return "", 204
 
 
+@app.route("/faq")
+def faq():
+    return render_template("faq.html")
+
+
 @app.route("/about")
 def about():
     return render_template("about.html")
