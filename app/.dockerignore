@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+*.pkl
+.flaskenv
+.git/
+live_database/
+secrets/

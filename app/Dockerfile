@@ -1,36 +1,40 @@
-# Container for STAC API manager
+# Container for the PCLD API and Celery worker.
 FROM ubuntu:jammy
 
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1
+
 RUN apt-get update -qq && \
-    apt-get install -y \
-    emacs \
-    libspatialindex-dev \
-    python3-pip \
-    postgresql-client \
-    openssl \
-    curl \
-    git \
-    gdal-bin \
-    python3-gdal \
-    && \
+    apt-get install -y --no-install-recommends \
+        apt-transport-https \
+        ca-certificates \
+        curl \
+        emacs \
+        gdal-bin \
+        git \
+        gnupg \
+        libspatialindex-dev \
+        openssl \
+        postgresql-client \
+        python3-gdal \
+        python3-pip && \
     rm -rf /var/lib/apt/lists/*
 
-RUN pip install earthengine-api
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-RUN apt-get install apt-transport-https ca-certificates gnupg curl
+RUN curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg \
+        | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg && \
+    echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" \
+        > /etc/apt/sources.list.d/google-cloud-sdk.list && \
+    apt-get update -qq && \
+    apt-get install -y --no-install-recommends google-cloud-cli && \
+    rm -rf /var/lib/apt/lists/*
 
-RUN echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | tee -a /etc/apt/sources.list.d/google-cloud-sdk.list && curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg && apt-get update -y && apt-get install google-cloud-cli -y
-
-
-SHELL ["/bin/bash", "-c"]
-
-RUN mkdir -p /usr/local/pcld_api_config
+RUN pip3 install --no-cache-dir earthengine-api
 
 WORKDIR /usr/local/pcld_api_config
-COPY requirements.txt /usr/local/pcld_api_config/
-RUN pip3 install -r requirements.txt
+COPY requirements.txt ./
+RUN pip3 install --no-cache-dir -r requirements.txt
 
-RUN apt-get update -qq && apt-get install -y rsync
-
-ENV GOOGLE_APPLICATION_CREDENTIALS="/usr/local/pcld_api/secrets/service-account-key.json"
 WORKDIR /usr/local/pcld_api
+COPY . ./

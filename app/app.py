@@ -411,6 +411,12 @@ def home():
     )
 
 
+@app.route("/healthz")
+def healthz():
+    """Report that the web process is accepting requests."""
+    return {"status": "ok"}
+
+
 @app.route("/api/n_samples", methods=["POST"])
 def n_samples():
     start_time = time.time()
