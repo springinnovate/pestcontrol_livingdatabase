@@ -27,7 +27,68 @@ The Pest Control Living Database provides:
 ├── gee_apps # JavaScript apps deployed on Google Earth Engine
 └── llm_trait_pipeline # Standalone LLM pipeline for automated pest trait discovery
 ```
-- `docker-compose.yml`: Main Docker configuration, orchestrating all core services.
+- `docker-compose.yml`: Production and Coolify configuration for the web app,
+  Celery worker, and private Redis service.
+- `docker-compose.dev.yml`: Local-development overrides that bind-mount the
+  application source for rapid iteration.
+
+## Coolify deployment
+
+The production Compose stack is designed to be deployed as a Git-backed
+Docker Compose resource in Coolify. Coolify supplies the shared reverse proxy
+and TLS certificates, so this repository does not publish host ports or run a
+second Traefik instance.
+
+### Prepare persistent files
+
+Create an application-owned directory on the Coolify server:
+
+```text
+/srv/apps/pcld/
+|-- data/
+|   `-- live_database/
+`-- secrets/
+    `-- service-account-key.json
+```
+
+Copy the existing contents of `app/live_database/` (or the contents exported
+from the existing `pcld_data` volume) into
+`/srv/apps/pcld/data/live_database/`. Copy the Google service-account key to
+`/srv/apps/pcld/secrets/service-account-key.json`. Keep both paths out of Git,
+restrict the credential file's permissions, and make the files readable by
+the containers.
+
+In Coolify, define these environment variables for the Compose resource:
+
+```dotenv
+PCLD_DATA_PATH=/srv/apps/pcld/data
+PCLD_GOOGLE_CREDENTIALS_PATH=/srv/apps/pcld/secrets/service-account-key.json
+```
+
+Create the resource from this Git repository using the Docker Compose build
+pack and `/docker-compose.yml`. Assign the following domain to the `app`
+service:
+
+```text
+https://pcld.ecoshard.org:5000
+```
+
+Port `5000` is the web service's internal container port. Coolify serves the
+public application on normal HTTPS port 443. Redis remains available only to
+the web and worker services as `redis:6379` on the private Compose network.
+
+### Local development
+
+Copy `.env.example` to `.env`, ensure the referenced local data and credential
+paths exist, and start Compose with the development override:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+```
+
+The override bind-mounts `./app` for source changes. The production stack does
+not mount the repository into its containers; application code is copied into
+the image during the build.
 
 ## Contributing Data
 

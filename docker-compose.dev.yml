@@ -1,0 +1,12 @@
+services:
+  app:
+    volumes:
+      - type: bind
+        source: ./app
+        target: /usr/local/pcld_api
+
+  celery_worker:
+    volumes:
+      - type: bind
+        source: ./app
+        target: /usr/local/pcld_api

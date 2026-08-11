@@ -1,101 +1,95 @@
+x-logging: &default-logging
+  driver: local
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   app:
-    hostname: app_api
-    build: app
+    build:
+      context: ./app
+    restart: unless-stopped
     volumes:
-      - ./app:/usr/local/pcld_api
-      - pcld_data:/usr/local/data
-    logging:
-      driver: local
-      options:
-        max-size: "10m"
-        max-file: "3"
+      - type: bind
+        source: ${PCLD_DATA_PATH:-/srv/apps/pcld/data}
+        target: /usr/local/data
+      - type: bind
+        source: ${PCLD_GOOGLE_CREDENTIALS_PATH:-/srv/apps/pcld/secrets/service-account-key.json}
+        target: /run/secrets/google-service-account-key.json
+        read_only: true
+    logging: *default-logging
     deploy:
       resources:
         limits:
           memory: 2G
-          cpus: '2'
+          cpus: "2"
         reservations:
           memory: 1G
-          cpus: '2'
-    tty: true
-    entrypoint: >
-      sh -c "rsync -av /usr/local/pcld_api/live_database/ /usr/local/data/live_database/ && waitress-serve --host=0.0.0.0 --port=5000 app:app"
+          cpus: "2"
+    command:
+      - waitress-serve
+      - --host=0.0.0.0
+      - --port=5000
+      - app:app
     expose:
       - "5000"
     depends_on:
-      - redis
-      - reverse-proxy
-      - celery_worker
+      redis:
+        condition: service_healthy
     environment:
-      - INIT_COVARIATES=True
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.app.rule=Host(`pcld.ecoshard.org`)"
-      - "traefik.http.routers.app.entrypoints=websecure"
-      - "traefik.http.routers.app.tls=true"
-      - "traefik.http.routers.app.tls.certresolver=letsencrypt"
-
-  app_dev:
-    extends:
-      service: app
-    profiles:
-      - development
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.app_dev.rule=Host(`localhost`)"
-      - "traefik.http.routers.app_dev.entrypoints=websecure"
-      - "traefik.http.routers.app_dev.tls=true"
+      INIT_COVARIATES: "True"
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/google-service-account-key.json
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://127.0.0.1:5000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
 
   celery_worker:
-    container_name: celery_worker
-    hostname: celery_worker
-    build: app
+    build:
+      context: ./app
+    restart: unless-stopped
     volumes:
-      - ./app:/usr/local/pcld_api
-      - pcld_data:/usr/local/data
-    environment:
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - INIT_COVARIATES=False
-      - ENV GOOGLE_APPLICATION_CREDENTIALS=/usr/local/pcld_api/secrets/service-account-key.json
+      - type: bind
+        source: ${PCLD_DATA_PATH:-/srv/apps/pcld/data}
+        target: /usr/local/data
+      - type: bind
+        source: ${PCLD_GOOGLE_CREDENTIALS_PATH:-/srv/apps/pcld/secrets/service-account-key.json}
+        target: /run/secrets/google-service-account-key.json
+        read_only: true
+    logging: *default-logging
     deploy:
       resources:
         limits:
           memory: 2G
         reservations:
           memory: 1G
-    command: celery -A app.celery worker --loglevel=info --concurrency=4 --max-tasks-per-child=10
+    command:
+      - celery
+      - -A
+      - app.celery
+      - worker
+      - --loglevel=info
+      - --concurrency=4
+      - --max-tasks-per-child=10
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      INIT_COVARIATES: "False"
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/google-service-account-key.json
 
   redis:
-    image: "redis:alpine"
-    ports:
-      - "6379:6379"
-
-  reverse-proxy:
-    image: traefik:v2.11
-    command:
-      # --- providers ----------------------------
-      - "--providers.docker=true"
-      - "--providers.docker.exposedbydefault=false"
-      - "--entryPoints.web.address=:80"
-      - "--entryPoints.web.http.redirections.entryPoint.to=websecure"
-      - "--entryPoints.web.http.redirections.entryPoint.scheme=https"
-      - "--entryPoints.websecure.address=:443"
-      - "--certificatesResolvers.letsencrypt.acme.httpChallenge=true"
-      - "--certificatesResolvers.letsencrypt.acme.httpChallenge.entryPoint=web"
-      - "--certificatesResolvers.letsencrypt.acme.email=rich@springinnovate.org"
-      - "--certificatesResolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - "/var/run/docker.sock:/var/run/docker.sock:ro"
-      - "./letsencrypt:/letsencrypt"
-
-volumes:
-  pcld_data:
+    image: redis:alpine
+    restart: unless-stopped
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
