@@ -574,12 +574,7 @@
           });
       }
 
-      const fieldValues = {
-          {% for field, values in unique_covariate_values.items() %}
-              "{{ field }}":
-                  {% if values is iterable and not values is string %}[{% for value in values %}"{{ value.replace('\n', '\\n').replace('\r', '\\r') }}"{% if not loop.last %}, {% endif %}{% endfor %}]{% else %}"{{ values }}"{% endif %},{% endfor %}
-
-      };
+      const fieldValues = {{ unique_covariate_values | tojson }};
 
 
       function updateValueOptions(fieldSelect) {

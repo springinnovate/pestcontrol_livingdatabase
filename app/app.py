@@ -31,7 +31,6 @@ from database_model_definitions import (
     Point,
     CovariateDefn,
     CovariateValue,
-    CovariateType,
     CovariateAssociation,
     Geolocation,
 )
@@ -86,6 +85,7 @@ redis_client = redis.Redis(host="redis", port=6379, db=0)
 
 
 INSTANCE_DIR = "/usr/local/data/"
+COVARIATE_CACHE_VERSION = 1
 QUERY_RESULTS_DIR = os.path.join(INSTANCE_DIR, "results_to_download")
 os.makedirs(QUERY_RESULTS_DIR, exist_ok=True)
 
@@ -315,41 +315,30 @@ def initialize_covariates(clear_cache):
         else:
             with open(pkcl_filepath, "rb") as file:
                 COVARIATE_STATE = pickle.load(file)
-            LOGGER.info(f"loaded covariate state from {pkcl_filepath}")
-            return
+            if COVARIATE_STATE.get("cache_version") == COVARIATE_CACHE_VERSION:
+                LOGGER.info(f"loaded covariate state from {pkcl_filepath}")
+                return
+            LOGGER.info("rebuilding legacy covariate cache")
 
     session = SessionLocal()
-    COVARIATE_STATE = {}
+    COVARIATE_STATE = {"cache_version": COVARIATE_CACHE_VERSION}
     LOGGER.debug("starting search for unique values")
+    # The query builder filters by exact stored values for every field. Type
+    # names such as STRING are not choices, even when search_by_unique is false.
     searchable_unique_covariates = (
         session.query(CovariateDefn.name, CovariateValue.value)
-        .filter(CovariateDefn.queryable, CovariateDefn.search_by_unique == True)
-        .join(CovariateValue)
+        .filter(CovariateDefn.queryable)
+        .outerjoin(CovariateValue)
+        .distinct()
     ).yield_per(1000)
 
     COVARIATE_STATE["searchable_covariates"] = collections.defaultdict(set)
     for index, row in enumerate(searchable_unique_covariates):
         if index % 100000 == 0:
-            LOGGER.info(f"on searchable descrete covariates index {index}")
-        COVARIATE_STATE["searchable_covariates"][row.name].add(row.value)
-
-    for key, value in COVARIATE_STATE["searchable_covariates"].items():
-        COVARIATE_STATE["searchable_covariates"][key] = sorted(value)
-
-    searchable_continuous_covariates = session.query(
-        CovariateDefn.name, CovariateDefn.covariate_type
-    ).filter(
-        CovariateDefn.queryable,
-        CovariateDefn.search_by_unique == False,
-    )
-    LOGGER.debug("starting search for continuous covarates")
-
-    for index, row in enumerate(searchable_continuous_covariates):
-        if index % 100000 == 0:
-            LOGGER.info(f"on searchable continuous covariates index {index}")
-        COVARIATE_STATE["searchable_covariates"][row.name] = CovariateType(
-            row.covariate_type
-        ).name
+            LOGGER.info(f"on searchable covariates index {index}")
+        values = COVARIATE_STATE["searchable_covariates"][row.name]
+        if row.value is not None:
+            values.add(row.value)
 
     COVARIATE_STATE["n_samples"] = session.query(Sample).count()
 
@@ -386,15 +375,15 @@ def initialize_covariates(clear_cache):
     )
     COVARIATE_STATE["covariate_defns"] = covariate_defns
 
-    with open(pkcl_filepath, "wb") as file:
-        pickle.dump(COVARIATE_STATE, file)
-
     LOGGER.info("sort all the values")
 
     for key in COVARIATE_STATE["searchable_covariates"]:
         COVARIATE_STATE["searchable_covariates"][key] = sorted(
             COVARIATE_STATE["searchable_covariates"][key]
         )
+
+    with open(pkcl_filepath, "wb") as file:
+        pickle.dump(COVARIATE_STATE, file)
 
     LOGGER.info("all done with unique values")
 
