@@ -90,6 +90,49 @@ The override bind-mounts `./app` for source changes. The production stack does
 not mount the repository into its containers; application code is copied into
 the image during the build.
 
+### Query indexes for existing databases
+
+The models define two indexes for new databases:
+
+- `covariate_value(covariate_defn_id, value, sample_id)`
+- `sample(study_id, point_id)`
+
+Existing databases need an explicit migration; redeploying the application does
+not add these indexes to existing tables. Stop the web app and Celery workers,
+then run the following from a checkout of this repository with Python 3:
+
+```bash
+python app/migrations/query_indexes.py \
+  --database /path/to/living_database.db \
+  --backup /path/to/backups/living_database.before-query-indexes.db \
+  --report /path/to/backups/query-indexes-report.json
+```
+
+Use the actual database path and new backup/report filenames. For the default
+Coolify host layout, the database is
+`/srv/apps/pcld/data/live_database/living_database.db`. Inside the application
+container, the script is `migrations/query_indexes.py` and the database is
+`/usr/local/data/live_database/living_database.db`; put backups and reports under
+the persistent `/usr/local/data/` mount.
+
+The migration backs up the database, creates the two indexes, runs a full
+`ANALYZE`, and checks database integrity before committing. It retains existing
+indexes and does not change observation or metadata values. On failure, the
+transaction rolls back and the backup remains. Reruns accept matching indexes
+but still make a fresh backup and refresh statistics; a conflicting index
+definition is rejected. Restart the app and workers after a successful run.
+
+The full statistics refresh is part of the migration: testing with statistics
+only for the new indexes left SQLite choosing older indexes. No migration or
+`ANALYZE` runs automatically on startup or during requests.
+
+On a local copy containing 547,041 observations, the two indexes plus `ANALYZE`
+reduced a common-filter count from 0.42s to 0.13s and export column discovery from
+9.6s to 4.5s. These are SQL timings, not complete page or export timings. The
+indexes occupied about 417 MB combined; allow additional space for the backup
+and SQLite's temporary files. Server performance depends on its SQLite version,
+hardware, and workload.
+
 ## Contributing Data
 
 We invite contributions of datasets containing information on pest abundance, natural enemies, parasitism/predation rates, or pest-related crop damage. Ideal datasets include over 100 farm-years of observations. Minimum data requirements are:
