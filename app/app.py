@@ -947,10 +947,19 @@ def start_download():
 @app.route("/check_task/<task_id>")
 def check_task(task_id):
     task = _prep_download.AsyncResult(task_id)
-    return {
-        "status": task.state,
+    state = task.state
+    response = {
+        "status": state,
         "result_url": url_for("download_pcld_points", task_id=task_id),
     }
+    if state == "PROGRESS":
+        progress = task.info
+        if not isinstance(progress, dict):
+            progress = {}
+        response.update(current=progress.get("current"), total=progress.get("total"))
+    elif state == "FAILURE":
+        response["error"] = str(task.info or "Download preparation failed.")
+    return response
 
 
 @app.route("/download_pcld_points/<task_id>")

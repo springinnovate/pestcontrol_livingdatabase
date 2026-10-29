@@ -140,7 +140,14 @@ $(document).ready(function() {
                 if (data.status === 'PROGRESS') {
                     var current = data.current;
                     var total = data.total;
-                    $('#fullSetDownload').text('Processing sample ' + current + ' of ' + total);
+                    var progressText = 'Processing samples...';
+                    if (Number.isFinite(current)) {
+                        progressText = 'Processing sample ' + current;
+                        if (Number.isFinite(total)) {
+                            progressText += ' of ' + total;
+                        }
+                    }
+                    $('#fullSetDownload').text(progressText);
                     // Poll again after a delay
                     setTimeout(function() {
                         checkDownloadTaskStatus(taskId);
