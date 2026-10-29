@@ -138,6 +138,10 @@ class CovariateDefn(Base):
 
 class CovariateValue(Base):
     __tablename__ = 'covariate_value'
+    __table_args__ = (
+        Index('idx_covariate_value_defn_value_sample',
+              'covariate_defn_id', 'value', 'sample_id'),
+    )
     id_key: Mapped[int] = mapped_column(primary_key=True)
     value: Mapped[str] = mapped_column(String, nullable=False, index=True)
 
@@ -171,6 +175,9 @@ class Study(Base):
 
 class Sample(Base):
     __tablename__ = 'sample'
+    __table_args__ = (
+        Index('idx_sample_study_point', 'study_id', 'point_id'),
+    )
     id_key: Mapped[int] = mapped_column(primary_key=True)
 
     observation: Mapped[str] = mapped_column(Text, index=True)
