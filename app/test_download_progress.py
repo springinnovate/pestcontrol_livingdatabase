@@ -7,6 +7,7 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import Mock, call
 import zipfile
 
 from database_model_definitions import Point, Sample, Study
@@ -22,7 +23,9 @@ class DownloadProgressTest(unittest.TestCase):
         self.addCleanup(self.fixture.tearDown)
         self.scope = self.fixture.scope
         self.task_id = 'download-test-task'
-        self.task = SimpleNamespace(state='PENDING', info=None)
+        self.task_metadata = {'status': 'PENDING', 'result': None}
+        self.task = SimpleNamespace(id=self.task_id, backend=SimpleNamespace(
+            get_task_meta=lambda task_id: self.task_metadata))
         self.worker = self.scope['_prep_download']
         self.worker.AsyncResult = lambda task_id: self.task
         self.scope['url_for'] = lambda endpoint, task_id: f'/{endpoint}/{task_id}'
@@ -34,12 +37,28 @@ class DownloadProgressTest(unittest.TestCase):
                      'app.py isolated check_task', 'exec'), self.scope)
 
     def check_task(self, state, info):
-        self.task.state, self.task.info = state, info
+        self.task_metadata.update(status=state, result=info)
         # Assert against the endpoint's JSON payload, not the worker's metadata.
         result = json.loads(json.dumps(self.scope['check_task'](self.task_id)))
         self.assertEqual(result['status'], state)
         self.assertEqual(result['result_url'], '/download_pcld_points/' + self.task_id)
         return result
+
+    def test_each_poll_reads_one_consistent_status_and_result_snapshot(self):
+        read = Mock(side_effect=[
+            {'status': 'PROGRESS', 'result': {'current': 1000, 'total': 1003}},
+            {'status': 'SUCCESS', 'result': {'zipfile_path': 'result.zip'}},
+        ])
+        self.task.backend.get_task_meta = read
+        progress = self.scope['check_task'](self.task_id)
+        self.assertEqual(progress['status'], 'PROGRESS')
+        self.assertEqual((progress['current'], progress['total']), (1000, 1003))
+        read.assert_called_once_with(self.task_id)
+
+        success = self.scope['check_task'](self.task_id)
+        self.assertEqual(success['status'], 'SUCCESS')
+        self.assertNotIn('current', success)
+        self.assertEqual(read.call_args_list, [call(self.task_id), call(self.task_id)])
 
     def test_progress_preserves_zero_numeric_totals_and_unknown_total_marker(self):
         for current, total in [(0, 1003), (1000, 1003), (0, '-'), (1000, '-')]:
@@ -48,18 +67,22 @@ class DownloadProgressTest(unittest.TestCase):
                 self.assertEqual(result['current'], current)
                 self.assertEqual(result['total'], total)
 
-    def test_missing_or_malformed_progress_metadata_has_null_defaults(self):
-        for info in [None, {}, 'not progress metadata', [], RuntimeError('unavailable')]:
+    def test_missing_or_malformed_progress_metadata_raises(self):
+        for info in [None, {}, 'not progress metadata', [], RuntimeError('unavailable'),
+                     {'current': 0}, {'total': 1003}]:
             with self.subTest(info=info):
-                result = self.check_task('PROGRESS', info)
-                self.assertIsNone(result['current'])
-                self.assertIsNone(result['total'])
-        result = self.check_task('PROGRESS', {'current': 0})
-        self.assertEqual(result['current'], 0)
-        self.assertIsNone(result['total'])
-        result = self.check_task('PROGRESS', {'total': 1003})
-        self.assertIsNone(result['current'])
-        self.assertEqual(result['total'], 1003)
+                with self.assertRaises((KeyError, TypeError)):
+                    self.check_task('PROGRESS', info)
+
+    def test_invalid_progress_counts_raise_instead_of_returning_defaults(self):
+        for field in ['current', 'total']:
+            for invalid in [None, '1003', True, -1, 1.5, float('nan'), float('inf')]:
+                with self.subTest(field=field, invalid=invalid):
+                    info = {'current': 0, 'total': 1003, field: invalid}
+                    with self.assertRaises(ValueError):
+                        self.check_task('PROGRESS', info)
+        with self.assertRaises(ValueError):
+            self.check_task('PROGRESS', {'current': '-', 'total': 1003})
 
     def test_nonprogress_states_keep_status_and_download_url_without_inventing_counts(self):
         for state, info in [

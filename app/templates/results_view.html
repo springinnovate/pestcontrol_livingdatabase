@@ -142,14 +142,15 @@ $(document).ready(function() {
                     var total = data.total;
                     // The endpoint forwards Celery's counts. The worker uses '-'
                     // for total when the cached sample count has expired.
-                    var progressText = 'Processing samples...';
-                    if (Number.isFinite(current)) {
-                        progressText = 'Processing sample ' + current;
-                        if (Number.isFinite(total)) {
-                            progressText += ' of ' + total;
-                        }
+                    if (!Number.isInteger(current) || current < 0 ||
+                        (total !== '-' && (!Number.isInteger(total) || total < 0))) {
+                        $('#fullSetDownload')
+                            .removeClass('btn-primary')
+                            .addClass('btn-danger')
+                            .text('Download failed: invalid progress response');
+                        throw new Error('Invalid download progress response');
                     }
-                    $('#fullSetDownload').text(progressText);
+                    $('#fullSetDownload').text('Processing sample ' + current + ' of ' + total);
                     // Poll again after a delay
                     setTimeout(function() {
                         checkDownloadTaskStatus(taskId);
@@ -180,8 +181,10 @@ $(document).ready(function() {
                 }
             },
             error: function() {
-                // Handle error
-                $('#fullSetDownload').text('Error preparing download...');
+                $('#fullSetDownload')
+                    .removeClass('btn-primary')
+                    .addClass('btn-danger')
+                    .text('Download failed: could not read task progress');
             }
         });
     }

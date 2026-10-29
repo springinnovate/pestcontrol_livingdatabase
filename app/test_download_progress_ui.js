@@ -111,26 +111,61 @@ test('progress displays zero and subsequent counts while continuing to poll', ()
     assert.equal(ui.timers.length, 1);
 });
 
-for (const total of [undefined, null, '-', '24357', NaN, Infinity]) {
-    test(`unavailable total ${String(total)} keeps the current count without undefined text`, () => {
+for (const total of [0, '-']) {
+    test(`explicit total ${String(total)} is displayed while polling continues`, () => {
         const ui = downloadUi();
         ui.begin();
-        ui.respond({status: 'PROGRESS', current: 1000, total});
-        assert.equal(ui.button.label, 'Processing sample 1000');
-        assert.doesNotMatch(ui.button.label, /undefined|null|NaN|Infinity/);
+        ui.respond({status: 'PROGRESS', current: 0, total});
+        assert.equal(ui.button.label, `Processing sample 0 of ${total}`);
+        assert.equal(ui.button.properties.disabled, true);
         ui.pollAgain();
     });
 }
 
-for (const current of [undefined, null, '-', NaN]) {
-    test(`unavailable current ${String(current)} uses generic progress and continues polling`, () => {
-        const ui = downloadUi();
-        ui.begin();
-        ui.respond({status: 'PROGRESS', current, total: 24357});
-        assert.equal(ui.button.label, 'Processing samples...');
-        ui.pollAgain();
-    });
+for (const field of ['current', 'total']) {
+    const invalidValues = [undefined, null, '1000', '', NaN, Infinity, -Infinity, -1, 0.5];
+    if (field === 'current') {
+        invalidValues.push('-');
+    }
+    for (const value of invalidValues) {
+        test(`invalid ${field} ${String(value)} visibly fails, throws and stops polling`, () => {
+            const ui = downloadUi();
+            ui.begin();
+            const response = {status: 'PROGRESS', current: 1000, total: 24357};
+            if (value === undefined) {
+                delete response[field];
+            } else {
+                response[field] = value;
+            }
+            assert.throws(() => ui.respond(response), {
+                name: 'Error',
+                message: 'Invalid download progress response',
+            });
+            assert.equal(ui.button.label, 'Download failed: invalid progress response');
+            assert.equal(ui.button.properties.disabled, true);
+            assert.equal(ui.button.classes.has('btn-primary'), false);
+            assert.equal(ui.button.classes.has('btn-danger'), true);
+            assert.equal(ui.timers.length, 0, 'Invalid progress does not schedule another poll');
+            assert.equal(ui.requests.length, 0);
+        });
+    }
 }
+
+test('polling AJAX error visibly fails and stops polling', () => {
+    const ui = downloadUi();
+    ui.begin();
+    ui.respond({status: 'PROGRESS', current: 1000, total: 24357});
+    ui.pollAgain();
+    const request = ui.requests.shift();
+    assert.equal(request.url, '/check_task/task-fixture');
+    request.error();
+    assert.equal(ui.button.label, 'Download failed: could not read task progress');
+    assert.equal(ui.button.properties.disabled, true);
+    assert.equal(ui.button.classes.has('btn-primary'), false);
+    assert.equal(ui.button.classes.has('btn-danger'), true);
+    assert.equal(ui.timers.length, 0);
+    assert.equal(ui.requests.length, 0);
+});
 
 test('success after progress makes the button download the result and stops polling', () => {
     const ui = downloadUi();

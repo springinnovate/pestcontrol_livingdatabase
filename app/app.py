@@ -947,23 +947,27 @@ def start_download():
 @app.route("/check_task/<task_id>")
 def check_task(task_id):
     task = _prep_download.AsyncResult(task_id)
-    state = task.state
+    # Read status and result together: the task can finish between two reads.
+    task_metadata = task.backend.get_task_meta(task.id)
+    state = task_metadata["status"]
     response = {
         "status": state,
         "result_url": url_for("download_pcld_points", task_id=task_id),
     }
     if state == "PROGRESS":
-        # Celery stores the worker's update_state(meta=...) values in task.info.
+        # Celery stores the worker's update_state(meta=...) values as the result.
         # Forward those counts into the JSON read by the download button.
-        task_progress = task.info
-        if isinstance(task_progress, dict):
-            response["current"] = task_progress.get("current")
-            response["total"] = task_progress.get("total")
-        else:
-            response["current"] = None
-            response["total"] = None
+        task_progress = task_metadata["result"]
+        current = task_progress["current"]
+        total = task_progress["total"]
+        if type(current) is not int or current < 0:
+            raise ValueError("Download progress current must be a nonnegative integer")
+        if total != "-" and (type(total) is not int or total < 0):
+            raise ValueError("Download progress total must be a nonnegative integer or '-'")
+        response["current"] = current
+        response["total"] = total
     elif state == "FAILURE":
-        response["error"] = str(task.info or "Download preparation failed.")
+        response["error"] = str(task_metadata["result"])
     return response
 
 
