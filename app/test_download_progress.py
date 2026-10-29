@@ -35,7 +35,8 @@ class DownloadProgressTest(unittest.TestCase):
 
     def check_task(self, state, info):
         self.task.state, self.task.info = state, info
-        result = self.scope['check_task'](self.task_id)
+        # Assert against the endpoint's JSON payload, not the worker's metadata.
+        result = json.loads(json.dumps(self.scope['check_task'](self.task_id)))
         self.assertEqual(result['status'], state)
         self.assertEqual(result['result_url'], '/download_pcld_points/' + self.task_id)
         return result

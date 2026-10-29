@@ -953,10 +953,15 @@ def check_task(task_id):
         "result_url": url_for("download_pcld_points", task_id=task_id),
     }
     if state == "PROGRESS":
-        progress = task.info
-        if not isinstance(progress, dict):
-            progress = {}
-        response.update(current=progress.get("current"), total=progress.get("total"))
+        # Celery stores the worker's update_state(meta=...) values in task.info.
+        # Forward those counts into the JSON read by the download button.
+        task_progress = task.info
+        if isinstance(task_progress, dict):
+            response["current"] = task_progress.get("current")
+            response["total"] = task_progress.get("total")
+        else:
+            response["current"] = None
+            response["total"] = None
     elif state == "FAILURE":
         response["error"] = str(task.info or "Download preparation failed.")
     return response
