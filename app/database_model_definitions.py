@@ -5,7 +5,7 @@ https://docs.google.com/spreadsheets/d/1yZwc7fPB0kHI9F5jdgUKuNflgkQF7SHS/edit#gi
 """
 import enum
 
-from sqlalchemy import Column, Integer, UniqueConstraint, Index, Table, String, Boolean, JSON, Enum
+from sqlalchemy import Column, Integer, UniqueConstraint, Index, Table, String, Text, Boolean, JSON, Enum
 from sqlalchemy import ForeignKey
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import Mapped
@@ -173,7 +173,7 @@ class Sample(Base):
     __tablename__ = 'sample'
     id_key: Mapped[int] = mapped_column(primary_key=True)
 
-    observation: Mapped[float] = mapped_column(index=True)
+    observation: Mapped[str] = mapped_column(Text, index=True)
 
     covariates: Mapped[List[CovariateValue]] = relationship(
         "CovariateValue", back_populates="sample")

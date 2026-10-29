@@ -253,12 +253,11 @@ $(document).ready(function() {
                         });
 
                         // Rebuild row with new columns
-                        var newRowHtml = '';
+                        row.empty();
                         sampleColumns.forEach(function (col) {
                             var cellValue = rowData[col] || '';
-                            newRowHtml += '<td data-col-name="' + col + '">' + cellValue + '</td>';
+                            $('<td>').attr('data-col-name', col).text(cellValue).appendTo(row);
                         });
-                        row.html(newRowHtml);
                     });
                 }
 
@@ -298,13 +297,12 @@ $(document).ready(function() {
                 }
 
                 data.sample_data_rows.forEach(function(rowData) {
-                    var rowHtml = '<tr>';
+                    var row = $('<tr>');
                     sampleColumns.forEach(function(col) {
                         var cellValue = rowData[col] !== undefined && rowData[col] !== null ? rowData[col] : '';
-                        rowHtml += '<td data-col-name="' + col + '">' + cellValue + '</td>';
+                        $('<td>').attr('data-col-name', col).text(cellValue).appendTo(row);
                     });
-                    rowHtml += '</tr>';
-                    $('#sampleTable tbody').append(rowHtml);
+                    $('#sampleTable tbody').append(row);
                 });
                 sampleRowCount += data.sample_data_rows.length;
                 updateSampleTableHeader();
