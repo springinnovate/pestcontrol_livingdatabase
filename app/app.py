@@ -1033,26 +1033,10 @@ def _prep_download(self, query_id):
                 CovariateValue,
                 CovariateDefn.id_key == CovariateValue.covariate_defn_id,
             )
-            .filter(CovariateValue.sample_id is not None)
             .join(Sample, CovariateValue.sample_id == Sample.id_key)
             .join(Sample.study)
+            .join(Sample.point)
             .filter(*filters)
-            .group_by(CovariateDefn.name)
-            .order_by(
-                CovariateDefn.display_order, func.lower(CovariateDefn.name)
-            )
-            .distinct()
-        )
-
-        # Collect all covariate names for studies
-        study_covariate_names = list(
-            name
-            for (name,) in session.query(CovariateDefn.name)
-            .join(
-                CovariateValue,
-                CovariateDefn.id_key == CovariateValue.covariate_defn_id,
-            )
-            .filter(CovariateValue.study_id is not None)
             .group_by(CovariateDefn.name)
             .order_by(
                 CovariateDefn.display_order, func.lower(CovariateDefn.name)
@@ -1142,7 +1126,13 @@ def _prep_download(self, query_id):
 
         # Write study data to CSV file on disk
         study_columns = ["study_id"]
-        study_columns.extend(study_covariate_names)
+        study_columns.extend(
+            name for (name,) in session.query(CovariateDefn.name)
+            .join(CovariateValue)
+            .filter(CovariateValue.study_id.in_(study_ids))
+            .distinct()
+            .order_by(CovariateDefn.display_order, func.lower(CovariateDefn.name))
+        )
 
         batch_rows = []
         for study in (
@@ -1608,6 +1598,11 @@ def _schedule_dir_removal(path, delay):
 @app.route("/static/<path:filename>")
 def static_files(filename):
     return send_from_directory(app.static_folder, filename)
+
+
+@app.route("/static/pcld_dump.zip")
+def download_entire_pcld():
+    return send_from_directory(INSTANCE_DIR, "pcld_dump.zip", as_attachment=True)
 
 
 if __name__ == "__main__":
