@@ -208,7 +208,7 @@
             ><br />Please submit completed templates to
             <pre>rich@springinnovate.org</pre>
           </li>
-          <li><a href="static/pcld_dump.zip">Entire PCLD as zipped CSV</a></li>
+          <li><a href="{{ url_for('download_entire_pcld') }}">Entire PCLD as zipped CSV</a></li>
         </ul>
       </div>
       <form id="queryForm" action="/api/process_query" method="post">

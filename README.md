@@ -58,6 +58,13 @@ from the existing `pcld_data` volume) into
 restrict the credential file's permissions, and make the files readable by
 the containers.
 
+The “Entire PCLD as zipped CSV” link serves `pcld_dump.zip` from that same
+persistent data directory (`/srv/apps/pcld/data/pcld_dump.zip` by default).
+To refresh it after a database or export change, submit the query form with
+its default, unrestricted settings and use **Download full set** on the results
+page. Copy the completed ZIP into the data directory under a temporary name,
+then rename it to `pcld_dump.zip` so downloads see the complete archive.
+
 In Coolify, define these environment variables for the Compose resource:
 
 ```dotenv

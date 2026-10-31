@@ -92,6 +92,45 @@ class ObservationTextTest(unittest.TestCase):
             actual = [row['observation'] for row in csv.DictReader(io.StringIO(data))]
             self.assertEqual(actual, expected)
 
+    def test_download_headers_follow_the_selected_points_and_studies(self):
+        with self.sessions() as session:
+            point = session.query(Point).one()
+            sample = session.query(Sample).first()
+            outside = Sample(observation='7', year=2026, study=Study(name='outside'),
+                             point=Point(latitude=30, longitude=2))
+            no_metadata = Sample(observation='2', year=2026, point=point,
+                                 study=Study(name='no-metadata'))
+            session.add_all([outside, no_metadata])
+            for name, owner, value in [
+                ('Sampling_Design', sample.study, 'Transect'),
+                ('Paper_DOI', outside.study, 'outside only'),
+                ('Response_variable', sample, 'abundance'),
+                ('Units', outside, 'per trap'),
+            ]:
+                field = CovariateDefn(
+                    name=name, covariate_association=0 if isinstance(owner, Study) else 1,
+                    covariate_type=0, editable_name=False, queryable=False,
+                    always_display=False, hidden=False, show_in_point_table=False,
+                    search_by_unique=False)
+                owner.covariates.append(CovariateValue(covariate_defn=field, value=value))
+            session.commit()
+
+        self.scope['build_filter'] = lambda session, form: ([Point.latitude > 40], '')
+        with tempfile.TemporaryDirectory() as directory:
+            self.scope['QUERY_RESULTS_DIR'] = directory
+            result = self.scope['_prep_download'](
+                SimpleNamespace(update_state=lambda **kwargs: None), 'test-query')
+            with zipfile.ZipFile(result['zipfile_path']) as archive:
+                with archive.open('study_data_test-query.csv') as study_csv:
+                    studies = csv.DictReader(io.TextIOWrapper(study_csv, encoding='utf-8'))
+                    self.assertEqual(studies.fieldnames, ['study_id', 'Sampling_Design'])
+                    self.assertEqual({r['study_id']: r['Sampling_Design'] for r in studies},
+                                     {'text-observations': 'Transect', 'no-metadata': ''})
+                with archive.open('sample_data_test-query.csv') as sample_csv:
+                    samples = csv.DictReader(io.TextIOWrapper(sample_csv, encoding='utf-8'))
+                    self.assertIn('Response_variable', samples.fieldnames)
+                    self.assertNotIn('Units', samples.fieldnames)
+
 
 if __name__ == '__main__':
     unittest.main()
