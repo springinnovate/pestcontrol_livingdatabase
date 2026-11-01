@@ -173,6 +173,15 @@ class Study(Base):
         return f'<Study(id={self.id_key}/{self.name}, covariates={self.covariates})>'
 
 
+class StudyCovariateDefinition(Base):
+    __tablename__ = 'study_covariate_definition'
+    study_id: Mapped[int] = mapped_column(ForeignKey('study.id_key'), primary_key=True)
+    covariate_defn_id: Mapped[int] = mapped_column(
+        ForeignKey('covariate_defn.id_key'), primary_key=True)
+    definition: Mapped[str] = mapped_column(Text, nullable=False)
+    units: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 class Sample(Base):
     __tablename__ = 'sample'
     __table_args__ = (

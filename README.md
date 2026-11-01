@@ -65,6 +65,30 @@ its default, unrestricted settings and use **Download full set** on the results
 page. Copy the completed ZIP into the data directory under a temporary name,
 then rename it to `pcld_dump.zip` so downloads see the complete archive.
 
+Each download includes `covariate_definitions.csv`. It has one row per
+study and `Covariate_` variable present in the exported observations or
+study metadata. Blank definition or units cells mean that information is
+unavailable for that study.
+
+Before deploying the dictionary export with an existing SQLite database,
+load its study dictionary. For future submissions, load the contributor's
+dictionary after importing the matching studies and variables. Use a UTF-8
+CSV with the header `study_id,variable,definition,units` and the same study
+and variable names used in the data. For a workbook with `Name` and
+`Explanation` columns, associate each entry with the study or studies in
+that workbook that use the variable. Leave unavailable units blank. From
+the repository root, run:
+
+```bash
+python app/import_covariate_definitions.py \
+  --database /path/to/living_database.db \
+  --definitions /path/to/covariate_definitions.csv
+```
+
+This creates the dictionary table and updates the pairs listed in the CSV.
+A database distributed with the table already populated is ready to use.
+Refresh the prebuilt ZIP after updating its dictionary.
+
 In Coolify, define these environment variables for the Compose resource:
 
 ```dotenv

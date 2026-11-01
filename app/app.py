@@ -31,6 +31,7 @@ from database_model_definitions import (
     Point,
     CovariateDefn,
     CovariateValue,
+    StudyCovariateDefinition,
     CovariateAssociation,
     Geolocation,
 )
@@ -1002,6 +1003,29 @@ def delete_file(zipfile_path):
         LOGGER.error(f"Error deleting file {zipfile_path}: {e}")
 
 
+def write_covariate_definitions(archive, session, study_ids, study_variables):
+    definitions = {
+        (study_name, variable): (definition, units)
+        for study_name, variable, definition, units in (
+            session.query(
+                Study.name, CovariateDefn.name,
+                StudyCovariateDefinition.definition, StudyCovariateDefinition.units,
+            )
+            .select_from(StudyCovariateDefinition)
+            .join(Study)
+            .join(CovariateDefn)
+            .filter(StudyCovariateDefinition.study_id.in_(study_ids))
+        )
+    }
+    output = StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow(["study_id", "variable", "definition", "units"])
+    for study_name, variable in sorted(study_variables):
+        definition, units = definitions.get((study_name, variable), ("", ""))
+        writer.writerow([study_name, variable, definition, units])
+    archive.writestr("covariate_definitions.csv", output.getvalue())
+
+
 @celery.task(bind=True)
 def _prep_download(self, query_id):
     temp_files = []
@@ -1054,6 +1078,10 @@ def _prep_download(self, query_id):
         temp_files.append(study_csv_path)
 
         study_ids = set()
+        study_variables = set()
+        bespoke_columns = {
+            name for name in sample_covariate_names if name.lower().startswith("covariate_")
+        }
 
         sample_columns = [
             "study_id",
@@ -1100,6 +1128,8 @@ def _prep_download(self, query_id):
                     continue
                 cov_name = cov.covariate_defn.name
                 row_data[cov_name] = cov.value
+                if cov_name in bespoke_columns:
+                    study_variables.add((study.name, cov_name))
 
             batch_rows.append(row_data)
 
@@ -1149,6 +1179,8 @@ def _prep_download(self, query_id):
                 else:
                     cov_name = "UNDEFINED"
                 row_data[cov_name] = cov.value
+                if cov_name.lower().startswith("covariate_"):
+                    study_variables.add((study.name, cov_name))
             row = [row_data.get(col, "") for col in study_columns]
             batch_rows.append(row)
         df = pd.DataFrame(batch_rows, columns=study_columns)
@@ -1161,6 +1193,7 @@ def _prep_download(self, query_id):
         ) as zf:
             zf.write(sample_csv_path, arcname=sample_csv_filename)
             zf.write(study_csv_path, arcname=study_csv_filename)
+            write_covariate_definitions(zf, session, study_ids, study_variables)
 
         LOGGER.debug(f"{zipfile_path} is created")
 

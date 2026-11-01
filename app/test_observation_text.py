@@ -21,6 +21,7 @@ from sqlalchemy.orm import selectinload, sessionmaker
 
 from database_model_definitions import (
     Base, CovariateDefn, CovariateValue, Point, Sample, Study,
+    StudyCovariateDefinition,
 )
 
 
@@ -43,6 +44,8 @@ class ObservationTextTest(unittest.TestCase):
             'SessionLocal': self.sessions,
             'Sample': Sample, 'Study': Study, 'Point': Point,
             'CovariateDefn': CovariateDefn, 'CovariateValue': CovariateValue,
+            'StudyCovariateDefinition': StudyCovariateDefinition,
+            'csv': csv, 'StringIO': io.StringIO,
             'selectinload': selectinload, 'func': func,
             'build_filter': lambda session, form: ([], ''),
             'redis_client': SimpleNamespace(get=cache.get, set=cache.__setitem__),
@@ -55,7 +58,8 @@ class ObservationTextTest(unittest.TestCase):
         module = ast.parse(Path(__file__).with_name('app.py').read_text(encoding='utf-8'))
         functions = []
         for node in module.body:
-            if isinstance(node, ast.FunctionDef) and node.name in {'get_data', '_prep_download'}:
+            if isinstance(node, ast.FunctionDef) and node.name in {
+                    'get_data', '_prep_download', 'write_covariate_definitions'}:
                 node.decorator_list = []
                 functions.append(node)
         exec(compile(ast.Module(body=functions, type_ignores=[]), 'app.py', 'exec'), self.scope)
@@ -101,11 +105,15 @@ class ObservationTextTest(unittest.TestCase):
             no_metadata = Sample(observation='2', year=2026, point=point,
                                  study=Study(name='no-metadata'))
             session.add_all([outside, no_metadata])
+            fields = {}
             for name, owner, value in [
                 ('Sampling_Design', sample.study, 'Transect'),
                 ('Paper_DOI', outside.study, 'outside only'),
                 ('Response_variable', sample, 'abundance'),
                 ('Units', outside, 'per trap'),
+                ('Covariate_cover', sample, '10'),
+                ('Covariate_unknown', no_metadata, 'A'),
+                ('Covariate_outside', outside, 'B'),
             ]:
                 field = CovariateDefn(
                     name=name, covariate_association=0 if isinstance(owner, Study) else 1,
@@ -113,6 +121,19 @@ class ObservationTextTest(unittest.TestCase):
                     always_display=False, hidden=False, show_in_point_table=False,
                     search_by_unique=False)
                 owner.covariates.append(CovariateValue(covariate_defn=field, value=value))
+                fields[name] = field
+            cover = fields['Covariate_cover']
+            no_metadata.covariates.append(CovariateValue(covariate_defn=cover, value='2'))
+            session.flush()
+            session.add_all([
+                StudyCovariateDefinition(study_id=sample.study_id, covariate_defn_id=cover.id_key,
+                                         definition='Tree cover, including hedges', units='%'),
+                StudyCovariateDefinition(study_id=no_metadata.study_id, covariate_defn_id=cover.id_key,
+                                         definition='Area of flower strips', units='ha'),
+                StudyCovariateDefinition(study_id=sample.study_id,
+                                         covariate_defn_id=fields['Covariate_outside'].id_key,
+                                         definition='Only used elsewhere', units=''),
+            ])
             session.commit()
 
         self.scope['build_filter'] = lambda session, form: ([Point.latitude > 40], '')
@@ -130,6 +151,14 @@ class ObservationTextTest(unittest.TestCase):
                     samples = csv.DictReader(io.TextIOWrapper(sample_csv, encoding='utf-8'))
                     self.assertIn('Response_variable', samples.fieldnames)
                     self.assertNotIn('Units', samples.fieldnames)
+                with archive.open('covariate_definitions.csv') as dictionary:
+                    rows = csv.reader(io.TextIOWrapper(dictionary, encoding='utf-8'))
+                    self.assertEqual(list(rows), [
+                        ['study_id', 'variable', 'definition', 'units'],
+                        ['no-metadata', 'Covariate_cover', 'Area of flower strips', 'ha'],
+                        ['no-metadata', 'Covariate_unknown', '', ''],
+                        ['text-observations', 'Covariate_cover', 'Tree cover, including hedges', '%'],
+                    ])
 
 
 if __name__ == '__main__':
