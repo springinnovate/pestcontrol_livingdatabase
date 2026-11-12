@@ -14,6 +14,7 @@ import os
 import pickle
 import re
 import sys
+import tempfile
 import zipfile
 
 from gee_database_point_sampler import (
@@ -23,7 +24,7 @@ from gee_database_point_sampler import (
     NOMINAL_SCALE,
 )
 from celery_config import make_celery
-from database import SessionLocal
+from database import SessionLocal, engine
 from database_model_definitions import LATITUDE, LONGITUDE, YEAR, STUDY_ID
 from database_model_definitions import (
     Study,
@@ -44,6 +45,7 @@ from flask import request
 from flask import send_file
 from flask import send_from_directory
 from flask import url_for
+from full_download import cached_zip_matches, download_revision
 
 from gee_database_point_sampler import initialize_gee
 from gee_database_point_sampler import SPATIOTEMPORAL_FN_GRAMMAR
@@ -87,6 +89,7 @@ redis_client = redis.Redis(host="redis", port=6379, db=0)
 
 INSTANCE_DIR = "/usr/local/data/"
 COVARIATE_CACHE_VERSION = 1
+FULL_DOWNLOAD_PATH = os.path.join(INSTANCE_DIR, "pcld_dump.zip")
 QUERY_RESULTS_DIR = os.path.join(INSTANCE_DIR, "results_to_download")
 os.makedirs(QUERY_RESULTS_DIR, exist_ok=True)
 
@@ -1028,26 +1031,50 @@ def write_covariate_definitions(archive, session, study_ids, study_variables):
 
 @celery.task(bind=True)
 def _prep_download(self, query_id):
+    cached_count = redis_client.get(f"sample_count:{query_id}")
+    total_samples = json.loads(cached_count)["sample_count"] if cached_count else "-"
+    query_form_json = redis_client.get(query_id)
+    if not query_form_json:
+        LOGGER.error("No query form found for %s", query_id)
+        return "Error: No query form found."
+
+    zipfile_path = _write_download(
+        self, query_id, QUERY_RESULTS_DIR, json.loads(query_form_json), total_samples
+    )
+    delete_file.apply_async(args=[zipfile_path], countdown=3600)
+    return {"query_id": query_id, "zipfile_path": zipfile_path}
+
+
+@celery.task(bind=True, acks_late=True, reject_on_worker_lost=True, track_started=True)
+def build_full_download(self, revision):
+    database_path = engine.url.database
+    if download_revision(database_path) != revision:
+        return
+    if cached_zip_matches(FULL_DOWNLOAD_PATH, revision):
+        return
+
+    # Discard pooled connections that may still point to a replaced SQLite file.
+    engine.dispose()
+    with tempfile.TemporaryDirectory(prefix="full-download-", dir=INSTANCE_DIR) as directory:
+        zipfile_path = _write_download(self, "pcld", directory, revision=revision)
+        if download_revision(database_path) == revision:
+            os.replace(zipfile_path, FULL_DOWNLOAD_PATH)
+
+
+def _write_download(task, query_id, directory, query_form=None, total_samples=None, revision=None):
     temp_files = []
+    session = SessionLocal()
     try:
-        session = SessionLocal()
         LOGGER.info(f"starting prep download with this query id: {query_id}")
-        redis_key = f"sample_count:{query_id}"
-        cached_count = redis_client.get(redis_key)
-        if cached_count is not None:
-            total_samples = json.loads(cached_count)["sample_count"]
+        if query_form is None:
+            # Count and export from the same SQLite snapshot.
+            session.connection().exec_driver_sql("BEGIN")
+            filters = []
+            total_samples = session.query(Sample).join(Sample.study).join(Sample.point).count()
         else:
-            total_samples = "-"
+            filters, _ = build_filter(session, query_form)
 
-        zipfile_path = os.path.join(QUERY_RESULTS_DIR, f"{query_id}.zip")
-        query_form_json = redis_client.get(query_id)
-        if query_form_json:
-            query_form = json.loads(query_form_json)
-        else:
-            LOGGER.error(f"No query form found for the {query_id}.")
-            return "Error: No query form found."
-
-        filters, filter_text = build_filter(session, query_form)
+        zipfile_path = os.path.join(directory, f"{query_id}.zip")
 
         # Collect all covariate names for samples
         sample_covariate_names = list(
@@ -1070,11 +1097,11 @@ def _prep_download(self, query_id):
 
         # Create temporary CSV file paths
         sample_csv_filename = f"sample_data_{query_id}.csv"
-        sample_csv_path = os.path.join(QUERY_RESULTS_DIR, sample_csv_filename)
+        sample_csv_path = os.path.join(directory, sample_csv_filename)
         temp_files.append(sample_csv_path)
 
         study_csv_filename = f"study_data_{query_id}.csv"
-        study_csv_path = os.path.join(QUERY_RESULTS_DIR, study_csv_filename)
+        study_csv_path = os.path.join(directory, study_csv_filename)
         temp_files.append(study_csv_path)
 
         study_ids = set()
@@ -1106,7 +1133,7 @@ def _prep_download(self, query_id):
         first_batch = True
         for index, sample in enumerate(sample_query):
             if index % batch_size == 0:
-                self.update_state(
+                task.update_state(
                     state="PROGRESS",
                     meta={
                         "current": index,
@@ -1147,11 +1174,16 @@ def _prep_download(self, query_id):
                 batch_rows = []  # Clear the batch
 
         # Write any remaining rows
-        if batch_rows:
+        if first_batch or batch_rows:
             df = pd.DataFrame(batch_rows, columns=sample_columns)
             df.fillna("None", inplace=True)
             df.to_csv(
                 sample_csv_path, mode="a", header=first_batch, index=False
+            )
+
+        if revision is not None:
+            task.update_state(
+                state="PROGRESS", meta={"current": total_samples, "total": total_samples}
             )
 
         # Write study data to CSV file on disk
@@ -1191,19 +1223,17 @@ def _prep_download(self, query_id):
         with zipfile.ZipFile(
             zipfile_path, mode="w", compression=zipfile.ZIP_DEFLATED
         ) as zf:
+            if revision is not None:
+                zf.comment = revision.encode("ascii")
             zf.write(sample_csv_path, arcname=sample_csv_filename)
             zf.write(study_csv_path, arcname=study_csv_filename)
             write_covariate_definitions(zf, session, study_ids, study_variables)
 
         LOGGER.debug(f"{zipfile_path} is created")
-
-        # Schedule deletion of the ZIP file after an hour
-        delete_file.apply_async(args=[zipfile_path], countdown=3600)
-
-        return {"query_id": query_id, "zipfile_path": zipfile_path}
+        return zipfile_path
 
     except Exception:
-        LOGGER.exception("Error in _prep_download")
+        LOGGER.exception("Error exporting download %s", query_id)
         raise  # Reraise the exception to be handled elsewhere
 
     finally:
@@ -1456,11 +1486,6 @@ def download_csv_template():
     return response
 
 
-if os.getenv("INIT_COVARIATES") == "True":
-    LOGGER.info("initializing covariates")
-    initialize_covariates(False)
-
-
 @celery.task(bind=True)
 def gee_data_pull_task(self, form_data, csv_content, original_filename):
     try:
@@ -1635,7 +1660,56 @@ def static_files(filename):
 
 @app.route("/static/pcld_dump.zip")
 def download_entire_pcld():
+    if _full_download_state()["status"] != "SUCCESS":
+        return redirect(url_for("home", _anchor="fullDownloadLink"))
     return send_from_directory(INSTANCE_DIR, "pcld_dump.zip", as_attachment=True)
+
+
+def _full_download_state(retry_failed=False):
+    revision = download_revision(engine.url.database)
+    if cached_zip_matches(FULL_DOWNLOAD_PATH, revision):
+        return {"status": "SUCCESS"}
+
+    task_key = f"full-download:task:{revision}"
+    # Coordinate startup and status requests across web processes.
+    with redis_client.lock("full-download:schedule", timeout=15, blocking_timeout=5):
+        if cached_zip_matches(FULL_DOWNLOAD_PATH, revision):
+            return {"status": "SUCCESS"}
+        task_id = redis_client.get(task_key)
+        if task_id:
+            task = build_full_download.AsyncResult(task_id.decode("ascii"))
+            metadata = task.backend.get_task_meta(task.id)
+            status = metadata["status"]
+            if status == "REVOKED":
+                status = "FAILURE"
+            if status == "PROGRESS":
+                progress = metadata["result"]
+                return {
+                    "status": status,
+                    "current": progress["current"],
+                    "total": progress["total"],
+                }
+            if status != "SUCCESS" and not (status == "FAILURE" and retry_failed):
+                return {"status": status}
+            if cached_zip_matches(FULL_DOWNLOAD_PATH, revision):
+                return {"status": "SUCCESS"}
+
+        task = build_full_download.apply_async(args=[revision])
+        redis_client.set(task_key, task.id, ex=3600)
+        return {"status": "PENDING"}
+
+
+@app.route("/full_download_status", methods=["GET", "POST"])
+def full_download_status():
+    response = jsonify(_full_download_state(retry_failed=request.method == "POST"))
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+if os.getenv("INIT_COVARIATES") == "True":
+    LOGGER.info("initializing covariates")
+    initialize_covariates(False)
+    _full_download_state(retry_failed=True)
 
 
 if __name__ == "__main__":

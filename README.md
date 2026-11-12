@@ -58,12 +58,12 @@ from the existing `pcld_data` volume) into
 restrict the credential file's permissions, and make the files readable by
 the containers.
 
-The “Entire PCLD as zipped CSV” link serves `pcld_dump.zip` from that same
-persistent data directory (`/srv/apps/pcld/data/pcld_dump.zip` by default).
-To refresh it after a database or export change, submit the query form with
-its default, unrestricted settings and use **Download full set** on the results
-page. Copy the completed ZIP into the data directory under a temporary name,
-then rename it to `pcld_dump.zip` so downloads see the complete archive.
+The web app checks the full download when it starts. If the ZIP is missing or
+its database or export format has changed, the worker builds a fresh one and
+the home page shows progress. The worker publishes the complete ZIP as
+`pcld_dump.zip` in the shared data directory (`/srv/apps/pcld/data/pcld_dump.zip`
+by default). Restart the app after replacing the live database to start the
+rebuild immediately. The download link also checks freshness when used.
 
 Each download includes `covariate_definitions.csv`. It has one row per
 study and `Covariate_` variable present in the exported observations or

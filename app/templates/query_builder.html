@@ -208,7 +208,15 @@
             ><br />Please submit completed templates to
             <pre>rich@springinnovate.org</pre>
           </li>
-          <li><a href="{{ url_for('download_entire_pcld') }}">Entire PCLD as zipped CSV</a></li>
+          <li>
+            <a id="fullDownloadLink" href="{{ url_for('download_entire_pcld') }}"
+              >Entire PCLD as zipped CSV</a
+            >
+            <div id="fullDownloadStatus" role="status"></div>
+            <button id="fullDownloadRetry" type="button" class="btn btn-link p-0" hidden>
+              Try again
+            </button>
+          </li>
         </ul>
       </div>
       <form id="queryForm" action="/api/process_query" method="post">
@@ -462,6 +470,66 @@
       </form>
     </div>
     <script>
+      document.addEventListener('DOMContentLoaded', function () {
+          const link = document.getElementById('fullDownloadLink');
+          const message = document.getElementById('fullDownloadStatus');
+          const retry = document.getElementById('fullDownloadRetry');
+          const downloadUrl = link.getAttribute('href');
+          const statusUrl = {{ url_for('full_download_status') | tojson }};
+          let retryMethod = 'GET';
+
+          link.removeAttribute('href');
+          link.setAttribute('aria-disabled', 'true');
+          message.textContent = 'Checking the full download…';
+
+          async function checkFullDownload(method = 'GET') {
+              try {
+                  const response = await fetch(statusUrl, {method, cache: 'no-store'});
+                  if (!response.ok) {
+                      throw new Error(`Full download status request returned ${response.status}`);
+                  }
+                  const progress = await response.json();
+                  switch (progress.status) {
+                      case 'SUCCESS':
+                          link.setAttribute('href', downloadUrl);
+                          link.removeAttribute('aria-disabled');
+                          message.textContent = '';
+                          return;
+                      case 'FAILURE':
+                          message.textContent = 'Could not prepare the full download ZIP.';
+                          retryMethod = 'POST';
+                          retry.hidden = false;
+                          return;
+                      case 'PENDING':
+                      case 'STARTED':
+                          message.textContent = 'Preparing the full download ZIP…';
+                          break;
+                      case 'PROGRESS': {
+                          const current = progress.current.toLocaleString();
+                          const total = progress.total.toLocaleString();
+                          message.textContent = `Preparing the full download ZIP… ${current} of ${total} samples processed.`;
+                          break;
+                      }
+                      default:
+                          throw new Error(`Unexpected full download status ${progress.status}`);
+                  }
+                  window.setTimeout(checkFullDownload, 3000);
+              } catch (error) {
+                  console.error(error);
+                  message.textContent = 'Could not check the full download status.';
+                  retryMethod = 'GET';
+                  retry.hidden = false;
+              }
+          }
+
+          retry.addEventListener('click', () => {
+              retry.hidden = true;
+              message.textContent = 'Checking the full download…';
+              checkFullDownload(retryMethod);
+          });
+          checkFullDownload();
+      });
+
       document.addEventListener('DOMContentLoaded', function () {
           var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
           var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {

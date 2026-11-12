@@ -4,6 +4,7 @@ Load only the endpoint functions, so tests never start Redis, Celery, GEE,
 or the configured database connection.
 """
 import ast
+from contextlib import nullcontext
 import csv
 import io
 import json
@@ -17,12 +18,14 @@ import zipfile
 
 import pandas as pd
 from sqlalchemy import create_engine, func, text
+from sqlalchemy.engine import URL
 from sqlalchemy.orm import selectinload, sessionmaker
 
 from database_model_definitions import (
     Base, CovariateDefn, CovariateValue, Point, Sample, Study,
     StudyCovariateDefinition,
 )
+from full_download import cached_zip_matches, download_revision
 
 
 class ObservationTextTest(unittest.TestCase):
@@ -59,7 +62,8 @@ class ObservationTextTest(unittest.TestCase):
         functions = []
         for node in module.body:
             if isinstance(node, ast.FunctionDef) and node.name in {
-                    'get_data', '_prep_download', 'write_covariate_definitions'}:
+                    'get_data', '_prep_download', '_write_download',
+                    'write_covariate_definitions', 'build_full_download', '_full_download_state'}:
                 node.decorator_list = []
                 functions.append(node)
         exec(compile(ast.Module(body=functions, type_ignores=[]), 'app.py', 'exec'), self.scope)
@@ -159,6 +163,63 @@ class ObservationTextTest(unittest.TestCase):
                         ['no-metadata', 'Covariate_unknown', '', ''],
                         ['text-observations', 'Covariate_cover', 'Tree cover, including hedges', '%'],
                     ])
+
+    def test_full_download_reuses_current_zip_and_rebuilds_after_an_edit(self):
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        directory = Path(temp.name)
+        database = directory / 'pcld.db'
+        engine = create_engine(URL.create('sqlite', database=str(database)))
+        self.addCleanup(engine.dispose)
+        with self.engine.connect() as source, engine.connect() as destination:
+            source.connection.driver_connection.backup(destination.connection.driver_connection)
+        sessions = sessionmaker(bind=engine)
+
+        archive_path = directory / 'pcld_dump.zip'
+        queued_revisions = []
+        redis = {}
+        metadata = {'status': 'PENDING', 'result': None}
+        task = SimpleNamespace(id='full-download-test')
+        task.backend = SimpleNamespace(get_task_meta=lambda task_id: metadata)
+        task.update_state = lambda state, meta: metadata.update(status=state, result=meta)
+
+        def enqueue(args):
+            queued_revisions.append(args[0])
+            metadata.update(status='PENDING', result=None)
+            return task
+
+        build = self.scope['build_full_download']
+        build.apply_async = enqueue
+        build.AsyncResult = lambda task_id: task
+        self.scope.update(
+            SessionLocal=sessions, engine=engine, INSTANCE_DIR=directory,
+            FULL_DOWNLOAD_PATH=archive_path, tempfile=tempfile,
+            cached_zip_matches=cached_zip_matches, download_revision=download_revision,
+            redis_client=SimpleNamespace(get=redis.get, lock=lambda *args, **kwargs: nullcontext(),
+                                        set=lambda key, value, **kwargs: redis.__setitem__(
+                                            key, value.encode('ascii'))),
+        )
+        state = self.scope['_full_download_state']
+
+        for expected in (self.values, ['99', *self.values[1:]]):
+            self.assertEqual(state()['status'], 'PENDING')
+            self.assertEqual(state()['status'], 'PENDING')
+            self.assertEqual(len(queued_revisions), 1)
+            build(task, queued_revisions.pop())
+            self.assertEqual(state()['status'], 'SUCCESS')
+            self.assertEqual(queued_revisions, [])
+            with zipfile.ZipFile(archive_path) as archive:
+                self.assertEqual(set(archive.namelist()), {
+                    'sample_data_pcld.csv', 'study_data_pcld.csv', 'covariate_definitions.csv',
+                })
+                with archive.open('sample_data_pcld.csv') as samples:
+                    rows = csv.DictReader(io.TextIOWrapper(samples, encoding='utf-8'))
+                    self.assertCountEqual([row['observation'] for row in rows], expected)
+            if expected == self.values:
+                with sessions() as session:
+                    sample = session.query(Sample).order_by(Sample.id_key).first()
+                    sample.observation = '99'
+                    session.commit()
 
 
 if __name__ == '__main__':
