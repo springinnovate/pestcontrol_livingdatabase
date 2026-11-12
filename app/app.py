@@ -307,6 +307,16 @@ def initialize_searchable_covariates():
     return jsonify(success=True)
 
 
+def sort_searchable_covariates():
+    choices = COVARIATE_STATE["searchable_covariates"]
+    COVARIATE_STATE["searchable_covariates"] = {
+        name: sorted(values, key=lambda value: (value.casefold(), value))
+        for name, values in sorted(
+            choices.items(), key=lambda item: (item[0].casefold(), item[0])
+        )
+    }
+
+
 def initialize_covariates(clear_cache):
     global COVARIATE_STATE
     os.makedirs(INSTANCE_DIR, exist_ok=True)
@@ -320,6 +330,7 @@ def initialize_covariates(clear_cache):
             with open(pkcl_filepath, "rb") as file:
                 COVARIATE_STATE = pickle.load(file)
             if COVARIATE_STATE.get("cache_version") == COVARIATE_CACHE_VERSION:
+                sort_searchable_covariates()
                 LOGGER.info(f"loaded covariate state from {pkcl_filepath}")
                 return
             LOGGER.info("rebuilding legacy covariate cache")
@@ -381,10 +392,7 @@ def initialize_covariates(clear_cache):
 
     LOGGER.info("sort all the values")
 
-    for key in COVARIATE_STATE["searchable_covariates"]:
-        COVARIATE_STATE["searchable_covariates"][key] = sorted(
-            COVARIATE_STATE["searchable_covariates"][key]
-        )
+    sort_searchable_covariates()
 
     with open(pkcl_filepath, "wb") as file:
         pickle.dump(COVARIATE_STATE, file)

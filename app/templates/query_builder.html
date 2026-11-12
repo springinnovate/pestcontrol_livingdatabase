@@ -254,14 +254,14 @@
               <div id="queryRows">
                 <div class="queryRow">
                   <label for="covariateSelect"
-                    >Choose a covariate variable:</label
+                    >Choose a variable</label
                   >
                   <select
                     name="covariate"
                     class="covariateSelect"
                     onchange="updateValueOptions(this)"
                   >
-                    <option value="" selected>Select covariate</option>
+                    <option value="" selected>Select a variable</option>
                     {% for covariate in unique_covariate_values %}
                     <option value="{{ covariate }}">{{ covariate }}</option>
                     {% endfor %}

@@ -62,7 +62,8 @@ class CovariateSearchTest(unittest.TestCase):
             'LOGGER': logging.getLogger(__name__),
         }
         source = ast.parse((APP_DIR / 'app.py').read_text(encoding='utf-8'))
-        names = {'initialize_covariates', 'form_to_dict', 'build_filter', 'extract_years'}
+        names = {'initialize_covariates', 'sort_searchable_covariates',
+                 'form_to_dict', 'build_filter', 'extract_years'}
         functions = [node for node in source.body
                      if isinstance(node, ast.FunctionDef) and node.name in names]
         self.assertEqual({node.name for node in functions}, names)
@@ -186,6 +187,29 @@ class CovariateSearchTest(unittest.TestCase):
             self.assertEqual(values['Literal_type_name'], ['STRING'])
             self.assertTrue(all(isinstance(options, list) for options in values.values()))
 
+    def test_mixed_case_choices_are_alphabetical_from_database_and_existing_cache(self):
+        with self.session_factory() as session:
+            session.query(CovariateDefn).filter_by(name='Taxon').one().name = 'taxon'
+            session.add(CovariateValue(covariate_defn_id=1, sample_id=14, value='Zebra'))
+            session.add(CovariateValue(covariate_defn_id=1, sample_id=14, value='Aphid'))
+            session.commit()
+        choices = self.initialize()['searchable_covariates']
+        expected_values = ['Aphid', 'aphid', 'beetle', 'Zebra']
+        self.assertEqual(choices['taxon'], expected_values)
+        self.assertLess(list(choices).index('taxon'), list(choices).index('Temperature'))
+
+        # A previously valid cache may still have case-sensitive ordering.
+        with self.cache_path.open('rb') as stream:
+            cached = pickle.load(stream)
+        cached['searchable_covariates'] = dict(sorted(choices.items()))
+        cached['searchable_covariates']['taxon'] = sorted(expected_values)
+        with self.cache_path.open('wb') as stream:
+            pickle.dump(cached, stream)
+        self.scope['SessionLocal'] = lambda: self.fail('Cached choices should not query the database')
+        reloaded = self.initialize()['searchable_covariates']
+        self.assertEqual(list(reloaded), list(choices))
+        self.assertEqual(reloaded['taxon'], expected_values)
+
     def test_legacy_type_marker_and_character_caches_are_rebuilt(self):
         for legacy_value in ['STRING', ['G', 'I', 'N', 'R', 'S', 'T']]:
             with self.subTest(legacy_value=legacy_value):
@@ -215,6 +239,8 @@ class CovariateSearchTest(unittest.TestCase):
         self.assertNotIn('</script>', payload.lower())
         self.assertEqual(json.loads(payload), state['searchable_covariates'])
         self.assertEqual(json.loads(payload)[SPECIAL_FIELD], [SPECIAL_VALUE])
+        self.assertIn('Choose a variable</label', rendered)
+        self.assertIn('Select a variable</option>', rendered)
 
     def test_selected_values_survive_form_submission_and_filter_actual_rows(self):
         options = self.initialize()['searchable_covariates']
